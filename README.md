@@ -40,7 +40,10 @@ Late gets the most out of local models (like Qwen3-Coder-Next) by keeping things
 
 ## Requirements
 
-Late requires an OpenAI compatible instance. Set the `OPENAI_BASE_URL` environment variable to the base URL of your OpenAI compatible instance. For example:
+- **Go 1.23+** (Only if building from source)
+- An OpenAI-compatible API endpoint
+
+Set the `OPENAI_BASE_URL` environment variable to the base URL of your API endpoint. For example:
 
 ```bash
 export OPENAI_BASE_URL="http://localhost:8080"
@@ -55,13 +58,14 @@ export OPENAI_BASE_URL="http://localhost:8080"
 
 ## Installation
 
+### Method 1: Precompiled Binary (Recommended)
+Download the latest executable for your OS (Linux, macOS) from the [Releases](https://github.com/mlhher/late/releases) page. No dependencies required.
+
+### Method 2: Build from Source
 ```bash
-# Clone and Build
 git clone https://github.com/mlhher/late
 cd late
 make build
-
-# Install
 make install
 ```
 
