@@ -150,7 +150,7 @@ func (c *Client) Close() error {
 }
 
 // NewStdioTransport creates a new transport that communicates with a subprocess.
-func NewStdioTransport(command string, args []string, env []string) (mcp.Transport, error) {
+func NewStdioTransport(ctx context.Context, command string, args []string, env []string) (mcp.Transport, error) {
 	cmd := exec.Command(command, args...)
 	cmd.Env = append(os.Environ(), env...)
 
@@ -178,9 +178,11 @@ func NewStdioTransport(command string, args []string, env []string) (mcp.Transpo
 		io.Copy(io.Discard, stderr)
 	}()
 
-	// Ensure process is killed when context is cancelled or transport closed?
-	// For now, relies on stdin closing to terminate the process.
-	// TODO: Handle process cleanup properly.
+	// Kill the subprocess when the context is cancelled.
+	go func() {
+		<-ctx.Done()
+		cmd.Process.Kill()
+	}()
 
 	return &mcp.IOTransport{
 		Reader: stdout,
@@ -199,7 +201,7 @@ func (c *Client) ConnectFromConfig(ctx context.Context, config *MCPConfig) error
 		ExpandServerEnvVars(&server)
 
 		// Create transport for this server
-		transport, err := NewStdioTransport(server.Command, server.Args, nil)
+		transport, err := NewStdioTransport(ctx, server.Command, server.Args, nil)
 		if err != nil {
 			return fmt.Errorf("failed to create transport for server %s: %w", name, err)
 		}

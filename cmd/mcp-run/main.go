@@ -42,7 +42,8 @@ func main() {
 	}
 
 	// Create transport
-	transport, err := mcp.NewStdioTransport(cmd, args, env)
+	ctx := context.Background()
+	transport, err := mcp.NewStdioTransport(ctx, cmd, args, env)
 	if err != nil {
 		fmt.Printf("Error creating transport: %v\n", err)
 		os.Exit(1)
@@ -53,7 +54,6 @@ func main() {
 	defer client.Close()
 
 	fmt.Println("Connecting to server...")
-	ctx := context.Background()
 	if err := client.Connect(ctx, transport); err != nil {
 		fmt.Printf("Error connecting to server: %v\n", err)
 		os.Exit(1)
