@@ -10,7 +10,6 @@ import (
 	"late/internal/orchestrator"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"late/internal/assets"
@@ -35,7 +34,6 @@ func main() {
 	injectCWDReq := flag.Bool("inject-cwd", true, "Replace ${{CWD}} in system prompt with current working directory")
 	enableSubagentsReq := flag.Bool("enable-subagents", true, "Enable subagent usage")
 	enableAskToolReq := flag.Bool("enable-ask-tool", false, "Enable ask tool for user input")
-	enableNewSessionReq := flag.Bool("new-session", false, "Delete prior session history and start with a clean chat window")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of late:\n")
@@ -118,34 +116,7 @@ func main() {
 		historyPath = loadedHistoryPath
 	}
 
-	// Delete prior session history if --new-session is set
-	if *enableNewSessionReq {
-		// Delete all session files
-		entries, err := os.ReadDir(sessionsDir)
-		if err != nil && !os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to list sessions dir: %v\n", err)
-		}
-		for _, entry := range entries {
-			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
-				if err := os.Remove(filepath.Join(sessionsDir, entry.Name())); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: Failed to delete %s: %v\n", entry.Name(), err)
-				}
-			}
-		}
-		// Also delete metadata files
-		entries, err = os.ReadDir(sessionsDir)
-		if err != nil && !os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to list sessions dir: %v\n", err)
-		}
-		for _, entry := range entries {
-			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".meta.json") {
-				if err := os.Remove(filepath.Join(sessionsDir, entry.Name())); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: Failed to delete %s: %v\n", entry.Name(), err)
-				}
-			}
-		}
-		fmt.Fprintf(os.Stderr, "Deleted all session history\n")
-	}
+	
 
 	// Load existing history
 	history, err := session.LoadHistory(historyPath)
@@ -385,18 +356,7 @@ func handleSessionDelete(id string) {
 	fmt.Printf("Deleted session: %s\n", meta.Title)
 }
 
-// printUsage displays the complete usage information
-func printUsage() {
-	fmt.Fprintf(os.Stderr, "Usage of late:\n")
-	fmt.Fprintf(os.Stderr, "  late [flags]\n")
-	fmt.Fprintf(os.Stderr, "  late session <command> [args]\n\n")
-	fmt.Fprintf(os.Stderr, "Commands:\n")
-	fmt.Fprintf(os.Stderr, "  session list     List all saved sessions\n")
-	fmt.Fprintf(os.Stderr, "  session load <id>  Load a session by ID\n")
-	fmt.Fprintf(os.Stderr, "  session delete <id>  Delete a session by ID\n\n")
-	fmt.Fprintf(os.Stderr, "Flags:\n")
-	flag.PrintDefaults()
-}
+
 
 // ForwardOrchestratorEvents is a helper that recursively forwards all events from an orchestrator
 // to the Bubble Tea program.
