@@ -116,8 +116,6 @@ func main() {
 		historyPath = loadedHistoryPath
 	}
 
-	
-
 	// Load existing history
 	history, err := session.LoadHistory(historyPath)
 	if err != nil {
@@ -175,9 +173,11 @@ func main() {
 
 	// Register MCP tools into the session registry
 	for _, t := range mcpClient.GetTools() {
-		if enabledTools[t.Name()] {
-			sess.Registry.Register(t)
+		// MCP tools are enabled by default unless explicitly set to false in config.json
+		if enabled, exists := enabledTools[t.Name()]; exists && !enabled {
+			continue
 		}
+		sess.Registry.Register(t)
 	}
 
 	// Initialize common renderer
@@ -355,8 +355,6 @@ func handleSessionDelete(id string) {
 
 	fmt.Printf("Deleted session: %s\n", meta.Title)
 }
-
-
 
 // ForwardOrchestratorEvents is a helper that recursively forwards all events from an orchestrator
 // to the Bubble Tea program.
