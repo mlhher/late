@@ -18,5 +18,7 @@ func IsSafePath(path string) bool {
 		return false
 	}
 
-	return strings.HasPrefix(absPath, cwd)
+	// Normalize both paths to prevent symlink traversal
+	absCwd, _ := filepath.Abs(cwd)
+	return strings.HasPrefix(absPath, absCwd)
 }

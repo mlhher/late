@@ -1,16 +1,12 @@
 package tool
 
 import (
-	"bytes"
 	"context"
 	"encoding/json" // used for hash generation
 	"fmt"
-	"io"
 	"late/internal/common"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -446,259 +442,145 @@ func (t MkdirTool) CallString(args json.RawMessage) string {
 	return fmt.Sprintf("Creating directory %s", truncate(path, 50))
 }
 
-// GrepTool searches for a pattern in files within a directory.
-type GrepTool struct{}
-
-func NewGrepTool() *GrepTool {
-	return &GrepTool{}
+// Allowed commands whitelist for BashTool
+var allowedCommands = map[string]bool{
+	"grep":   true,
+	"find":   true,
+	"ls":     true,
+	"cat":    true,
+	"head":   true,
+	"tail":   true,
+	"echo":   true,
+	"pwd":    true,
+	"date":   true,
+	"whoami": true,
+	"mkdir":  true,
+	"touch":  true,
+	"seq":    true,
 }
 
-func (t GrepTool) Name() string        { return "grep_search" }
-func (t GrepTool) Description() string { return "Search for a pattern in files within a directory" }
-func (t GrepTool) Parameters() json.RawMessage {
-	return json.RawMessage(`{
-		"type": "object",
-		"properties": {
-			"query": { "type": "string", "description": "The pattern to search for" },
-			"path": { "type": "string", "description": "The directory path to search within" },
-			"case_sensitive": { "type": "boolean", "description": "Whether the search should be case-sensitive (default: false)" },
-			"is_regex": { "type": "boolean", "description": "Whether the query is a regular expression (default: false)" }
-		},
-		"required": ["query", "path"]
-	}`)
-}
+// Maximum number of output lines to prevent memory exhaustion
+const maxBashOutputLines = 1024
 
-const maxGrepResults = 10
-
-type grepMatch struct {
-	relPath    string
-	line       int
-	content    string
-	matchCount int
-	topDir     string // first path segment for diversity
-}
-
-func (t GrepTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
-	var params struct {
-		Query         string `json:"query"`
-		Path          string `json:"path"`
-		CaseSensitive bool   `json:"case_sensitive"`
-		IsRegex       bool   `json:"is_regex"`
-	}
-	if err := json.Unmarshal(args, &params); err != nil {
-		return "", err
-	}
-
-	// Prepare regex if needed
-	var regex *regexp.Regexp
-	var err error
-	if params.IsRegex {
-		pattern := params.Query
-		if !params.CaseSensitive {
-			pattern = "(?i)" + pattern
-		}
-		regex, err = regexp.Compile(pattern)
-		if err != nil {
-			return "", fmt.Errorf("invalid regular expression: %v", err)
-		}
-	} else {
-		// Non-regex: prepare for strings.Contains
-		if !params.CaseSensitive {
-			params.Query = strings.ToLower(params.Query)
-		}
-	}
-
-	// Collect all matches grouped by top-level directory
-	buckets := make(map[string][]grepMatch)
-	totalMatches := 0
-
-	filepath.WalkDir(params.Path, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if d.Name() == ".git" || d.Name() == "node_modules" || d.Name() == "vendor" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		// Check for binary file
-		f, err := os.Open(path)
-		if err != nil {
-			return nil
-		}
-		defer f.Close()
-
-		// Read first 512 bytes to check for binary content
-		buf := make([]byte, 512)
-		n, err := f.Read(buf)
-		if err != nil && err != io.EOF {
-			return nil
-		}
-
-		// excessive null bytes is a good indicator of binary files
-		if bytes.IndexByte(buf[:n], 0) != -1 {
-			return nil
-		}
-
-		// Reset file pointer to read full content or just read again
-		// Since we're reading small files, just read the whole thing now
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-
-		text := string(content)
-
-		matched := false
-		if params.IsRegex {
-			matched = regex.MatchString(text)
-		} else {
-			checkText := text
-			if !params.CaseSensitive {
-				checkText = strings.ToLower(text)
-			}
-			matched = strings.Contains(checkText, params.Query)
-		}
-
-		if matched {
-			lines := strings.Split(text, "\n")
-			matchCount := 0
-			var firstLine int
-			var firstContent string
-
-			for i, line := range lines {
-				lineMatched := false
-				if params.IsRegex {
-					lineMatched = regex.MatchString(line)
-				} else {
-					checkLine := line
-					if !params.CaseSensitive {
-						checkLine = strings.ToLower(line)
-					}
-					lineMatched = strings.Contains(checkLine, params.Query)
-				}
-
-				if lineMatched {
-					matchCount++
-					if matchCount == 1 {
-						firstLine = i + 1
-						firstContent = strings.TrimSpace(line)
-					}
-				}
-			}
-
-			if matchCount > 0 {
-				relPath, _ := filepath.Rel(params.Path, path)
-				if relPath == "" {
-					relPath = path
-				}
-
-				// Get top-level directory for bucketing
-				topDir := "."
-				if parts := strings.SplitN(relPath, string(filepath.Separator), 2); len(parts) > 1 {
-					topDir = parts[0]
-				}
-
-				buckets[topDir] = append(buckets[topDir], grepMatch{
-					relPath:    relPath,
-					line:       firstLine,
-					content:    firstContent,
-					matchCount: matchCount,
-					topDir:     topDir,
-				})
-				totalMatches++
-			}
-		}
-		return nil
-	})
-
-	if totalMatches == 0 {
-		return "No matches found.", nil
-	}
-
-	// Round-robin select from buckets for diversity
-	var selected []grepMatch
-	for len(selected) < maxGrepResults && len(selected) < totalMatches {
-		for dir := range buckets {
-			if len(buckets[dir]) > 0 && len(selected) < maxGrepResults {
-				selected = append(selected, buckets[dir][0])
-				buckets[dir] = buckets[dir][1:]
-			}
-		}
-	}
-
-	// Format output
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Matches for '%s' in %s:\n", params.Query, params.Path))
-	for _, m := range selected {
-		sb.WriteString(fmt.Sprintf("%s:%d: %s\n", m.relPath, m.line, m.content))
-		if m.matchCount > 1 {
-			sb.WriteString(fmt.Sprintf("... (%d matches in %s)\n", m.matchCount, filepath.Base(m.relPath)))
-		}
-	}
-
-	if totalMatches > maxGrepResults {
-		sb.WriteString(fmt.Sprintf("\n... (showing %d of %d matching files)\n", len(selected), totalMatches))
-	}
-
-	return sb.String(), nil
-}
-func (t GrepTool) RequiresConfirmation(args json.RawMessage) bool { return false }
-
-func (t GrepTool) CallString(args json.RawMessage) string {
-	query := getToolParam(args, "query")
-	path := getToolParam(args, "path")
-	if cwd, err := os.Getwd(); err == nil {
-		path = strings.Replace(path, cwd, ".", 1)
-	}
-	return fmt.Sprintf("Searching for '%s' in %s", truncate(query, 30), truncate(path, 50))
-}
-
-// BashTool executes a bash command.
+// BashTool executes a bash command with security restrictions.
 type BashTool struct{}
 
 func (t BashTool) Name() string        { return "bash" }
-func (t BashTool) Description() string { return "Execute a bash command. Use cautiously." }
+func (t BashTool) Description() string { return "Execute a safe command with whitelist protection." }
 func (t BashTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"command": { "type": "string", "description": "The bash command to execute" }
+			"command": { "type": "string", "description": "The base command name only (e.g. 'grep', 'find', 'ls'). Do NOT include arguments here, use the 'args' parameter instead." },
+			"args": { "type": "array", "items": { "type": "string" }, "description": "Arguments to pass to the command (optional)" },
+			"cwd": { "type": "string", "description": "Working directory for execution, must be within CWD (optional)" }
 		},
 		"required": ["command"]
 	}`)
 }
 func (t BashTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
-		Command string `json:"command"`
+		Command string   `json:"command"`
+		Args    []string `json:"args"`
+		Cwd     string   `json:"cwd"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return "", err
 	}
 
-	cmd := exec.CommandContext(ctx, "bash", "-c", params.Command)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Sprintf("Error executing command: %v\nOutput:\n%s", err, string(out)), nil
+	// Fallback: if command contains spaces, the agent likely put the full command
+	// string in the command field. Split it: first token = command, rest = args.
+	if strings.Contains(params.Command, " ") {
+		parts := strings.Fields(params.Command)
+		params.Command = parts[0]
+		params.Args = append(parts[1:], params.Args...)
 	}
-	return string(out), nil
+
+	// Validate that the command is in the whitelist
+	if !allowedCommands[params.Command] {
+		return "", fmt.Errorf("command '%s' is not in the allowed whitelist", params.Command)
+	}
+
+	// Validate and set working directory
+	if params.Cwd != "" {
+		if !IsSafePath(params.Cwd) {
+			return "", fmt.Errorf("cwd '%s' is outside the allowed directory", params.Cwd)
+		}
+	} else {
+		// Default to current directory
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("failed to get current working directory: %w", err)
+		}
+		params.Cwd = cwd
+	}
+
+	// Validate arguments to prevent command injection
+	for _, arg := range params.Args {
+		if strings.Contains(arg, "..") || strings.Contains(arg, ";") ||
+			strings.Contains(arg, "|") || strings.Contains(arg, "&") {
+			return "", fmt.Errorf("argument '%s' contains dangerous characters", arg)
+		}
+		if strings.HasPrefix(arg, "/") && !IsSafePath(arg) {
+			return "", fmt.Errorf("argument path '%s' is outside the allowed directory", arg)
+		}
+	}
+
+	// Execute the command using exec.CommandContext with args
+	cmd := exec.CommandContext(ctx, params.Command, params.Args...)
+	cmd.Dir = params.Cwd
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return fmt.Sprintf("Command failed with exit code %d\n%s", exitErr.ExitCode(), string(output)), nil
+		}
+		return fmt.Sprintf("Error executing command: %v\n%s", err, string(output)), nil
+	}
+
+	// Limit output to prevent memory exhaustion
+	lines := strings.Split(string(output), "\n")
+	if len(lines) > maxBashOutputLines {
+		lines = lines[:maxBashOutputLines]
+		lines = append(lines, "... (output truncated)")
+	}
+
+	return strings.Join(lines, "\n"), nil
 }
-func (t BashTool) RequiresConfirmation(args json.RawMessage) bool { return true }
+func (t BashTool) RequiresConfirmation(args json.RawMessage) bool {
+	var params struct {
+		Command string `json:"command"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return true // Default to requiring confirmation if we can't parse
+	}
+	// If agent put full command string, extract base command
+	cmd := params.Command
+	if i := strings.IndexByte(cmd, ' '); i >= 0 {
+		cmd = cmd[:i]
+	}
+	return !allowedCommands[cmd]
+}
 
 func (t BashTool) CallString(args json.RawMessage) string {
-	cmd := getToolParam(args, "command")
-	// Handle multi-line by taking first line only
-	if lines := strings.Split(cmd, "\n"); len(lines) > 0 {
-		cmd = lines[0]
+	var params struct {
+		Command string   `json:"command"`
+		Args    []string `json:"args"`
+		Cwd     string   `json:"cwd"`
 	}
-	// Truncate to 40 chars
-	truncated := cmd
-	if len(cmd) > 37 {
-		truncated = cmd[:37] + "..."
+	if err := json.Unmarshal(args, &params); err != nil {
+		return "Executing: (invalid args)"
 	}
-	return fmt.Sprintf("Executing command: %s", truncated)
+
+	// Build the display string
+	result := fmt.Sprintf("Executing: %s", params.Command)
+	if len(params.Args) > 0 {
+		result += " " + strings.Join(params.Args, " ")
+	}
+	if params.Cwd != "" {
+		result += " in dir: " + params.Cwd
+	}
+	return result
 }
 
 // AskTool asks the user a question.
