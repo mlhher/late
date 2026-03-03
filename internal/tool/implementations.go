@@ -184,14 +184,16 @@ const maxBashOutputLines = 1024
 // BashTool executes a bash command with security restrictions.
 type BashTool struct{}
 
-func (t BashTool) Name() string        { return "bash" }
-func (t BashTool) Description() string { return "Execute a safe command with whitelist protection." }
+func (t BashTool) Name() string { return "bash" }
+func (t BashTool) Description() string {
+	return "Execute a bash command. You MUST provide the 'command' (the specific command name) seperated from the 'args' (i.e. {command: 'ls', args: '-la'} instead of {command: 'ls -la'}). If the tool call contains arguments inside the 'command' it will be rejected."
+}
 func (t BashTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"command": { "type": "string", "description": "The base command name only (e.g. 'grep', 'find', 'ls'). Do NOT include arguments here, use the 'args' parameter instead." },
-			"args": { "type": "array", "items": { "type": "string" }, "description": "Arguments to pass to the command (optional)" },
+			"command": { "type": "string", "description": "The actual shell command you want to call without arguments (e.g. 'ls' instead of 'ls -la')." },
+			"args": { "type": "array", "items": { "type": "string" }, "description": "Arguments to pass to the command (optional, e.g. if command is 'ls' args could be '-la')" },
 			"cwd": { "type": "string", "description": "Working directory for execution, must be within CWD (optional)" }
 		},
 		"required": ["command"]
