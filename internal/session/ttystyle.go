@@ -40,6 +40,7 @@ func truncateUTF8(s string, maxLen int) string {
 }
 
 // FormatSessionDisplay formats a session for display with appropriate styling
+// TODO: simplify
 func FormatSessionDisplay(meta SessionMeta) string {
 	var lines []string
 	lines = append(lines, colorID(fmt.Sprintf("ID: %s", strings.TrimSuffix(meta.ID, ".json"))))

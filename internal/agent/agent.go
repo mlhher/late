@@ -106,8 +106,6 @@ func NewSubagentOrchestrator(
 	return child, nil
 }
 
-// AskUser is used by tools that need to prompt the user for input.
-// It uses the delegate's Confirm method with a formatted prompt.
 func FormatToolConfirmPrompt(tc client.ToolCall) string {
 	var jsonObj map[string]interface{}
 	args := tc.Function.Arguments

@@ -74,15 +74,15 @@ func TestStreamAccumulator_AppendMultipleToolCalls(t *testing.T) {
 	})
 	acc.Append(common.StreamResult{
 		ToolCalls: []client.ToolCall{
-			{Index: 1, ID: "call_2", Function: client.FunctionCall{Name: "list_dir", Arguments: `{"path": "."}`}},
+			{Index: 1, ID: "call_2", Function: client.FunctionCall{Name: "write_file", Arguments: `{"path": "."}`}},
 		},
 	})
 
 	if len(acc.ToolCalls) != 2 {
 		t.Fatalf("expected 2 tool calls, got %d", len(acc.ToolCalls))
 	}
-	if acc.ToolCalls[1].Function.Name != "list_dir" {
-		t.Errorf("expected 'list_dir', got '%s'", acc.ToolCalls[1].Function.Name)
+	if acc.ToolCalls[1].Function.Name != "write_file" {
+		t.Errorf("expected 'write_file', got '%s'", acc.ToolCalls[1].Function.Name)
 	}
 }
 
@@ -235,16 +235,12 @@ func TestRegisterStandardTools(t *testing.T) {
 	enabledTools := map[string]bool{
 		"read_file":   true,
 		"write_file":  true,
-		"list_dir":    true,
-		"mkdir":       true,
-		"grep_search": true,
 		"target_edit": true,
 		"bash":        false,
-		"ask":         false,
 	}
 	RegisterStandardTools(sess.Registry, enabledTools)
 
-	expected := []string{"read_file", "write_file", "list_dir", "grep_search", "target_edit"}
+	expected := []string{"read_file", "write_file", "target_edit"}
 	for _, name := range expected {
 		if sess.Registry.Get(name) == nil {
 			t.Errorf("expected tool '%s' to be registered", name)
@@ -254,11 +250,6 @@ func TestRegisterStandardTools(t *testing.T) {
 	// Bash should NOT be registered when enableBash is false
 	if sess.Registry.Get("bash") != nil {
 		t.Error("bash should not be registered when enableBash is false")
-	}
-
-	// Ask should NOT be registered when enableAsk is false
-	if sess.Registry.Get("ask") != nil {
-		t.Error("ask should not be registered when enableAsk is false")
 	}
 }
 
@@ -270,7 +261,6 @@ func TestRegisterStandardTools_WithBash(t *testing.T) {
 
 	enabledTools := map[string]bool{
 		"bash": true,
-		"ask":  false,
 	}
 	RegisterStandardTools(sess.Registry, enabledTools)
 

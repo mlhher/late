@@ -2,7 +2,6 @@ package tui
 
 import (
 	"late/internal/common"
-	"log"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -20,7 +19,6 @@ const (
 	StateStreaming
 	StateConfirmTool
 	StateConfirmSubagent
-	StateAsk
 )
 
 type ViewState int
@@ -39,14 +37,10 @@ const (
 	AppPadding      = 0
 )
 
-// Debug logger
-var debugLog *log.Logger
-
 // AppState tracks the interactive state of a single orchestrator.
 type AppState struct {
 	State           ValidationState
 	StreamingState  common.ContentEvent
-	PendingPrompt   *PromptRequestMsg
 	PendingConfirm  *ConfirmRequestMsg
 	StatusText      string
 	RenderedHistory []string // Cache for rendered messages
@@ -105,12 +99,4 @@ type SetMessengerMsg struct {
 // OrchestratorEventMsg is the bridge between Orchestrator goroutines and the TUI loop.
 type OrchestratorEventMsg struct {
 	Event common.Event
-}
-
-// AskConfirmMsg is sent to the TUI to request user input (e.g. from the ask tool).
-type AskConfirmMsg struct {
-	Prompt   string
-	Options  []string
-	ResultCh chan string
-	ErrCh    chan error
 }

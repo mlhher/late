@@ -26,17 +26,11 @@ func LoadConfig() (*Config, error) {
 			// Pre-populate with a default config that enables everything
 			defaultConfig := Config{
 				EnabledTools: map[string]bool{
-					"get_weather":    true,
 					"read_file":      true,
-					"update_file":    true,
 					"write_file":     true,
-					"list_dir":       true,
-					"mkdir":          true,
-					"grep_search":    true,
-					"bash":           true,
-					"ask":            true,
-					"spawn_subagent": true,
 					"target_edit":    true,
+					"spawn_subagent": true,
+					"bash":           true,
 				},
 			}
 			defaultData, _ := json.MarshalIndent(defaultConfig, "", "  ")

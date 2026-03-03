@@ -15,7 +15,6 @@ import (
 
 // Client manages MCP connections and tools.
 type Client struct {
-	client   *mcp.Client
 	sessions map[string]*mcp.ClientSession
 	tools    map[string]*ToolAdapter
 }
@@ -136,7 +135,11 @@ func (c *Client) GetTools() []tool.Tool {
 
 // GetTool returns a specific MCP tool by name.
 func (c *Client) GetTool(name string) tool.Tool {
-	return c.tools[name]
+	t, ok := c.tools[name]
+	if !ok {
+		return nil
+	}
+	return t
 }
 
 // Close closes all MCP connections.
