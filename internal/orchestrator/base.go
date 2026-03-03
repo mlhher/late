@@ -62,10 +62,6 @@ func (o *BaseOrchestrator) Submit(text string) error {
 }
 
 func (o *BaseOrchestrator) Execute(text string) (string, error) {
-	o.mu.RLock()
-	ctx := o.ctx
-	o.mu.RUnlock()
-
 	ctx, cancel := context.WithCancel(o.ctx)
 
 	o.mu.Lock()
@@ -141,13 +137,6 @@ func (o *BaseOrchestrator) run() {
 		"id_slot":      1,
 		"cache_prompt": false,
 	}
-
-	// For now, use context.Background() or pass it in?
-	// The TUI usually manages the overall app context.
-	// For simplicity, we'll assume a background context for now.
-	o.mu.RLock()
-	ctx := o.ctx
-	o.mu.RUnlock()
 
 	ctx, cancel := context.WithCancel(o.ctx)
 

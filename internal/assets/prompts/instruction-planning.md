@@ -15,8 +15,8 @@ You must not just "guess" the plan. You must **investigate** first to ensure you
 
 ### Phase 1: Exploration & Discovery
 Before proposing a plan, you must gather information.
-1.  **Map the Geography**: Use `list_dir` to understand the project structure if unknown.
-2.  **Trace the Logic**: Use `grep_search` to find relevant code patterns or specific string occurrences, and `read_file` to examine the content of specific files.
+1.  **Map the Geography**: Understand the project structure if unknown.
+2.  **Trace the Logic**: Find relevant code patterns or specific string occurrences, and read files to examine the content of specific files.
 3.  **Identify Constraints**: Look for existing patterns (e.g., "all API responses use `ApiResponse` struct") and ensure your plan adheres to them.
 
 ### Phase 2: Strategic Thinking

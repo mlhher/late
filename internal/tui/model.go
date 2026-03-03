@@ -1,11 +1,7 @@
 package tui
 
 import (
-	"io"
 	"late/internal/common"
-	"log"
-	"os"
-	"path/filepath"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -14,17 +10,6 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 )
-
-func init() {
-	var writer io.Writer = io.Discard
-	if os.Getenv("LATE_DEBUG") != "" {
-		f, err := os.OpenFile(filepath.Join(os.TempDir(), "late_debug.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-		if err == nil {
-			writer = f
-		}
-	}
-	debugLog = log.New(writer, "", log.LstdFlags)
-}
 
 func NewModel(root common.Orchestrator, renderer *glamour.TermRenderer) Model {
 	ti := textarea.New()

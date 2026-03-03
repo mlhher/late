@@ -100,20 +100,8 @@ func RegisterStandardTools(reg *tool.Registry, enabledTools map[string]bool) {
 	if enabledTools["write_file"] {
 		reg.Register(tool.WriteFileTool{})
 	}
-	if enabledTools["list_dir"] {
-		reg.Register(tool.ListDirTool{})
-	}
-	if enabledTools["mkdir"] {
-		reg.Register(tool.MkdirTool{})
-	}
-	if enabledTools["grep_search"] {
-		reg.Register(tool.NewGrepTool())
-	}
 	if enabledTools["targetEdit"] || enabledTools["target_edit"] {
 		reg.Register(tool.NewTargetEditTool())
-	}
-	if enabledTools["ask"] {
-		reg.Register(tool.AskTool{})
 	}
 	if enabledTools["bash"] {
 		reg.Register(tool.BashTool{})

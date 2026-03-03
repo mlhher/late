@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"encoding/json"
 	"fmt"
 	"late/internal/common"
 	"strings"
@@ -118,42 +117,6 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 				return m, nil
 			}
 
-			if focusedState.State == StateAsk && focusedState.PendingPrompt != nil {
-				// Check for numeric choice if options exist
-				var schema struct {
-					Enum []string `json:"enum"`
-				}
-				if err := json.Unmarshal(focusedState.PendingPrompt.Request.Schema, &schema); err == nil && len(schema.Enum) > 0 {
-					val := msg.String()
-					if len(val) == 1 && val[0] >= '1' && val[0] <= '9' {
-						idx := int(val[0] - '1')
-						if idx < len(schema.Enum) {
-							choice := schema.Enum[idx]
-							res, _ := json.Marshal(choice)
-							focusedState.PendingPrompt.ResultCh <- res
-							focusedState.PendingPrompt = nil
-							focusedState.State = StateThinking
-							m.Input.Reset()
-							m.Input.SetValue("> ")
-							m.updateViewport()
-							return m, nil
-						}
-					}
-				}
-
-				if msg.String() == "enter" {
-					input := strings.TrimPrefix(m.Input.Value(), "> ")
-					res, _ := json.Marshal(input)
-					focusedState.PendingPrompt.ResultCh <- res
-					focusedState.PendingPrompt = nil
-					focusedState.State = StateThinking
-					m.Input.Reset()
-					m.Input.SetValue("> ")
-					m.updateViewport()
-					return m, nil
-				}
-			}
-
 		case "tab":
 			// Allow focus switching regardless of agent state
 			all := []common.Orchestrator{m.Root}
@@ -209,8 +172,7 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 		switch event := msg.Event.(type) {
 		case common.ContentEvent:
 			s.StreamingState = event
-			// Protection: don't override interaction states
-			if s.State != StateAsk && s.State != StateConfirmTool {
+			if s.State != StateConfirmTool {
 				s.State = StateStreaming
 			}
 			if event.ID == m.Focused.ID() {
@@ -219,8 +181,7 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 		case common.StatusEvent:
 			switch event.Status {
 			case "thinking":
-				// Protection: don't override interaction states
-				if s.State != StateAsk && s.State != StateConfirmTool {
+				if s.State != StateConfirmTool {
 					s.State = StateThinking
 				}
 				s.StatusText = "Working..."
@@ -254,13 +215,6 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 			s.StatusText = fmt.Sprintf("Subagent '%s' Spawned (Tab to switch)", event.Child.ID())
 			m.updateViewport()
 		}
-
-	case PromptRequestMsg:
-		s := m.GetAgentState(msg.OrchestratorID)
-		s.State = StateAsk
-		s.PendingPrompt = &msg
-		m.updateViewport()
-		return m, nil
 
 	case ConfirmRequestMsg:
 		s := m.GetAgentState(msg.OrchestratorID)

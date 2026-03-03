@@ -33,7 +33,6 @@ func main() {
 	enableBashReq := flag.Bool("enable-bash", true, "Enable bash tool execution")
 	injectCWDReq := flag.Bool("inject-cwd", true, "Replace ${{CWD}} in system prompt with current working directory")
 	enableSubagentsReq := flag.Bool("enable-subagents", true, "Enable subagent usage")
-	enableAskToolReq := flag.Bool("enable-ask-tool", false, "Enable ask tool for user input")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of late:\n")
@@ -77,11 +76,7 @@ func main() {
 	} else if envPrompt := os.Getenv("LATE_SYSTEM_PROMPT"); envPrompt != "" {
 		systemPrompt = envPrompt
 	} else {
-		content, err := assets.PromptsFS.ReadFile("prompts/instruction-planning.md")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Fatal error: could not load embedded planning prompt: %v\n", err)
-			os.Exit(1)
-		}
+		content, _ := assets.PromptsFS.ReadFile("prompts/instruction-planning.md")
 		systemPrompt = string(content)
 	}
 
@@ -163,9 +158,6 @@ func main() {
 	// Flag overrides
 	if !*enableBashReq {
 		enabledTools["bash"] = false
-	}
-	if !*enableAskToolReq {
-		enabledTools["ask"] = false
 	}
 
 	sess := session.New(c, historyPath, history, systemPrompt, *useToolsReq)

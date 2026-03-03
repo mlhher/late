@@ -1,121 +1,66 @@
-# Late
+# Late: High-Leverage AI Agent Orchestration
 
-**Late** (Lightweight AI Terminal Environment) is a local-first coding agent that runs on consumer hardware without the 10k token bloat.
+**Late** (Lightweight AI Terminal Environment) is a deterministic coding agent orchestrator designed to give a solo developer the execution throughput of an entire engineering team.
 
-> **Philosophy**: "Logic belongs in the Code, not in the Context Window."
+Whether you are mapping undocumented APIs, digesting complex repositories, or generating boilerplate, **Late** acts as a highly autonomous engineering partner instead of burning API credits, time, and money on bloated, hallucinated contexts.
 
-![Main Agent starting a Subagent](assets/main-agent.png)
-![Subagent executing a tool call](assets/subagent.png)
+> **Built with Late:** As of today, the vast majority of Late is being built inside Late using Qwen3.5-35B-A3B.
 
-## Why Late?
+![](assets/main-agent.png)
 
-Most AI coding agents rely on "Context Stuffing"—throwing 10k+ tokens of instructions at a frontier model (Claude/GPT-5) and hoping it mimics a developer. 
+## The Paradigm: Delegation Over Bloat
 
-**This actively degrades model reasoning.**
-The longer a session runs, the dumber the model gets. Models suffer a [39% performance drop](https://arxiv.org/abs/2512.13914) as context pollutes over multiple interactions, and [lose 60-80% of their effectiveness within just 2-3 attempts](https://arxiv.org/abs/2506.18403) at solving a problem.
+The current industry standard for AI coding tools (Claude Code, Cursor, OpenCode) is fundamentally flawed: they dump 10k+ tokens of raw instructions, tool schemas, and massive `grep` dumps into a single context window. This leads to severe "token waste" and session amnesia.
 
-**Late takes a Systems Engineering approach.**
-Instead of asking the LLM to *be* a coder, Late uses the LLM strictly for **token generation** within a deterministic state machine written in Go.
+**This actively degrades model reasoning.** Research shows as context pollutes, models suffer a [39% performance drop](https://arxiv.org/abs/2512.13914) and frequently [lose 60-80% of their effectiveness within just 2-3 attempts](https://arxiv.org/abs/2506.18403) at solving a problem.
 
-- **Efficiency**: The Core System Prompt is **<80 lines**.
-- **Deterministic Edits:** Uses exact-match `search`/`replace` blocks instead of relying on the LLM to hallucinate line numbers
-- **Native MCP**: Implements the [Model Context Protocol](https://github.com/modelcontextprotocol) directly, allowing it to use any standard MCP server.
-- **Subagent Loops**: Spawns isolated, task-specific subagents that run in their own ephemeral context loops.
+This is why throwing **larger models at the problem does not always solve the issue**.
 
-## How It Works
+**Late solves this by mirroring how actual engineering teams work:**
 
-Late gets the most out of local models (like Qwen3-Coder-Next) by keeping things simple:
-1. **Tiny Prompts**: The core instructions are short and focused.
-2. **Strict Parsing**: Edits use exact-match `search`/`replace` JSON parameters. No fragile diff format, no guessed line numbers. The model gives an exact string to find and an exact string to replace it with. If it doesn't match, it fails loudly.
-3. **Subagent Delegation**: Instead of filling up one massive context window, complex tasks are handed off to subagents with fresh, empty contexts.
+1. **The Orchestrator (Global Context):** The main agent acts as the Lead Architect. It manages the global session, reads the codebase, maps the APIs, and holds the master plan in its context window.
+2. **The Subagents (Ephemeral Context):** When code needs to be written, the Orchestrator does not write it directly. It spawns a localized subagent with a fresh, empty context window containing *only* the specific instructions and files needed for that single isolated task.
+3. **Deterministic Execution:** Standard agents use fragile diff formats that frequently hallucinate line numbers and corrupt files. Late forces subagents to use strict exact-match `search`/`replace` blocks. If the AI's output doesn't perfectly match the local file state, the edit fails loudly and the Orchestrator forces a self-healing loop. Zero silently broken code.
 
-> *Note: The prompt architecture is heavily inspired by the work of [Bijan Bowen](https://www.youtube.com/@Bijanbowen).*
+## Core Capabilities
 
-## Features
+* **Model Agnostic & Local-First:** Requires any OpenAI-compatible endpoint. Highly optimized to run locally on consumer hardware (e.g., Qwen3.5), or can be pointed at heavy-compute cloud endpoints (e.g., [Gemini 3.1 Pro](https://ai.google.dev/gemini-api/docs/openai)) for complex architectural tasks.
+* **Native MCP Integration:** Implements the Model Context Protocol (MCP) client directly via standard I/O. Dynamically map external MCP servers (databases, external APIs) transparently into Late's tool interface without the massive token bloat seen in other clients.
+* **Stateful Resilience:** The Orchestrator maintains continuous session history on disk (`~/.local/share/Late`), ensuring perfect context retention across multiple runs.
+* **Pure Go:** A bare-metal, high-performance engine. Statically compiled. Zero JavaScript framework bloat. No arbitrary node packages. No Python virtual environment shenanigans.
 
-- **100% Local**: No API keys. No cloud. No telemetry.
-- **TUI**: Fast Bubble Tea interface with "Thinking" visualization.
-- **Self-Healing**: Supervisors detect subagent failures and re-attempts with corrected context.
-- **Stateful**: Maintains session history on disk (`~/.local/share/Late`).
+## Quick Start (Zero Dependencies)
 
-## Requirements
+**1. Download the Binary**
+Grab the latest release for your OS (Linux/macOS) from the [Releases](https://github.com/mlhher/late/releases) page.
 
-- **Go 1.23+** (Only if building from source)
-- An OpenAI-compatible API endpoint
-
-Set the `OPENAI_BASE_URL` environment variable to the base URL of your API endpoint. For example:
+**2. Point to Your Model**
+Point Late to any OpenAI-compatible API endpoint (e.g., local `llama.cpp` / LM Studio, or a cloud provider).
 
 ```bash
 export OPENAI_BASE_URL="http://localhost:8080"
 ```
 
-> ⚠️ **Critical Requirement**: Upstream `llama.cpp` currently has an issue that causes crashes during context shifts with subagents (slots).
->
-> If you use llama.cpp you **MUST** use this version for stability:
-> 
-> [[Autoparser - complete refactoring of parser architecture#18675
-](https://github.com/ggml-org/llama.cpp/pull/18675)]
+**3. Execute**
 
-## Installation
-
-### Method 1: Precompiled Binary (Recommended)
-Download the latest executable for your OS (Linux, macOS) from the [Releases](https://github.com/mlhher/late/releases) page. No dependencies required.
-
-### Method 2: Build from Source
-```bash
-git clone https://github.com/mlhher/late
-cd late
-make build
-make install
-```
-
-## Usage
-
-Start the TUI:
 ```bash
 late
 ```
 
+*(Note for llama.cpp users: Upstream contains a bug causing crashes during context shifts with slots. You **MUST** use the build patched with [PR #18675](https://github.com/mlhher/llama.cpp) for stability).*
 
-## Architecture
+## Operational Notes
 
-```mermaid
-graph TD
-    A["TUI (BubbleTea)"] --> B[Session Manager]
-    B --> C[Agent Loop]
-    C --> D{Tool Registry}
-    D --> E["Native Tools (File/Bash)"]
-    D --> F[MCP Client]
-    F --> G[External MCP Servers]
-    C --> H["LLM Client (llama.cpp)"]
-```
+Late is a raw, high-performance execution engine. It does not hold your hand.
 
-## Known Issues
-**Late** is a raw tool that does not hold your hand. Expect the following behaviors from local LLMs:
+* **Halts:** If a local model drops a stop token and the UI stalls, type `continue` to resume.
+* **Deadlocks:** If an ephemeral subagent enters an infinite argument with the Orchestrator, press `Ctrl-C`. Your main session state is preserved. Restart and instruct the Orchestrator to re-evaluate the task.
 
-- **LLM Halting**: Local models sometimes drop the stop token or halt generation mid-stream. If the agent stalls, simply type continue to nudge it.
+## License: BSL 1.1
 
-- **Subagent Deadlocks**: Local models can occasionally get stubborn and argue with the supervisor agent. If a subagent loops infinitely, hit Ctrl-C. Your main session state is saved to disk, but the looping subagent is destroyed. Restarting clears the deadlock instantly. Simply tell the agent what happened ("the subagent disagreed with your evaluation please re-evaluate.")
+We built this to generate real engineering leverage, not to supply free backend infrastructure for corporations or AI startups.
 
-- **TUI Lag on Massive Chats**: If your chat history becomes so massive that the Bubble Tea UI begins to slow down, your context window is too polluted anyway. Late is designed for focused, single-task sessions. If it lags, it's time to start a new session.
+* **Free for Builders:** You may use Late freely to write code for any project, including your own commercial startups. We do not restrict your output.
+* **Commercial Restrictions:** You may not monetize Late itself (e.g., wrapping our orchestration engine into a paid AI service or IDE), nor may you deploy Late as internal infrastructure within enterprise environments without a commercial agreement.
 
-## Acknowledgements
-
-- **[llama.cpp](https://github.com/ggerganov/llama.cpp)**: For making local AI possible.
-
-- **[Piotr Wilkin](https://github.com/pwilkin)**: For the parser fix.
-
-- **[Bijan Bowen](https://www.youtube.com/@Bijanbowen)**: For prompt engineering and testing research.
-
-- **[Charm](https://github.com/charmbracelet)**: For the Bubble Tea framework.
-
-## License
-
-**Business Source License (BSL) 1.1**
-
-We built this for engineers, not SaaS wrappers. 
-
-- **Free for builders:** Use it for personal projects, internal development, and research.
-- **Commercial Restrictions:** You may **not** wrap Late into a paid commercial service or SaaS product. 
-
-*Late safely converts to an open-source GPLv2 license on February 21, 2030. Read the full [LICENSE](LICENSE).*
+*Late safely converts to an open-source GPLv2 license on February 21, 2030.*

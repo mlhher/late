@@ -8,10 +8,8 @@ var (
 	// Premium Palette - Deep Dark / Obsidian
 	primaryColor   = lipgloss.Color("#9B59B6") // Amethyst
 	secondaryColor = lipgloss.Color("#2ECC71") // Emerald
-	accentColor    = lipgloss.Color("#E67E22") // Carrot
 	textColor      = lipgloss.Color("#ECF0F1") // Clouds
 	subtextColor   = lipgloss.Color("#95A5A6") // Concrete
-	borderColor    = lipgloss.Color("#34495E") // Wet Asphalt
 
 	// Message Backgrounds
 	userMsgBg      = lipgloss.Color("#16222A") // Very dark blue/black
@@ -23,20 +21,12 @@ var (
 			Background(lipgloss.Color("#191919")).
 			Foreground(textColor)
 
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(primaryColor).
-			Background(aiMsgBg)
-
 	inputStyle = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(primaryColor).
 			BorderBackground(aiMsgBg).
 			Padding(0, 1).
 			Background(aiMsgBg)
-
-	viewportStyle = lipgloss.NewStyle().
-			Padding(0)
 
 	// User Bubble
 	userMsgStyle = lipgloss.NewStyle().
@@ -73,34 +63,12 @@ var (
 			BorderForeground(lipgloss.Color("#555555")).
 			BorderBackground(thoughtBgColor)
 
-	toolStyle = lipgloss.NewStyle().
-			Foreground(accentColor).
-			Background(aiMsgBg).
-			Padding(0, 2).
-			Margin(0, 1).
-			PaddingLeft(4).
-			Border(lipgloss.NormalBorder(), false, false, false, true).
-			BorderLeftForeground(accentColor).
-			BorderBackground(aiMsgBg).
-			Bold(true)
-
 	tagStyle = lipgloss.NewStyle().
 			Foreground(primaryColor).
 			Bold(true).
 			Background(thoughtBgColor).
 			MarginLeft(1).
 			PaddingLeft(1)
-
-	toolResultStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#E67E22")). // Carrot (same as tool call)
-			Italic(true).
-			Margin(0, 1).
-			PaddingLeft(2)
-
-	statusLineStyle = lipgloss.NewStyle().
-			Foreground(subtextColor).
-			Italic(true).
-			Background(aiMsgBg)
 
 	statusBarBaseStyle = lipgloss.NewStyle().
 				Height(StatusBarHeight).

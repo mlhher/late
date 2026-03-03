@@ -3,72 +3,11 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
-	"unicode"
 
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
-
-// sanitizeForDisplay strips control characters, unicode line/paragraph
-// separators, and emoji that cause layout glitches in the TUI.
-// Normal printable unicode (CJK, accented latin, cyrillic, etc.) is preserved.
-func sanitizeForDisplay(s string) string {
-	return strings.Map(func(r rune) rune {
-		switch {
-		case r == '\t':
-			return ' '
-		case r == '\n', r == '\r':
-			return -1
-		case unicode.IsControl(r):
-			return -1
-		case isEmoji(r):
-			return -1
-		default:
-			return r
-		}
-	}, s)
-}
-
-func isEmoji(r rune) bool {
-	switch {
-	case r >= 0x2600 && r <= 0x26FF: // Misc Symbols
-		return true
-	case r >= 0x2700 && r <= 0x27BF: // Dingbats
-		return true
-	case r >= 0x2B50 && r <= 0x2B55: // Stars, circles
-		return true
-	case r >= 0xFE00 && r <= 0xFE0F: // Variation Selectors
-		return true
-	case r >= 0x1F000 && r <= 0x1FAFF: // All major emoji blocks
-		return true
-	case r >= 0xE0020 && r <= 0xE007F: // Tag characters (flag sequences)
-		return true
-	case r == 0x200D: // Zero-width joiner (emoji sequences)
-		return true
-	case r == 0x200B, r == 0x200C: // Zero-width space/non-joiner
-		return true
-	case r == 0x20E3: // Combining enclosing keycap
-		return true
-	case r == 0xFEFF: // BOM
-		return true
-	case r >= 0x2028 && r <= 0x2029: // Line/paragraph separator
-		return true
-	case r >= 0x231A && r <= 0x23F3: // Misc technical (watch, hourglass, etc.)
-		return true
-	case r >= 0x2934 && r <= 0x2935: // Arrows
-		return true
-	case r >= 0x25AA && r <= 0x25FE: // Geometric shapes
-		return true
-	case r >= 0x2190 && r <= 0x21FF: // Arrows block
-		return true
-	case r >= 0x3000 && r <= 0x303F: // CJK symbols (ideographic space etc.)
-		// Keep most CJK but strip ideographic space
-		return r == 0x3000
-	default:
-		return false
-	}
-}
 
 func (m Model) View() string {
 	if m.Width == 0 || m.Height == 0 {
@@ -124,18 +63,10 @@ func (m *Model) statusBarView() string {
 	case StateConfirmTool:
 		modeStr = " CONFIRM "
 		statusText = "Authorize Tool Execution (y/n)"
-	case StateAsk:
-		modeStr = " PROMPT "
-		statusText = "User Input Required"
 	}
 
 	mode := statusModeStyle.Render(modeStr)
 	status := statusTextStyle.Render(statusText)
-
-	if s.State == StateConfirmTool || s.State == StateAsk {
-		mode = statusModeStyle.Background(lipgloss.Color("#FFD700")).Foreground(lipgloss.Color("#000000")).Bold(true).Render(modeStr)
-		status = statusTextStyle.Foreground(lipgloss.Color("#FFD700")).Bold(true).Render(statusText)
-	}
 
 	// Build key hints
 	stopKey := statusKeyStyle.Render("Ctrl+g") + " Stop "
@@ -208,7 +139,7 @@ func (m *Model) updateViewport() {
 
 	// Render streaming content if active
 	// Dedup check: Only render streaming if NOT in an interaction state (where history already has the tools)
-	if (s.State == StateStreaming || s.State == StateThinking) && s.State != StateAsk && s.State != StateConfirmTool {
+	if (s.State == StateStreaming || s.State == StateThinking) && s.State != StateConfirmTool {
 		var activeParts []string
 		if s.StreamingState.ReasoningContent != "" {
 			activeParts = append(activeParts, tagStyle.Width(msgWidth+1).Render("Thinking Process:"))
@@ -241,26 +172,6 @@ func (m *Model) updateViewport() {
 	if s.State == StateConfirmTool && s.PendingConfirm != nil {
 		tc := s.PendingConfirm.ToolCall
 		prompt := fmt.Sprintf("The agent wants to execute **%s**.\n\n```json\n%s\n```\n\n> Press **[ y ]** to Approve  |  **[ n ]** to Deny", tc.Function.Name, tc.Function.Arguments)
-		md, _ := m.Renderer.Render(prompt)
-		blocks = append(blocks, aiMsgStyle.Width(msgWidth).Border(lipgloss.DoubleBorder()).BorderForeground(lipgloss.Color("#FFD700")).Render(md))
-	}
-
-	if s.State == StateAsk && s.PendingPrompt != nil {
-		req := s.PendingPrompt.Request
-		prompt := fmt.Sprintf("**%s**\n\n%s", req.Title, req.Description)
-
-		// Parse schema for options
-		var schema struct {
-			Enum []string `json:"enum"`
-		}
-		if err := json.Unmarshal(req.Schema, &schema); err == nil && len(schema.Enum) > 0 {
-			prompt += "\n\n"
-			for i, opt := range schema.Enum {
-				prompt += fmt.Sprintf("**%d.** %s  ", i+1, opt)
-			}
-			prompt += "\n\n> Type an option number or your response"
-		}
-
 		md, _ := m.Renderer.Render(prompt)
 		blocks = append(blocks, aiMsgStyle.Width(msgWidth).Border(lipgloss.DoubleBorder()).BorderForeground(lipgloss.Color("#FFD700")).Render(md))
 	}
