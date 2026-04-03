@@ -58,15 +58,18 @@ func NewSubagentOrchestrator(
 	// Inherit all tools from parent (including MCP tools)
 	if parent != nil && parent.Registry() != nil {
 		for _, t := range parent.Registry().All() {
-			// Skip spawn_subagent to prevent recursion
-			if t.Name() == "spawn_subagent" {
+			// Skip spawn_subagent and write_implementation_plan to prevent recursion/confusion
+			name := t.Name()
+			if name == "spawn_subagent" || name == "write_implementation_plan" {
 				continue
 			}
 			sess.Registry.Register(t)
 		}
-	} else {
-		// TODO: remove
-		executor.RegisterStandardTools(sess.Registry, enabledTools)
+	}
+
+	// Always ensure coder subagents have the full toolset (not just planning tools)
+	if agentType == "coder" {
+		executor.RegisterTools(sess.Registry, enabledTools, false)
 	}
 
 	// 3. Construct Initial Context

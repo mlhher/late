@@ -153,7 +153,7 @@ func TestExecuteToolCalls_Denied(t *testing.T) {
 	sess := session.New(c, histPath, nil, "", true)
 
 	// Register bash tool which requires confirmation
-	RegisterStandardTools(sess.Registry, nil)
+	RegisterTools(sess.Registry, nil, false)
 
 	toolCalls := []client.ToolCall{
 		{ID: "tc_1", Function: client.FunctionCall{Name: "bash", Arguments: `{"command":"echo hi"}`}},
@@ -226,8 +226,8 @@ func TestConsumeStream_WithError(t *testing.T) {
 	}
 }
 
-// TestRegisterStandardTools verifies that tools are registered
-func TestRegisterStandardTools(t *testing.T) {
+// TestRegisterTools verifies that tools are registered
+func TestRegisterTools(t *testing.T) {
 	c := client.NewClient(client.Config{BaseURL: "http://localhost:0"})
 	histPath := filepath.Join(t.TempDir(), "history.json")
 	sess := session.New(c, histPath, nil, "", false)
@@ -238,7 +238,7 @@ func TestRegisterStandardTools(t *testing.T) {
 		"target_edit": true,
 		"bash":        false,
 	}
-	RegisterStandardTools(sess.Registry, enabledTools)
+	RegisterTools(sess.Registry, enabledTools, false)
 
 	expected := []string{"read_file", "write_file", "target_edit"}
 	for _, name := range expected {
@@ -253,8 +253,8 @@ func TestRegisterStandardTools(t *testing.T) {
 	}
 }
 
-// TestRegisterStandardTools_WithBash verifies bash tool is registered when enabled
-func TestRegisterStandardTools_WithBash(t *testing.T) {
+// TestRegisterTools_WithBash verifies bash tool is registered when enabled
+func TestRegisterTools_WithBash(t *testing.T) {
 	c := client.NewClient(client.Config{BaseURL: "http://localhost:0"})
 	histPath := filepath.Join(t.TempDir(), "history.json")
 	sess := session.New(c, histPath, nil, "", false)
@@ -262,14 +262,14 @@ func TestRegisterStandardTools_WithBash(t *testing.T) {
 	enabledTools := map[string]bool{
 		"bash": true,
 	}
-	RegisterStandardTools(sess.Registry, enabledTools)
+	RegisterTools(sess.Registry, enabledTools, false)
 
 	if sess.Registry.Get("bash") == nil {
 		t.Error("bash should be registered when enableBash is true")
 	}
 }
 
-func TestRegisterStandardTools_WithHash(t *testing.T) {
+func TestRegisterTools_WithReadFile(t *testing.T) {
 	c := client.NewClient(client.Config{BaseURL: "http://localhost:0"})
 	histPath := filepath.Join(t.TempDir(), "history.json")
 	sess := session.New(c, histPath, nil, "", false)
@@ -277,11 +277,42 @@ func TestRegisterStandardTools_WithHash(t *testing.T) {
 	enabledTools := map[string]bool{
 		"read_file": true,
 	}
-	RegisterStandardTools(sess.Registry, enabledTools)
+	RegisterTools(sess.Registry, enabledTools, false)
 
 	// Verify ReadFileTool is still there (implied by default check), but maybe check its description/params if needed?
 	// For now, just ensuring no error is thrown during registration is good enough.
 	if sess.Registry.Get("read_file") == nil {
 		t.Error("read_file should be registered")
+	}
+}
+
+func TestRegisterTools_Planning(t *testing.T) {
+	c := client.NewClient(client.Config{BaseURL: "http://localhost:0"})
+	histPath := filepath.Join(t.TempDir(), "history.json")
+	sess := session.New(c, histPath, nil, "", false)
+
+	enabledTools := map[string]bool{
+		"read_file":  true,
+		"write_file": true,
+		"bash":       true,
+	}
+	RegisterTools(sess.Registry, enabledTools, true)
+
+	// In planning mode, write_file should NOT be registered
+	if sess.Registry.Get("write_file") != nil {
+		t.Error("write_file should not be registered in planning mode")
+	}
+
+	// But write_implementation_plan should be
+	if sess.Registry.Get("write_implementation_plan") == nil {
+		t.Error("write_implementation_plan should be registered in planning mode")
+	}
+
+	// read_file and bash should be there
+	if sess.Registry.Get("read_file") == nil {
+		t.Error("read_file should be registered in planning mode")
+	}
+	if sess.Registry.Get("bash") == nil {
+		t.Error("bash should be registered in planning mode")
 	}
 }

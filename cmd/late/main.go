@@ -161,7 +161,7 @@ func main() {
 	}
 
 	sess := session.New(c, historyPath, history, systemPrompt, *useToolsReq)
-	executor.RegisterStandardTools(sess.Registry, enabledTools)
+	executor.RegisterTools(sess.Registry, enabledTools, true)
 
 	// Register MCP tools into the session registry
 	for _, t := range mcpClient.GetTools() {

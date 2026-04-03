@@ -84,25 +84,33 @@ func ExecuteToolCalls(ctx context.Context, sess *session.Session, toolCalls []cl
 
 // --- Tool Registration ---
 
-// RegisterStandardTools registers the common tool set on a session's registry.
-// This eliminates the duplicated registration in tui/model.go and agent/agent.go.
-// Disabled native tools from the config will be omitted.
-func RegisterStandardTools(reg *tool.Registry, enabledTools map[string]bool) {
+// RegisterTools registers the common tool set on a session's registry.
+// If isPlanning is true, it only registers read-only tools and the planning tool.
+// Otherwise, it registers the full set of coding tools.
+func RegisterTools(reg *tool.Registry, enabledTools map[string]bool, isPlanning bool) {
 	if enabledTools == nil {
 		enabledTools = make(map[string]bool)
 	}
 
+	// Always register read-only and base tools
 	if enabledTools["read_file"] {
 		reg.Register(tool.NewReadFileTool())
 	}
-	if enabledTools["write_file"] {
-		reg.Register(tool.WriteFileTool{})
-	}
-	if enabledTools["targetEdit"] || enabledTools["target_edit"] {
-		reg.Register(tool.NewTargetEditTool())
-	}
 	if enabledTools["bash"] {
 		reg.Register(tool.BashTool{})
+	}
+
+	if isPlanning {
+		// Planning-only tools
+		reg.Register(tool.WriteImplementationPlanTool{})
+	} else {
+		// Coding-only tools
+		if enabledTools["write_file"] {
+			reg.Register(tool.WriteFileTool{})
+		}
+		if enabledTools["targetEdit"] || enabledTools["target_edit"] {
+			reg.Register(tool.NewTargetEditTool())
+		}
 	}
 }
 

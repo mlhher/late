@@ -273,3 +273,43 @@ func (t BashTool) CallString(args json.RawMessage) string {
 	}
 	return result
 }
+
+// WriteImplementationPlanTool writes the implementation plan to a fixed file.
+type WriteImplementationPlanTool struct{}
+
+func (t WriteImplementationPlanTool) Name() string { return "write_implementation_plan" }
+func (t WriteImplementationPlanTool) Description() string {
+	return "Write the implementation plan to ./implementation_plan.md in the current working directory."
+}
+func (t WriteImplementationPlanTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"plan": { "type": "string", "description": "The full content of the implementation plan in Markdown format." }
+		},
+		"required": ["plan"]
+	}`)
+}
+func (t WriteImplementationPlanTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
+	var params struct {
+		Plan string `json:"plan"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return "", err
+	}
+
+	if params.Plan == "" {
+		return "", fmt.Errorf("Implementation plan cannot be empty")
+	}
+
+	path := "implementation_plan.md"
+	if err := os.WriteFile(path, []byte(params.Plan), 0644); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Successfully wrote implementation plan to %s", path), nil
+}
+func (t WriteImplementationPlanTool) RequiresConfirmation(args json.RawMessage) bool { return false }
+
+func (t WriteImplementationPlanTool) CallString(args json.RawMessage) string {
+	return "Writing implementation plan to ./implementation_plan.md"
+}
