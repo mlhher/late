@@ -192,20 +192,12 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 				s.State = StateStreaming
 			}
 			// Calculate tokens from new content
-			newContentTokens := common.EstimateTokenCount(event.ReasoningContent + event.Content)
+			newContentTokens := common.EstimateEventTokens(event)
 
-			// Calculate tokens from history (user, assistant, tool messages)
+			// Calculate tokens from history
 			historyTokens := 0
 			for _, msg := range m.Focused.History() {
-				if msg.Role == "user" {
-					historyTokens += common.EstimateTokenCount(msg.Content)
-				}
-				if msg.Role == "assistant" {
-					historyTokens += common.EstimateTokenCount(msg.ReasoningContent + msg.Content)
-				}
-				if msg.Role == "tool" {
-					historyTokens += common.EstimateTokenCount(msg.Content)
-				}
+				historyTokens += common.EstimateMessageTokens(msg)
 			}
 
 			// Update cumulative count
