@@ -22,6 +22,7 @@ func NewSubagentOrchestrator(
 	enabledTools map[string]bool,
 	injectCWD bool,
 	parent common.Orchestrator,
+	messenger tui.Messenger,
 ) (common.Orchestrator, error) {
 	// 1. Determine System Prompt
 	systemPrompt := ""
@@ -92,9 +93,9 @@ func NewSubagentOrchestrator(
 	id := fmt.Sprintf("subagent-%d", len(parent.Children()))
 	mws := parent.Middlewares()
 
-	if ip, ok := parent.Context().Value(common.InputProviderKey).(*tui.TUIInputProvider); ok {
+	if messenger != nil {
 		mws = []common.ToolMiddleware{
-			tui.TUIConfirmMiddleware(ip.Messenger, sess.Registry),
+			tui.TUIConfirmMiddleware(messenger, sess.Registry),
 		}
 	}
 

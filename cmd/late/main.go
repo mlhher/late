@@ -206,7 +206,7 @@ func main() {
 
 	if *enableSubagentsReq {
 		runner := func(ctx context.Context, goal string, ctxFiles []string, agentType string) (string, error) {
-			child, err := agent.NewSubagentOrchestrator(c, goal, ctxFiles, agentType, enabledTools, *injectCWDReq, rootAgent)
+			child, err := agent.NewSubagentOrchestrator(c, goal, ctxFiles, agentType, enabledTools, *injectCWDReq, rootAgent, p)
 			if err != nil {
 				return "", err
 			}
