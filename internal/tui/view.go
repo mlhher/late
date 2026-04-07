@@ -106,12 +106,20 @@ func (m *Model) updateViewport() {
 		msgWidth = 80
 	}
 
-	// Simplified history rendering (symmetric for all agents)
-	var blocks []string
-	for _, msg := range history {
+	s := m.GetAgentState(m.Focused.ID())
+
+	// If history was reset or messages were removed, clear the cache
+	if len(history) < len(s.RenderedHistory) {
+		s.RenderedHistory = nil
+	}
+
+	// Render only new messages and add to cache
+	for i := len(s.RenderedHistory); i < len(history); i++ {
+		msg := history[i]
+		var rendered string
 		switch msg.Role {
 		case "user":
-			blocks = append(blocks, userMsgStyle.Width(msgWidth).Render(msg.Content))
+			rendered = userMsgStyle.Width(msgWidth).Render(msg.Content)
 		case "assistant":
 			var assistantParts []string
 			if msg.ReasoningContent != "" {
@@ -134,11 +142,19 @@ func (m *Model) updateViewport() {
 				}
 				assistantParts = append(assistantParts, tagStyle.Width(msgWidth+1).Render(fmt.Sprintf("◆ %s", callStr)))
 			}
-			blocks = append(blocks, lipgloss.JoinVertical(lipgloss.Left, assistantParts...))
+			rendered = lipgloss.JoinVertical(lipgloss.Left, assistantParts...)
 		}
+		// We always append to keep cache in sync with history length
+		s.RenderedHistory = append(s.RenderedHistory, rendered)
 	}
 
-	s := m.GetAgentState(m.Focused.ID())
+	// Build the full block list from cached history + active content
+	var blocks []string
+	for _, r := range s.RenderedHistory {
+		if r != "" {
+			blocks = append(blocks, r)
+		}
+	}
 
 	// Render streaming content if active
 	// Dedup check: Only render streaming if NOT in an interaction state (where history already has the tools)

@@ -71,8 +71,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		forwardToViewport = true
 	case spinner.TickMsg:
-		// Always redraw on tick to animate tool calls/thinking
-		m.updateViewport()
+		// Only redraw on tick to animate tool calls/thinking if an agent is actually active
+		s := m.GetAgentState(m.Focused.ID())
+		if s.State == StateThinking || s.State == StateStreaming {
+			m.updateViewport()
+		}
 		forwardToViewport = false
 	default:
 		forwardToViewport = true
