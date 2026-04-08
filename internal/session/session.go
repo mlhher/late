@@ -256,6 +256,11 @@ func (s *Session) UpdateSessionMetadata() error {
 	return SaveSessionMeta(meta)
 }
 
+// SystemPrompt returns the system prompt for this session
+func (s *Session) SystemPrompt() string {
+	return s.systemPrompt
+}
+
 func (s *Session) saveAndNotify() error {
 	if len(s.History) == 0 {
 		return nil

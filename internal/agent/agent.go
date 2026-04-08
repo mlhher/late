@@ -21,6 +21,7 @@ func NewSubagentOrchestrator(
 	agentType string,
 	enabledTools map[string]bool,
 	injectCWD bool,
+	gemmaThinking bool,
 	parent common.Orchestrator,
 	messenger tui.Messenger,
 ) (common.Orchestrator, error) {
@@ -40,6 +41,10 @@ func NewSubagentOrchestrator(
 					"${{CWD}}": cwd,
 				})
 			}
+		}
+
+		if gemmaThinking {
+			systemPrompt = "<|think|>" + systemPrompt
 		}
 	} else {
 		// TODO: reviewer, committer

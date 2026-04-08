@@ -33,6 +33,7 @@ func main() {
 	enableBashReq := flag.Bool("enable-bash", true, "Enable bash tool execution")
 	injectCWDReq := flag.Bool("inject-cwd", true, "Replace ${{CWD}} in system prompt with current working directory")
 	enableSubagentsReq := flag.Bool("enable-subagents", true, "Enable subagent usage")
+	gemmaThinkingReq := flag.Bool("gemma-thinking", false, "Prepend <|think|> token to system prompt for Gemma models")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of late:\n")
@@ -87,6 +88,10 @@ func main() {
 				"${{CWD}}": cwd,
 			})
 		}
+	}
+
+	if *gemmaThinkingReq {
+		systemPrompt = "<|think|>" + systemPrompt
 	}
 
 	if !*enableBashReq {
@@ -206,7 +211,7 @@ func main() {
 
 	if *enableSubagentsReq {
 		runner := func(ctx context.Context, goal string, ctxFiles []string, agentType string) (string, error) {
-			child, err := agent.NewSubagentOrchestrator(c, goal, ctxFiles, agentType, enabledTools, *injectCWDReq, rootAgent, p)
+			child, err := agent.NewSubagentOrchestrator(c, goal, ctxFiles, agentType, enabledTools, *injectCWDReq, *gemmaThinkingReq, rootAgent, p)
 			if err != nil {
 				return "", err
 			}

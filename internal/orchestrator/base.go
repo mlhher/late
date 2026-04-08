@@ -257,6 +257,10 @@ func (o *BaseOrchestrator) History() []client.ChatMessage {
 	return o.sess.History
 }
 
+func (o *BaseOrchestrator) Session() *session.Session {
+	return o.sess
+}
+
 func (o *BaseOrchestrator) Context() context.Context {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
