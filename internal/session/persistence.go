@@ -10,6 +10,9 @@ import (
 
 // SaveHistory atomically saves the chat history to the specified path.
 func SaveHistory(path string, history []client.ChatMessage) error {
+	if path == "" {
+		return nil // Skip saving if no path provided
+	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)

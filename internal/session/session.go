@@ -265,6 +265,9 @@ func (s *Session) saveAndNotify() error {
 	if len(s.History) == 0 {
 		return nil
 	}
+	if s.HistoryPath == "" {
+		return nil // Skip saving if no path provided (e.g., subagents)
+	}
 	if err := SaveHistory(s.HistoryPath, s.History); err != nil {
 		return err
 	}

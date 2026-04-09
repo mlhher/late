@@ -53,14 +53,8 @@ func NewSubagentOrchestrator(
 	}
 
 	// 2. Create Session
-	historyFile, err := os.CreateTemp("", "late-subagent-*.json")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temp history file: %w", err)
-	}
-	historyPath := historyFile.Name()
-	historyFile.Close()
-
-	sess := session.New(c, historyPath, []client.ChatMessage{}, systemPrompt, true)
+	// Subagents should not persist their history to the sessions directory
+	sess := session.New(c, "", []client.ChatMessage{}, systemPrompt, true)
 
 	// Inherit all tools from parent (including MCP tools)
 	if parent != nil && parent.Registry() != nil {

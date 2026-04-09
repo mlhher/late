@@ -10,6 +10,7 @@ import (
 	"late/internal/orchestrator"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"late/internal/assets"
@@ -41,7 +42,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  late [flags]\n")
 		fmt.Fprintf(os.Stderr, "  late session <command> [args]\n\n")
 		fmt.Fprintf(os.Stderr, "Commands:\n")
-		fmt.Fprintf(os.Stderr, "  session list     List all saved sessions\n")
+		fmt.Fprintf(os.Stderr, "  session list [-v]      List all saved sessions (use -v for verbose/detailed view)\n")
 		fmt.Fprintf(os.Stderr, "  session load <id>  Load a session by ID\n")
 		fmt.Fprintf(os.Stderr, "  session delete <id>  Delete a session by ID\n\n")
 		flag.PrintDefaults()
@@ -55,7 +56,7 @@ func main() {
 
 	var loadedHistoryPath string
 	if flag.NArg() > 0 && flag.Arg(0) == "session" {
-		path, shouldExit := handleSessionCommand(flag.Args()[1:])
+		path, _, shouldExit := handleSessionCommand(flag.Args()[1:])
 		if shouldExit {
 			return
 		}
@@ -236,45 +237,68 @@ func main() {
 }
 
 // handleSessionCommand processes session subcommands
-func handleSessionCommand(args []string) (string, bool) {
+// Returns: command, args (remaining), verbose flag
+func handleSessionCommand(args []string) (string, []string, bool) {
 	if len(args) == 0 {
 		fmt.Println("Usage: late session <list|load|delete> [args...]")
 		fmt.Println("")
 		fmt.Println("Commands:")
-		fmt.Println("  list           List all saved sessions")
+		fmt.Println("  list [-v]      List all saved sessions (use -v for verbose/detailed view)")
 		fmt.Println("  load <id>      Load a session by ID (can use prefix)")
 		fmt.Println("  delete <id>    Delete a session by ID")
-		return "", true
+		return "", nil, false
+	}
+
+	// Parse flags for specific commands
+	verbose := false
+	commandArgs := args
+
+	switch args[0] {
+	case "list":
+		// Parse flags for list command
+		fs := flag.NewFlagSet("list", flag.ContinueOnError)
+		verbosePtr := fs.Bool("v", false, "Verbose output")
+		fs.Parse(args[1:])
+		verbose = *verbosePtr
+		commandArgs = fs.Args()
+	case "load", "delete":
+		// These commands don't use flags, just pass through
+		// commandArgs should be args[1:] to skip the command name
+		if len(args) > 1 {
+			commandArgs = args[1:]
+		} else {
+			commandArgs = []string{}
+		}
 	}
 
 	switch args[0] {
 	case "list":
-		handleSessionList()
-		return "", true
+		handleSessionList(verbose)
+		return "", nil, true
 	case "load":
-		if len(args) < 2 {
+		if len(commandArgs) < 1 {
 			fmt.Println("Error: session ID required")
 			fmt.Println("Usage: late session load <id>")
 			os.Exit(1)
 		}
-		return handleSessionLoad(args[1]), false
+		return handleSessionLoad(commandArgs[0]), nil, false
 	case "delete":
-		if len(args) < 2 {
+		if len(commandArgs) < 1 {
 			fmt.Println("Error: session ID required")
 			fmt.Println("Usage: late session delete <id>")
 			os.Exit(1)
 		}
-		handleSessionDelete(args[1])
-		return "", true
+		handleSessionDelete(commandArgs[0])
+		return "", nil, true
 	default:
 		fmt.Printf("Unknown session command: %s\n", args[0])
 		handleSessionCommand([]string{})
-		return "", true
+		return "", nil, true
 	}
 }
 
 // handleSessionList displays all saved sessions
-func handleSessionList() {
+func handleSessionList(verbose bool) {
 	metas, err := session.ListSessions()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error listing sessions: %v\n", err)
@@ -289,11 +313,8 @@ func handleSessionList() {
 	}
 
 	fmt.Println("Available sessions:")
-	fmt.Println("")
 	for _, meta := range metas {
-		// TODO: Less clutter, easier printing
-		fmt.Println(session.FormatSessionDisplay(meta))
-		fmt.Println("")
+		fmt.Print(strings.TrimSpace(session.FormatSessionDisplay(meta, verbose)) + "\n")
 	}
 	fmt.Println(session.FormatResumePrompt())
 }
