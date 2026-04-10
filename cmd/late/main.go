@@ -38,6 +38,7 @@ func main() {
 	enableSubagentsReq := flag.Bool("enable-subagents", true, "Enable subagent usage")
 	gemmaThinkingReq := flag.Bool("gemma-thinking", false, "Prepend <|think|> token to system prompt for Gemma 4 models")
 	subagentMaxTurns := flag.Int("subagent-max-turns", 500, "Maximum number of turns for subagents (default: 500)")
+	appendSystemPromptReq := flag.String("append-system-prompt", "", "Append text to the system prompt after processing")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of late:\n")
@@ -115,6 +116,10 @@ func main() {
 			map[string]string{
 				"${{NOTICE}}": "Bash is disabled. You must not attempt to use execute any bash commands. Doing so will result in an error.",
 			})
+	}
+
+	if *appendSystemPromptReq != "" {
+		systemPrompt = systemPrompt + *appendSystemPromptReq
 	}
 
 	fmt.Println("Starting late TUI...")
