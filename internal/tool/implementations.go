@@ -165,21 +165,56 @@ func (t WriteFileTool) CallString(args json.RawMessage) string {
 	return fmt.Sprintf("Writing to file %s", truncate(path, 50))
 }
 
-// Commands that do not require user confirmation for BashTool
+// Commands that do not require user confirmation for BashTool.
+// Only genuinely read-only commands belong here.
 var whitelistedCommands = map[string]bool{
 	"grep":   true,
-	"find":   true,
 	"ls":     true,
 	"cat":    true,
 	"head":   true,
 	"tail":   true,
-	"echo":   true,
 	"pwd":    true,
 	"date":   true,
 	"whoami": true,
-	"mkdir":  true,
-	"touch":  true,
+	"wc":     true,
 	"seq":    true,
+	"file":   true,
+}
+
+// containsShellMetacharacters returns true if the command string contains
+// any shell syntax that could embed or disguise a sub-command.
+// When this returns true, RequiresConfirmation should always return true
+// regardless of the base command, because we cannot trust our naive
+// string-split parsing to extract the real commands from the string.
+func containsShellMetacharacters(command string) bool {
+	// Process substitution: >(cmd) or <(cmd)
+	if strings.Contains(command, ">(") || strings.Contains(command, "<(") {
+		return true
+	}
+	// Command substitution: $(cmd) or backticks
+	if strings.Contains(command, "$(") || strings.Contains(command, "`") {
+		return true
+	}
+	// Variable expansion that could hide commands: ${...}
+	if strings.Contains(command, "${") {
+		return true
+	}
+	// Output redirection: > or >> (could write arbitrary files)
+	if strings.Contains(command, ">") {
+		return true
+	}
+	// Input redirection from a file: <
+	// (Harmless by itself, but combined with other constructs can be tricky)
+	if strings.Contains(command, "<") {
+		return true
+	}
+	// Eval or source
+	for _, keyword := range []string{" eval ", " source ", ";eval ", ";source "} {
+		if strings.Contains(command, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 // Maximum number of output lines to prevent memory exhaustion
@@ -415,6 +450,15 @@ func (t BashTool) RequiresConfirmation(args json.RawMessage) bool {
 	if err := json.Unmarshal(args, &params); err != nil {
 		return true // Default to requiring confirmation if we can't parse
 	}
+
+	// If the command contains any shell metacharacters that could embed
+	// sub-commands or disguise intent, always require confirmation.
+	// This is the primary defense: we don't try to parse complex shell
+	// syntax, we just punt to the human.
+	if containsShellMetacharacters(params.Command) {
+		return true
+	}
+
 	// Get all base commands from potentially compound commands
 	baseCommands := getAllBaseCommands(params.Command)
 	// Require confirmation if ANY command is not whitelisted

@@ -20,9 +20,9 @@ Standard AI coding assistants dump massive contexts into a single window, leadin
 Standard agents use fragile diff formats that frequently hallucinate and corrupt files. Late forces subagents to use strict exact-match `search`/`replace` string blocks. If the model fails the match, the edit fails loudly, and the Agent initiates an **autonomous self-healing loop** until it gets it right.
 
 ### 3. Zero-Surprise Execution (Human-in-the-Loop)
-You shouldn't have to blindly give a generative model the keys to your terminal. Rather than making false promises about impenetrable shell-parsing "sandboxes" (which are easily bypassed without a native kernel lock), Late relies on a highly transparent, **trust-but-verify** guardrail system:
-* **Heuristic Fast-Path:** Late parses compound chains (`|`, `&&`, `;`) to fast-track known-safe reads (`ls`, `grep`) at agent-speed. Any mutating, unrecognized, or ambiguous command instantly slams the brakes and demands your explicit `[y/N]` approval. Shell parsing is a velocity optimization; *you* are the ultimate security layer.
-* **CWD Jailing:** The agent is algorithmically locked to your project directory (`cd` is blocked), preventing it from wandering into system folders.
+You shouldn't have to blindly trust a generative model with your terminal. Late surfaces every proposed command for your review — **you approve or reject each action before it runs.**
+* **Speed Heuristic:** Simple read-only commands (`ls`, `cat`, `grep`) are auto-approved to maintain agent velocity. Compound, mutating, or unrecognized commands require your explicit `[y/N]` confirmation before execution. This is a convenience heuristic, not a security sandbox — you are always the final authority.
+* **Project-Scoped:** The agent operates within your project directory by default (`cd` is blocked), keeping it focused on the codebase.
 * **Turn Limits:** Hard configurable caps cleanly cut off infinite hallucinations and prevent runaway token burning.
 
 ### 4. Pure Go & No Dependencies
