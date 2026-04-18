@@ -39,6 +39,7 @@ func main() {
 	gemmaThinkingReq := flag.Bool("gemma-thinking", false, "Prepend <|think|> token to system prompt for Gemma 4 models")
 	subagentMaxTurns := flag.Int("subagent-max-turns", 500, "Maximum number of turns for subagents (default: 500)")
 	appendSystemPromptReq := flag.String("append-system-prompt", "", "Append text to the system prompt after processing")
+	versionReq := flag.Bool("version", false, "Show version")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of late:\n")
@@ -56,6 +57,10 @@ func main() {
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+	if *versionReq {
+		fmt.Printf("late %s\n", common.Version)
+		return
+	}
 
 	if *helpReq {
 		flag.Usage()

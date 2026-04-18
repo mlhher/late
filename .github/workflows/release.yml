@@ -36,7 +36,7 @@ jobs:
           GOARCH: ${{ matrix.arch }}
         run: |
           OUTPUT_NAME=late-${{ matrix.os }}-${{ matrix.arch }}
-          go build -o $OUTPUT_NAME ./cmd/late
+          go build -ldflags "-X late/internal/common.Version=${{ github.ref_name }}" -o $OUTPUT_NAME ./cmd/late
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2

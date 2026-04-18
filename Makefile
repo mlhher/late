@@ -2,10 +2,10 @@
 
 # Project variables
 BINARY_NAME=late
-VERSION?=1.0.0
+VERSION?=1.0.2
 
 # Go compiler flags
-LDFLAGS=-ldflags "-X main.Version=${VERSION}"
+LDFLAGS=-ldflags "-X late/internal/common.Version=${VERSION}"
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)

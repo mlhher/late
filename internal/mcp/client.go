@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"late/internal/common"
 )
 
 // Client manages MCP connections and tools.
@@ -99,7 +100,7 @@ func (t *ToolAdapter) CallString(args json.RawMessage) string {
 func (c *Client) Connect(ctx context.Context, transport mcp.Transport) error {
 	client := mcp.NewClient(&mcp.Implementation{
 		Name:    "late",
-		Version: "1.0.0",
+		Version: common.Version,
 	}, nil)
 
 	session, err := client.Connect(ctx, transport, nil)
