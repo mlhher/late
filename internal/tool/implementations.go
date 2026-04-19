@@ -187,6 +187,13 @@ var whitelistedCommands = map[string]bool{
 // regardless of the base command, because we cannot trust our naive
 // string-split parsing to extract the real commands from the string.
 func containsShellMetacharacters(command string) bool {
+	// Newline / carriage return / NUL: bash -c treats these as command
+	// separators, and our base-command extractor does not split on them.
+	// Without this check, `grep foo\n<payload>` auto-approves on the
+	// basis of `grep` alone.
+	if strings.ContainsAny(command, "\n\r\x00") {
+		return true
+	}
 	// Process substitution: >(cmd) or <(cmd)
 	if strings.Contains(command, ">(") || strings.Contains(command, "<(") {
 		return true
