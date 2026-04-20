@@ -89,6 +89,36 @@ func TestReadFileTool_NoCaching(t *testing.T) {
 	}
 }
 
+func TestReadFileTool_OutputTruncation(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "large_test.txt")
+
+	// Generate a file that exceeds maxReadFileChars
+	var sb strings.Builder
+	for i := 0; i < 1000; i++ {
+		sb.WriteString(fmt.Sprintf("This is line %d and it contains some text to fill up space.\n", i+1))
+	}
+	err := os.WriteFile(filePath, []byte(sb.String()), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewReadFileTool()
+	args := json.RawMessage(`{"path": "` + filePath + `"}`)
+	result, err := tool.Execute(context.Background(), args)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result) > maxReadFileChars+len("... (output truncated)")+100 { // some padding
+		t.Errorf("Output length %d exceeds limit %d", len(result), maxReadFileChars)
+	}
+
+	if !strings.Contains(result, "... (output truncated)") {
+		t.Error("Expected output to contain truncation message")
+	}
+}
+
 func TestBashTool_Execute(t *testing.T) {
 	tests := []struct {
 		name    string

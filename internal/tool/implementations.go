@@ -97,7 +97,12 @@ func (t *ReadFileTool) Execute(ctx context.Context, args json.RawMessage) (strin
 
 	var sb strings.Builder
 	for _, l := range result {
-		sb.WriteString(fmt.Sprintf("%d | %s\n", l.lineNum, l.content))
+		lineStr := fmt.Sprintf("%d | %s\n", l.lineNum, l.content)
+		if sb.Len()+len(lineStr) > maxReadFileChars {
+			sb.WriteString("... (output truncated)")
+			break
+		}
+		sb.WriteString(lineStr)
 	}
 
 	return sb.String(), nil
@@ -226,6 +231,9 @@ func containsShellMetacharacters(command string) bool {
 
 // Maximum number of output lines to prevent memory exhaustion
 const maxBashOutputLines = 1024
+
+// Roughly 8192 tokens (assuming ~4 chars per token)
+const maxReadFileChars = 32768
 
 // isMaliciousCatCommand detects when cat is used with output redirection to write files.
 // Returns true if the command attempts to write using cat shenanigans, false if safe.
