@@ -219,14 +219,15 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 			// Calculate tokens from new content
 			newContentTokens := common.EstimateEventTokens(event)
 
-			// Calculate tokens from history
-			historyTokens := 0
-			for _, msg := range m.Focused.History() {
-				historyTokens += common.EstimateMessageTokens(msg)
+			// Use cached history token count (only recalculate when history changes)
+			history := m.Focused.History()
+			if len(history) != s.CachedHistoryLen {
+				s.CachedHistoryTokens = common.CalculateHistoryTokens(history)
+				s.CachedHistoryLen = len(history)
 			}
 
 			// Update cumulative count
-			s.CumulativeTokenCount = historyTokens + newContentTokens
+			s.CumulativeTokenCount = s.CachedHistoryTokens + newContentTokens
 			s.TokenCount = newContentTokens // Keep current count for display purposes
 
 			// Throttle viewport updates to ~33 FPS during streaming
@@ -243,6 +244,9 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 				}
 				s.StatusText = "Working..."
 				s.StreamingState = common.ContentEvent{ID: event.ID}
+				// Clear streaming render cache for new turn
+				s.StreamingStyledCache = ""
+				s.StreamingChunkCount = 0
 			case "closed":
 				s.State = StateIdle
 				s.StatusText = "Closed"
@@ -264,6 +268,8 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 				s.State = StateIdle
 				s.StatusText = "Ready"
 				s.RenderedHistory = nil
+				s.StreamingStyledCache = ""
+				s.StreamingChunkCount = 0
 			}
 			if event.ID == m.Focused.ID() {
 				m.updateViewport()
@@ -276,6 +282,8 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 			s.State = StateIdle
 			s.StatusText = "Stopped"
 			s.RenderedHistory = nil
+			s.StreamingStyledCache = ""
+			s.StreamingChunkCount = 0
 			if event.ID == m.Focused.ID() {
 				m.updateViewport()
 			}

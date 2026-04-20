@@ -14,16 +14,15 @@ func (m Model) View() string {
 		return ""
 	}
 
-	baseView := appStyle.Width(m.Width).Height(m.Height).Render(
-		lipgloss.JoinVertical(
-			lipgloss.Left,
-			m.Viewport.View(),
-			m.inputView(),
-			m.statusBarView(),
-		),
+	// Avoid expensive appStyle.Width().Height().Render() which forces lipgloss
+	// to parse every ANSI sequence in the output for width/height calculation.
+	// Each component already handles its own sizing and colors.
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		m.Viewport.View(),
+		m.inputView(),
+		m.statusBarView(),
 	)
-
-	return baseView
 }
 
 func (m *Model) inputView() string {
@@ -145,37 +144,11 @@ func (m *Model) updateViewport() {
 				assistantParts = append(assistantParts, thinkingStyle.Width(msgWidth-2).Render(msg.ReasoningContent))
 			}
 			if msg.Content != "" {
-				// Calculate inner width based on message style overhead
-				// Subtract a small buffer to prevent Glamour table borders from being truncated by Lipgloss
 				innerWidth := m.Viewport.Width - AIMsgOverhead - 2
 				if innerWidth < 1 {
 					innerWidth = 1
 				}
-
-				md, _ := m.GetRenderer(innerWidth).Render(msg.Content)
-
-				resetInjection := "\x1b[38;2;85;85;85;48;2;25;25;25m"
-				md = strings.ReplaceAll(md, "\x1b[0m", "\x1b[0m"+resetInjection)
-				md = strings.ReplaceAll(md, "\x1b[m", "\x1b[m"+resetInjection)
-
-				lines := strings.Split(md, "\n")
-				// Style for the inner content (background and a default grey for structural elements like borders)
-				lineStyle := lipgloss.NewStyle().
-					Background(aiMsgBg).
-					Foreground(lipgloss.Color("#555555"))
-
-				// Final width for padding back to the full bubble width
-				fullWidth := m.Viewport.Width - AIMsgOverhead
-
-				for i, line := range lines {
-					if strings.TrimSpace(line) == "" && i == len(lines)-1 {
-						continue
-					}
-					// Ensure the background is applied to the full width without truncating
-					lines[i] = lineStyle.Width(fullWidth).Render(line)
-				}
-				fullMD := lipgloss.JoinVertical(lipgloss.Left, lines...)
-				assistantParts = append(assistantParts, aiMsgStyle.Render(fullMD))
+				assistantParts = append(assistantParts, m.addBorderPadding(m.renderMarkdownBlock(msg.Content, innerWidth)))
 			}
 			for _, tc := range msg.ToolCalls {
 				// Try to use CallString() for meaningful display
@@ -189,7 +162,7 @@ func (m *Model) updateViewport() {
 				}
 				assistantParts = append(assistantParts, tagStyle.Width(msgWidth+1).Render(fmt.Sprintf("◆ %s", callStr)))
 			}
-			rendered = lipgloss.JoinVertical(lipgloss.Left, assistantParts...)
+			rendered = strings.Join(assistantParts, "\n")
 		}
 		// We always append to keep cache in sync with history length
 		s.RenderedHistory = append(s.RenderedHistory, rendered)
@@ -217,29 +190,41 @@ func (m *Model) updateViewport() {
 				innerWidth = 1
 			}
 
-			md, _ := m.GetRenderer(innerWidth).Render(s.StreamingState.Content)
+			// Incremental paragraph-chunked rendering:
+			// Chunks are glamour-rendered once, styled, and APPENDED to a
+			// cached string. The tail (current incomplete paragraph) skips
+			// glamour entirely for speed — just plain text with background.
+			chunks, tail := splitMarkdownChunks(s.StreamingState.Content)
 
-			// Robust fix for transparency and structural color
-			resetInjection := "\x1b[38;2;85;85;85;48;2;25;25;25m"
-			md = strings.ReplaceAll(md, "\x1b[0m", "\x1b[0m"+resetInjection)
-			md = strings.ReplaceAll(md, "\x1b[m", "\x1b[m"+resetInjection)
-
-			lines := strings.Split(md, "\n")
-			lineStyle := lipgloss.NewStyle().
-				Background(aiMsgBg).
-				Foreground(lipgloss.Color("#555555"))
-
-			fullWidth := m.Viewport.Width - AIMsgOverhead
-
-			for i, line := range lines {
-				if strings.TrimSpace(line) == "" && i == len(lines)-1 {
-					continue
+			// Render + style NEW chunks and append to cache
+			for i := s.StreamingChunkCount; i < len(chunks); i++ {
+				rendered := m.renderMarkdownBlock(chunks[i], innerWidth)
+				styled := m.addBorderPadding(rendered)
+				if s.StreamingStyledCache != "" {
+					s.StreamingStyledCache += "\n"
 				}
-				// Ensure the background is applied to the full width
-				lines[i] = lineStyle.Width(fullWidth).Render(line)
+				s.StreamingStyledCache += styled
 			}
-			fullMD := lipgloss.JoinVertical(lipgloss.Left, lines...)
-			activeParts = append(activeParts, aiMsgStyle.Render(fullMD))
+			s.StreamingChunkCount = len(chunks)
+
+			// Render tail as plain text (no glamour — too expensive per frame)
+			var tailStyled string
+			if tail != "" {
+				tailStyled = m.addBorderPadding(m.renderPlainBlock(tail))
+			}
+
+			// Combine: simple string concat, NO lipgloss processing
+			var assembled string
+			if s.StreamingStyledCache != "" && tailStyled != "" {
+				assembled = s.StreamingStyledCache + "\n" + tailStyled
+			} else if s.StreamingStyledCache != "" {
+				assembled = s.StreamingStyledCache
+			} else {
+				assembled = tailStyled
+			}
+			if assembled != "" {
+				activeParts = append(activeParts, assembled)
+			}
 		}
 		for _, tc := range s.StreamingState.ToolCalls {
 			// Try to use CallString() for meaningful display (no trailing ... since CallString adds it)
@@ -254,7 +239,7 @@ func (m *Model) updateViewport() {
 			activeParts = append(activeParts, tagStyle.Width(msgWidth+1).Render(fmt.Sprintf("%s %s", m.Spinner.View(), callStr)))
 		}
 		if len(activeParts) > 0 {
-			blocks = append(blocks, lipgloss.JoinVertical(lipgloss.Left, activeParts...))
+			blocks = append(blocks, strings.Join(activeParts, "\n"))
 		} else if s.State == StateThinking {
 			blocks = append(blocks, thinkingStyle.Render("Thinking..."))
 		}
@@ -272,10 +257,135 @@ func (m *Model) updateViewport() {
 		blocks = append(blocks, thinkingStyle.Foreground(lipgloss.Color("#FF0000")).Render(fmt.Sprintf("Error: %v", m.Err)))
 	}
 
-	fullContent := lipgloss.JoinVertical(lipgloss.Left, blocks...)
+	fullContent := strings.Join(blocks, "\n")
 	atBottom := m.Viewport.AtBottom()
 	m.Viewport.SetContent(fullContent)
 	if atBottom {
 		m.Viewport.GotoBottom()
 	}
+}
+
+// renderMarkdownBlock renders a markdown string through glamour, applies ANSI reset
+// injection for background color consistency, and applies per-line background styling.
+func (m *Model) renderMarkdownBlock(content string, innerWidth int) string {
+	md, _ := m.GetRenderer(innerWidth).Render(content)
+
+	// Replace full resets with a combined reset + color restore as a SINGLE ANSI
+	// sequence. This halves the ANSI sequence count vs the two-sequence approach
+	// (\x1b[0m + \x1b[38;...m), reducing terminal emulator parsing overhead.
+	colorRestore := "\x1b[0;38;2;85;85;85;48;2;25;25;25m"
+	md = strings.ReplaceAll(md, "\x1b[0m", colorRestore)
+	md = strings.ReplaceAll(md, "\x1b[m", colorRestore)
+
+	// Use direct ANSI codes + manual padding instead of per-line lipgloss.Render().
+	// lipgloss.Render() per line is expensive: it parses all ANSI codes, restructures
+	// strings, and generates new wrapper codes. We only need width measurement + padding.
+	lines := strings.Split(md, "\n")
+	fullWidth := m.Viewport.Width - AIMsgOverhead
+	bgPrefix := "\x1b[48;2;25;25;25;38;2;85;85;85m"
+
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" && i == len(lines)-1 {
+			continue
+		}
+		pad := fullWidth - lipgloss.Width(line)
+		if pad < 0 {
+			pad = 0
+		}
+		lines[i] = bgPrefix + line + strings.Repeat(" ", pad)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// splitMarkdownChunks splits markdown content at paragraph boundaries (\n\n)
+// that are NOT inside fenced code blocks. Returns complete paragraphs (stable,
+// cacheable during streaming) and the trailing incomplete content (must be
+// re-rendered each frame).
+func splitMarkdownChunks(content string) (complete []string, tail string) {
+	inFence := false
+	lastSplit := 0
+
+	for i := 0; i < len(content); i++ {
+		// Detect code fence toggles at line starts
+		if (i == 0 || content[i-1] == '\n') && i+3 <= len(content) && content[i:i+3] == "```" {
+			inFence = !inFence
+		}
+		// Split at \n\n outside code fences
+		if !inFence && i+1 < len(content) && content[i] == '\n' && content[i+1] == '\n' {
+			complete = append(complete, content[lastSplit:i+2])
+			lastSplit = i + 2
+		}
+	}
+	tail = content[lastSplit:]
+	return
+}
+
+// renderPlainBlock renders text with word wrapping and background color per line.
+// No glamour, no markdown parsing, no syntax highlighting. Used for the streaming
+// tail where speed is critical — glamour rendering is deferred until the message
+// moves to history.
+func (m *Model) renderPlainBlock(content string) string {
+	fullWidth := m.Viewport.Width - AIMsgOverhead
+	if fullWidth < 1 {
+		fullWidth = 80
+	}
+	bgPrefix := "\x1b[48;2;25;25;25;38;2;236;240;241m"
+
+	// Word-wrap then style. Since content is plain text (no ANSI codes),
+	// we can use simple rune counting for wrapping — essentially free.
+	wrapped := wordWrap(content, fullWidth)
+	lines := strings.Split(wrapped, "\n")
+
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" && i == len(lines)-1 {
+			continue
+		}
+		pad := fullWidth - len(line)
+		if pad < 0 {
+			pad = 0
+		}
+		lines[i] = bgPrefix + line + strings.Repeat(" ", pad)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// wordWrap wraps plain text at word boundaries to fit within maxWidth columns.
+func wordWrap(text string, maxWidth int) string {
+	var result strings.Builder
+	for _, paragraph := range strings.Split(text, "\n") {
+		if result.Len() > 0 {
+			result.WriteByte('\n')
+		}
+		lineLen := 0
+		words := strings.Fields(paragraph)
+		for j, word := range words {
+			wLen := len(word)
+			if lineLen > 0 && lineLen+1+wLen > maxWidth {
+				result.WriteByte('\n')
+				lineLen = 0
+			}
+			if lineLen > 0 {
+				result.WriteByte(' ')
+				lineLen++
+			}
+			result.WriteString(word)
+			lineLen += wLen
+			_ = j
+		}
+	}
+	return result.String()
+}
+
+// addBorderPadding applies the AI message left border and padding as simple
+// string operations — no lipgloss. This replaces aiMsgStyle.Render() in the
+// streaming path to avoid per-frame ANSI parsing of the entire content.
+func (m *Model) addBorderPadding(content string) string {
+	lines := strings.Split(content, "\n")
+	// Purple border char + padding, matching aiMsgStyle's visual appearance
+	borderPrefix := " \x1b[35m│\x1b[0;48;2;25;25;25;38;2;85;85;85m    "
+
+	for i, line := range lines {
+		lines[i] = borderPrefix + line
+	}
+	return strings.Join(lines, "\n")
 }

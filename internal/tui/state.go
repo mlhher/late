@@ -50,6 +50,14 @@ type AppState struct {
 	TokenCount              int      // Estimated token count for current streaming content
 	CumulativeTokenCount    int      // Total tokens accumulated across entire session (all messages)
 	LastRenderTime          int64    // Unix milliseconds of the last render during streaming
+
+	// Streaming render cache: paragraph-chunked incremental rendering
+	StreamingStyledCache string // Fully assembled + styled output of all completed paragraphs
+	StreamingChunkCount  int    // Number of complete source paragraphs already rendered
+
+	// History token cache
+	CachedHistoryTokens int // Cached total token count for completed history
+	CachedHistoryLen    int // History length when tokens were last computed
 }
 
 type Model struct {
@@ -74,6 +82,10 @@ type Model struct {
 
 	// Active spinner animation
 	Spinner spinner.Model
+
+	// Cached glamour renderer (avoids re-allocation on every render call)
+	cachedRenderer      *glamour.TermRenderer
+	cachedRendererWidth int
 }
 
 func (m *Model) GetAgentState(id string) *AppState {

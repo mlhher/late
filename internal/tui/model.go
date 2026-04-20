@@ -64,6 +64,7 @@ func NewModel(root common.Orchestrator, renderer *glamour.TermRenderer) Model {
 		AgentStates:    make(map[string]*AppState),
 		InspectingTool: false,
 		Spinner:        spinner.New(spinner.WithSpinner(spinner.Dot)),
+		cachedRendererWidth: -1, // Force first creation
 	}
 	// Initialize root state
 	history := root.History()
@@ -80,15 +81,20 @@ func NewModel(root common.Orchestrator, renderer *glamour.TermRenderer) Model {
 	return m
 }
 
-func (m Model) GetRenderer(width int) *glamour.TermRenderer {
+func (m *Model) GetRenderer(width int) *glamour.TermRenderer {
 	if width < 1 {
 		width = 80
+	}
+	if m.cachedRenderer != nil && m.cachedRendererWidth == width {
+		return m.cachedRenderer
 	}
 	r, _ := glamour.NewTermRenderer(
 		glamour.WithStylesFromJSONBytes(LateTheme),
 		glamour.WithWordWrap(width),
 		glamour.WithPreservedNewLines(),
 	)
+	m.cachedRenderer = r
+	m.cachedRendererWidth = width
 	return r
 }
 
