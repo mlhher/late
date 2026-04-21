@@ -170,7 +170,7 @@ func (t WriteFileTool) CallString(args json.RawMessage) string {
 	return fmt.Sprintf("Writing to file %s", truncate(path, 50))
 }
 
-// Commands that do not require user confirmation for BashTool.
+// Commands that do not require user confirmation for ShellTool.
 // Only genuinely read-only commands belong here.
 var whitelistedCommands = map[string]bool{
 	"grep":   true,
@@ -192,7 +192,7 @@ var whitelistedCommands = map[string]bool{
 // regardless of the base command, because we cannot trust our naive
 // string-split parsing to extract the real commands from the string.
 func containsShellMetacharacters(command string) bool {
-	// Newline / carriage return / NUL: bash -c treats these as command
+	// Newline / carriage return / NUL: shell -c treats these as command
 	// separators, and our base-command extractor does not split on them.
 	// Without this check, `grep foo\n<payload>` auto-approves on the
 	// basis of `grep` alone.
@@ -280,7 +280,7 @@ func isMaliciousCatCommand(command string) (bool, error) {
 	return false, nil
 }
 
-// isCdCommand detects when a bash command contains `cd` to change directories.
+// isCdCommand detects when a shell command contains `cd` to change directories.
 // Returns true if the command attempts to change directories, false if safe.
 // Returns an error with instructions on using the `cwd` parameter instead.
 func isCdCommand(command string) (bool, error) {
@@ -299,15 +299,15 @@ func isCdCommand(command string) (bool, error) {
 	re := regexp.MustCompile(pattern)
 
 	if re.MatchString(cleanCmd) {
-		return true, fmt.Errorf("Do not use `cd` to change directories. Use the `cwd` parameter in the bash tool instead.")
+		return true, fmt.Errorf("Do not use `cd` to change directories. Use the `cwd` parameter in the shell tool instead.")
 	}
 
 	return false, nil
 }
 
-// ValidateBashCommand validates bash commands before execution.
+// ValidateBashCommand validates shell commands before execution.
 // Returns an error if the command uses malicious patterns like cat shenanigans or cd commands.
-func (t *BashTool) ValidateBashCommand(command string) error {
+func (t *ShellTool) ValidateBashCommand(command string) error {
 	// Check for malicious cat commands
 	isMalicious, err := isMaliciousCatCommand(command)
 	if isMalicious {
@@ -324,7 +324,7 @@ func (t *BashTool) ValidateBashCommand(command string) error {
 }
 
 // WrapError wraps a validation error with descriptive guidance based on the orchestrator ID.
-func (t *BashTool) WrapError(ctx context.Context, err error) error {
+func (t *ShellTool) WrapError(ctx context.Context, err error) error {
 	if err == nil {
 		return nil
 	}
@@ -333,7 +333,7 @@ func (t *BashTool) WrapError(ctx context.Context, err error) error {
 
 	var errorMsg string
 	if strings.Contains(strings.ToLower(orchestratorID), "coder") {
-		errorMsg = fmt.Sprintf("Do not use bash commands like `cat > file` or `echo > file` to write files. Use the native `write_file` or `target_edit` tools instead. %s", err.Error())
+		errorMsg = fmt.Sprintf("Do not use host-native shell commands like `cat > file` or `echo > file` to write files. Use the native `write_file` or `target_edit` tools instead. %s", err.Error())
 	} else {
 		errorMsg = fmt.Sprintf("You are an architect/planner agent. You cannot write files. To modify files, you must spawn a coder subagent using `spawn_subagent` tool. %s", err.Error())
 	}
@@ -341,9 +341,9 @@ func (t *BashTool) WrapError(ctx context.Context, err error) error {
 	return fmt.Errorf("%s", errorMsg)
 }
 
-// IsCommandBlocked checks if a bash command should be blocked entirely (not asked for confirmation).
+// IsCommandBlocked checks if a shell command should be blocked entirely (not asked for confirmation).
 // Returns true and an error if the command is blocked (e.g., cd commands).
-func (t *BashTool) IsCommandBlocked(command string) (bool, error) {
+func (t *ShellTool) IsCommandBlocked(command string) (bool, error) {
 	// Block cd commands immediately - they should never be confirmed, only rejected
 	isCd, err := isCdCommand(command)
 	if isCd {
@@ -359,7 +359,7 @@ func (t *BashTool) IsCommandBlocked(command string) (bool, error) {
 	return false, nil
 }
 
-// getAllBaseCommands splits a compound bash command into individual segments
+// getAllBaseCommands splits a compound shell command into individual segments
 // and extracts the base command (first word) from each segment.
 // For example: "echo foo; wget url | cat" returns ["echo", "wget", "cat"]
 //
@@ -401,24 +401,24 @@ func getAllBaseCommands(command string) []string {
 	return commands
 }
 
-// BashTool executes a bash command with security restrictions.
-type BashTool struct{}
+// ShellTool executes host-native shell commands with security restrictions.
+type ShellTool struct{}
 
-func (t BashTool) Name() string { return "bash" }
-func (t BashTool) Description() string {
-	return "Execute a bash command."
+func (t ShellTool) Name() string { return "bash" }
+func (t ShellTool) Description() string {
+	return "Execute host-native shell commands."
 }
-func (t BashTool) Parameters() json.RawMessage {
+func (t ShellTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"command": { "type": "string", "description": "The full command to execute." },
+			"command": { "type": "string", "description": "The full host-native shell command to execute." },
 			"cwd": { "type": "string", "description": "Working directory for execution. Use this instead of 'cd' commands to change directories." }
 		},
 		"required": ["command"]
 	}`)
 }
-func (t BashTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
+func (t ShellTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
 		Command string `json:"command"`
 		Cwd     string `json:"cwd"`
@@ -467,7 +467,7 @@ func (t BashTool) Execute(ctx context.Context, args json.RawMessage) (string, er
 
 	return strings.Join(lines, "\n"), nil
 }
-func (t BashTool) RequiresConfirmation(args json.RawMessage) bool {
+func (t ShellTool) RequiresConfirmation(args json.RawMessage) bool {
 	var params struct {
 		Command string `json:"command"`
 	}
@@ -494,7 +494,7 @@ func (t BashTool) RequiresConfirmation(args json.RawMessage) bool {
 	return false
 }
 
-func (t BashTool) CallString(args json.RawMessage) string {
+func (t ShellTool) CallString(args json.RawMessage) string {
 	var params struct {
 		Command string `json:"command"`
 		Cwd     string `json:"cwd"`

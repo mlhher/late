@@ -72,9 +72,9 @@ func TUIConfirmMiddleware(messenger Messenger, reg *common.ToolRegistry) common.
 						return next(ctx, tc)
 					}
 
-					// For BashTool, check if the command is blocked (e.g., cd commands)
+					// For ShellTool, check if the command is blocked (e.g., cd commands)
 					// Blocked commands should be rejected immediately without asking for confirmation
-					if bashTool, ok := t.(*tool.BashTool); ok {
+					if bashTool, ok := t.(*tool.ShellTool); ok {
 						var params struct {
 							Command string `json:"command"`
 						}

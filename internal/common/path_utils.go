@@ -17,11 +17,11 @@ func LateConfigDir() (string, error) {
 func LateSessionDir() (string, error) {
 	if runtime.GOOS == "windows" {
 		// Use UserConfigDir on Windows to keep all app state under AppData.
-		configDir, err := LateConfigDir()
+		lateConfigDir, err := LateConfigDir()
 		if err != nil {
 			return "", err
 		}
-		return filepath.Join(configDir, "sessions"), nil
+		return filepath.Join(lateConfigDir, "sessions"), nil
 	}
 
 	homeDir, err := os.UserHomeDir()
@@ -38,9 +38,9 @@ func LateProjectMCPConfigPath() string {
 }
 
 func LateUserMCPConfigPath() (string, error) {
-	configDir, err := LateConfigDir()
+	lateConfigDir, err := LateConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(configDir, "mcp_config.json"), nil
+	return filepath.Join(lateConfigDir, "mcp_config.json"), nil
 }
