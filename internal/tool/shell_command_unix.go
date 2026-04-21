@@ -15,10 +15,15 @@ var (
 
 func getUnixShellPath() string {
 	unixShellPathOnce.Do(func() {
-		unixShellPath = "bash"
-		if _, err := exec.LookPath(unixShellPath); err != nil {
-			unixShellPath = "sh"
+		if shellPath, err := exec.LookPath("bash"); err == nil {
+			unixShellPath = shellPath
+			return
 		}
+		if shellPath, err := exec.LookPath("sh"); err == nil {
+			unixShellPath = shellPath
+			return
+		}
+		unixShellPath = "sh"
 	})
 	return unixShellPath
 }

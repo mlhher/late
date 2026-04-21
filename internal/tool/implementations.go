@@ -364,8 +364,9 @@ func (t *BashTool) IsCommandBlocked(command string) (bool, error) {
 // For example: "echo foo; wget url | cat" returns ["echo", "wget", "cat"]
 //
 // Note: This function does NOT handle quoted strings or subshells.
-// For example: echo 'hello && goodbye' ; ls  → ["echo", "goodbye'", "ls"]
-// For example: echo foo; (cd /tmp && ls)      → ["echo", "(cd", "ls"]
+// Examples:
+// - echo 'hello && goodbye' ; ls  → ["echo", "goodbye'", "ls"]
+// - echo foo; (cd /tmp && ls)     → ["echo", "(cd", "ls"]
 // These edge cases currently cause over-confirmation (safer than under-confirmation).
 func getAllBaseCommands(command string) []string {
 	var commands = []string{}
