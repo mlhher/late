@@ -27,7 +27,7 @@ Late operates within your current working directory. Always launch it from the r
 
 ## Interface
 
-Late is a terminal UI with three areas: the **chat viewport** (scrollable history), the **input bar** (bottom), and the **status bar** (shows mode, status, token count, and available keybindings).
+Late is a terminal UI with three areas: the **chat viewport** (scrollable history), the **input box** (bottom), and the **status bar** (shows mode, status, token count, and available keybindings).
 
 ### Keybindings
 
@@ -91,7 +91,7 @@ The agent wants to execute bash.
 | `--version` | Show version information |
 | `--gemma-thinking` | Enable thinking tokens for Gemma 4 models |
 | `--subagent-max-turns <n>` | Set max turns per subagent (default: 500) |
-| `--append-system-prompt "..."` | Append text to the system prompt |
+| `--append-system-prompt "..."` | Append text to the system prompt (e.g. further instructions) |
 
 ## Sessions
 
