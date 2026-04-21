@@ -13,7 +13,7 @@ var (
 	unixShellPathOnce sync.Once
 )
 
-func detectedUnixShellPath() string {
+func getUnixShellPath() string {
 	unixShellPathOnce.Do(func() {
 		unixShellPath = "bash"
 		if _, err := exec.LookPath(unixShellPath); err != nil {
@@ -24,5 +24,5 @@ func detectedUnixShellPath() string {
 }
 
 func newShellCommand(ctx context.Context, command string) *exec.Cmd {
-	return exec.CommandContext(ctx, detectedUnixShellPath(), "-c", command)
+	return exec.CommandContext(ctx, getUnixShellPath(), "-c", command)
 }
