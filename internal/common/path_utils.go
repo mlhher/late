@@ -30,6 +30,8 @@ func LateSessionDir() (string, error) {
 	return filepath.Join(homeDir, ".local", "share", "late", "sessions"), nil
 }
 
+// LateProjectMCPConfigPath resolves the project-local MCP config path
+// relative to the current working directory.
 func LateProjectMCPConfigPath() string {
 	return filepath.Join(".late", "mcp_config.json")
 }

@@ -8,5 +8,9 @@ import (
 )
 
 func newShellCommand(ctx context.Context, command string) *exec.Cmd {
-	return exec.CommandContext(ctx, "bash", "-c", command)
+	shell := "bash"
+	if _, err := exec.LookPath(shell); err != nil {
+		shell = "sh"
+	}
+	return exec.CommandContext(ctx, shell, "-c", command)
 }
