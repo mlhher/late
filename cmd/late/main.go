@@ -158,6 +158,7 @@ func main() {
 	modelName := os.Getenv("OPENAI_MODEL")
 	cfg := client.Config{BaseURL: baseURL, APIKey: apiKey, Model: modelName}
 	c := client.NewClient(cfg)
+	c.DiscoverBackend(context.Background())
 
 	// Initialize MCP client
 	mcpClient := mcp.NewClient()

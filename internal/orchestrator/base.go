@@ -109,9 +109,12 @@ func (o *BaseOrchestrator) Execute(text string) (string, error) {
 	}()
 
 	// Build extra body
-	extraBody := map[string]any{
-		"id_slot":      1,
-		"cache_prompt": false,
+	var extraBody map[string]any
+	if o.sess.IsLlamaCPP() {
+		extraBody = map[string]any{
+			"id_slot":      1,
+			"cache_prompt": false,
+		}
 	}
 
 	onStartTurn := func() {
@@ -161,9 +164,12 @@ func (o *BaseOrchestrator) Execute(text string) (string, error) {
 
 func (o *BaseOrchestrator) run() {
 	// Build extra body
-	extraBody := map[string]any{
-		"id_slot":      1,
-		"cache_prompt": false,
+	var extraBody map[string]any
+	if o.sess.IsLlamaCPP() {
+		extraBody = map[string]any{
+			"id_slot":      1,
+			"cache_prompt": false,
+		}
 	}
 
 	o.mu.Lock()

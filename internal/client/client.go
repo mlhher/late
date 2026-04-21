@@ -18,14 +18,24 @@ type Config struct {
 	Timeout time.Duration
 }
 
+type BackendType string
+
+const (
+	BackendUnknown       BackendType = "unknown"
+	BackendLlamaCPP      BackendType = "llama.cpp"
+	BackendGenericOpenAI BackendType = "openai"
+)
+
 type Client struct {
 	cfg        Config
 	httpClient *http.Client
+	backend    BackendType
 }
 
 func NewClient(cfg Config) *Client {
 	return &Client{
-		cfg: cfg,
+		cfg:     cfg,
+		backend: BackendUnknown,
 		httpClient: &http.Client{
 			Transport: &http.Transport{
 				DisableKeepAlives: true,
@@ -176,9 +186,14 @@ func (c *Client) Completion(ctx context.Context, req CompletionRequest) (*Comple
 	return &completionResp, nil
 }
 
-// HealthCheck asserts that the llama.cpp server is reachable.
+// HealthCheck asserts that the server is reachable and identifies its type.
 func (c *Client) HealthCheck(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.cfg.BaseURL+"/health", nil)
+	if c.backend == BackendUnknown {
+		_ = c.DiscoverBackend(ctx)
+	}
+
+	url := strings.TrimSuffix(c.cfg.BaseURL, "/") + "/health"
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return err
 	}
@@ -191,4 +206,37 @@ func (c *Client) HealthCheck(ctx context.Context) error {
 		return fmt.Errorf("status: %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// DiscoverBackend probes certain endpoints to identify the inference engine.
+func (c *Client) DiscoverBackend(ctx context.Context) BackendType {
+	url := strings.TrimSuffix(c.cfg.BaseURL, "/") + "/props"
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		c.backend = BackendGenericOpenAI
+		return c.backend
+	}
+
+	if c.cfg.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.backend = BackendGenericOpenAI
+		return c.backend
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		c.backend = BackendLlamaCPP
+	} else {
+		c.backend = BackendGenericOpenAI
+	}
+
+	return c.backend
+}
+
+func (c *Client) IsLlamaCPP() bool {
+	return c.backend == BackendLlamaCPP
 }

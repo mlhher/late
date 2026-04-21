@@ -273,3 +273,11 @@ func (s *Session) saveAndNotify() error {
 	}
 	return s.UpdateSessionMetadata()
 }
+
+func (s *Session) Client() *client.Client {
+	return s.client
+}
+
+func (s *Session) IsLlamaCPP() bool {
+	return s.client.IsLlamaCPP()
+}
