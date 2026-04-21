@@ -296,11 +296,6 @@ func (m *Model) renderMarkdownBlock(content string, innerWidth int) string {
 	fullWidth := m.Viewport.Width - AIMsgOverhead
 	bgPrefix := "\x1b[48;2;25;25;25;38;2;85;85;85m"
 
-	// Remove trailing empty lines from glamour output. Without this, empty
-	// strings stay in the array unstyled and create transparent ghost lines.
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
-	}
 
 	for i, line := range lines {
 		pad := fullWidth - lipgloss.Width(line)
@@ -351,10 +346,6 @@ func (m *Model) renderPlainBlock(content string) string {
 	wrapped := wordWrap(content, fullWidth)
 	lines := strings.Split(wrapped, "\n")
 
-	// Remove trailing empty lines
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
-	}
 
 	for i, line := range lines {
 		pad := fullWidth - len(line)
