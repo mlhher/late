@@ -166,7 +166,7 @@ func TestBashTool_Execute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tool := BashTool{}
+			tool := ShellTool{}
 			out, err := tool.Execute(context.Background(), tt.params)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Execute() error = %v, wantErr %v", err, tt.wantErr)
@@ -195,7 +195,7 @@ func TestBashTool_CWDParameter(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	tool := BashTool{}
+	tool := ShellTool{}
 
 	// Test with custom cwd
 	params := json.RawMessage(fmt.Sprintf(`{"command": "pwd", "cwd": "%s"}`, tmpDir))
@@ -209,7 +209,7 @@ func TestBashTool_CWDParameter(t *testing.T) {
 }
 
 func TestBashTool_MultipleArgs(t *testing.T) {
-	tool := BashTool{}
+	tool := ShellTool{}
 
 	// Test with multiple arguments
 	params := json.RawMessage(`{"command": "echo arg1 arg2 arg3"}`)
@@ -227,7 +227,7 @@ func TestBashTool_MultipleArgs(t *testing.T) {
 }
 
 func TestBashTool_OutputTruncation(t *testing.T) {
-	tool := BashTool{}
+	tool := ShellTool{}
 
 	// Create a command that outputs more than 1024 lines
 	// Using seq to generate numbers 1-2000
@@ -250,7 +250,7 @@ func TestBashTool_OutputTruncation(t *testing.T) {
 }
 
 func TestBashTool_UnsafeCWD(t *testing.T) {
-	tool := BashTool{}
+	tool := ShellTool{}
 
 	// Try to use an unsafe cwd (outside CWD)
 	// This should fail if we're not running from root
@@ -277,7 +277,7 @@ func TestBashTool_UnsafeCWD(t *testing.T) {
 }
 
 func TestBashTool_DefaultCWD(t *testing.T) {
-	tool := BashTool{}
+	tool := ShellTool{}
 
 	// Execute without cwd parameter - should use current directory
 	params := json.RawMessage(`{"command": "pwd"}`)
@@ -327,7 +327,7 @@ func TestBashTool_CallString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tool := BashTool{}
+			tool := ShellTool{}
 			result := tool.CallString(tt.params)
 			if result != tt.expected {
 				t.Errorf("CallString() = %q, want %q", result, tt.expected)
@@ -431,7 +431,7 @@ func TestBashTool_MaliciousCatCommands(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tool := BashTool{}
+			tool := ShellTool{}
 			err := tool.ValidateBashCommand(tt.command)
 
 			if tt.shouldBlock {
@@ -451,7 +451,7 @@ func TestBashTool_MaliciousCatCommands(t *testing.T) {
 
 func TestBashTool_ValidationMessages(t *testing.T) {
 	// Test that error messages are helpful and guide agents
-	tool := BashTool{}
+	tool := ShellTool{}
 
 	// Test blocked command
 	err := tool.ValidateBashCommand("cat > test.txt")
@@ -624,7 +624,7 @@ func TestBashTool_RequiresConfirmation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tool := BashTool{}
+			tool := ShellTool{}
 			result := tool.RequiresConfirmation(tt.params)
 			if result != tt.expected {
 				t.Errorf("RequiresConfirmation(%s) = %v, want %v", string(tt.params), result, tt.expected)

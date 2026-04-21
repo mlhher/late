@@ -23,7 +23,7 @@ func (m *mockMessenger) Send(msg tea.Msg) {
 func TestTUIConfirmMiddleware_SkipConfirmation(t *testing.T) {
 	messenger := &mockMessenger{}
 	reg := common.NewToolRegistry()
-	bashTool := &tool.BashTool{}
+	bashTool := &tool.ShellTool{}
 	reg.Register(bashTool)
 
 	middleware := TUIConfirmMiddleware(messenger, reg)
