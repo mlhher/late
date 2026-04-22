@@ -16,6 +16,18 @@ export OPENAI_API_KEY="your-key"
 export OPENAI_MODEL="your-model"
 ```
 
+You can also store the same values in Late's app config file. Environment variables override `config.json` when both are present.
+
+Windows config path: `%AppData%/late/config.json`
+
+```json
+{
+  "openai_base_url": "http://localhost:8080",
+  "openai_api_key": "your-key",
+  "openai_model": "your-model"
+}
+```
+
 **2. Launch Late from your project directory:**
 
 ```bash

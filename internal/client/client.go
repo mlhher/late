@@ -6,10 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	appconfig "late/internal/config"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
+
+const DefaultBaseURL = "http://localhost:8080"
 
 type Config struct {
 	BaseURL string
@@ -21,6 +25,49 @@ type Config struct {
 type Client struct {
 	cfg        Config
 	httpClient *http.Client
+}
+
+type EnvLookup func(string) (string, bool)
+
+func ResolveConfig(cfg *appconfig.Config) Config {
+	return ResolveConfigWithEnv(cfg, os.LookupEnv)
+}
+
+func ResolveConfigWithEnv(cfg *appconfig.Config, lookup EnvLookup) Config {
+	resolved := Config{BaseURL: DefaultBaseURL}
+
+	if cfg != nil {
+		if cfg.OpenAIBaseURL != "" {
+			resolved.BaseURL = cfg.OpenAIBaseURL
+		}
+		resolved.APIKey = cfg.OpenAIAPIKey
+		resolved.Model = cfg.OpenAIModel
+	}
+
+	if value, ok := nonEmptyEnv(lookup, "OPENAI_BASE_URL"); ok {
+		resolved.BaseURL = value
+	}
+	if value, ok := nonEmptyEnv(lookup, "OPENAI_API_KEY"); ok {
+		resolved.APIKey = value
+	}
+	if value, ok := nonEmptyEnv(lookup, "OPENAI_MODEL"); ok {
+		resolved.Model = value
+	}
+
+	return resolved
+}
+
+func nonEmptyEnv(lookup EnvLookup, key string) (string, bool) {
+	if lookup == nil {
+		return "", false
+	}
+
+	value, ok := lookup(key)
+	if !ok || value == "" {
+		return "", false
+	}
+
+	return value, true
 }
 
 func NewClient(cfg Config) *Client {

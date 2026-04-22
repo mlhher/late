@@ -62,6 +62,16 @@ export OPENAI_BASE_URL="http://localhost:8080"
 # export OPENAI_MODEL="qwen3.5-35b-a3b"
 ```
 
+Late can also read those values from `config.json` in the Late config directory. Environment variables take precedence over `config.json` when both are set. On Windows that directory resolves to `%AppData%/late`.
+
+```json
+{
+	"openai_base_url": "http://localhost:8080",
+	"openai_api_key": "your-key",
+	"openai_model": "qwen3.5-35b-a3b"
+}
+```
+
 **3. Execute**
 
 ```bash

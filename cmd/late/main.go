@@ -149,16 +149,6 @@ func main() {
 		history = []client.ChatMessage{}
 	}
 
-	// Initialize Core Components
-	baseURL := os.Getenv("OPENAI_BASE_URL")
-	if baseURL == "" {
-		baseURL = "http://localhost:8080"
-	}
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	modelName := os.Getenv("OPENAI_MODEL")
-	cfg := client.Config{BaseURL: baseURL, APIKey: apiKey, Model: modelName}
-	c := client.NewClient(cfg)
-
 	// Initialize MCP client
 	mcpClient := mcp.NewClient()
 	defer mcpClient.Close()
@@ -188,6 +178,10 @@ func main() {
 			enabledTools[toolName] = enabled
 		}
 	}
+
+	// Initialize Core Components
+	resolvedClientConfig := client.ResolveConfig(appConfig)
+	c := client.NewClient(resolvedClientConfig)
 
 	// Flag overrides
 	if !*enableBashReq {
