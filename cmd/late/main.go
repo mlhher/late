@@ -160,6 +160,27 @@ func main() {
 	c := client.NewClient(cfg)
 	c.DiscoverBackend(context.Background())
 
+	// Initialize Subagent Client
+	subModelName := os.Getenv("SUBAGENT_MODEL")
+	subBaseURL := os.Getenv("SUBAGENT_BASE_URL")
+	if subBaseURL == "" {
+		subBaseURL = baseURL
+	}
+	subAPIKey := os.Getenv("SUBAGENT_API_KEY")
+	if subAPIKey == "" {
+		subAPIKey = apiKey
+	}
+
+	subagentClient := c
+	if subModelName != "" {
+		subagentClient = client.NewClient(client.Config{
+			BaseURL: subBaseURL,
+			APIKey:  subAPIKey,
+			Model:   subModelName,
+		})
+		subagentClient.DiscoverBackend(context.Background())
+	}
+
 	// Initialize MCP client
 	mcpClient := mcp.NewClient()
 	defer mcpClient.Close()
@@ -244,7 +265,7 @@ func main() {
 
 	if *enableSubagentsReq {
 		runner := func(ctx context.Context, goal string, ctxFiles []string, agentType string) (string, error) {
-			child, err := agent.NewSubagentOrchestrator(c, goal, ctxFiles, agentType, enabledTools, *injectCWDReq, *gemmaThinkingReq, *subagentMaxTurns, rootAgent, p)
+			child, err := agent.NewSubagentOrchestrator(subagentClient, goal, ctxFiles, agentType, enabledTools, *injectCWDReq, *gemmaThinkingReq, *subagentMaxTurns, rootAgent, p)
 			if err != nil {
 				return "", err
 			}
