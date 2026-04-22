@@ -14,24 +14,14 @@ func (m Model) View() string {
 		return ""
 	}
 
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		m.Viewport.View(),
-		m.inputView(),
-		m.statusBarView(),
+	return appStyle.Width(m.Width).Height(m.Height).Render(
+		lipgloss.JoinVertical(
+			lipgloss.Left,
+			m.Viewport.View(),
+			m.inputView(),
+			m.statusBarView(),
+		),
 	)
-
-	// Fill each line's remaining width with our dark background using the
-	// terminal's Erase-in-Line sequence. This only processes ~40-50 lines
-	// (terminal height) so it's negligible — unlike the old appStyle.Render
-	// which parsed ANSI codes in the entire viewport content.
-	bg := "\x1b[48;2;25;25;25m"
-	eolFill := "\x1b[48;2;25;25;25m\x1b[K"
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		lines[i] = bg + line + eolFill
-	}
-	return strings.Join(lines, "\n")
 }
 
 func (m *Model) inputView() string {
@@ -296,7 +286,6 @@ func (m *Model) renderMarkdownBlock(content string, innerWidth int) string {
 	fullWidth := m.Viewport.Width - AIMsgOverhead
 	bgPrefix := "\x1b[48;2;25;25;25;38;2;85;85;85m"
 
-
 	for i, line := range lines {
 		pad := fullWidth - lipgloss.Width(line)
 		if pad < 0 {
@@ -345,7 +334,6 @@ func (m *Model) renderPlainBlock(content string) string {
 	// we can use simple rune counting for wrapping — essentially free.
 	wrapped := wordWrap(content, fullWidth)
 	lines := strings.Split(wrapped, "\n")
-
 
 	for i, line := range lines {
 		pad := fullWidth - len(line)
