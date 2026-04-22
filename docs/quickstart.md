@@ -27,7 +27,7 @@ Late operates within your current working directory. Always launch it from the r
 
 > **Note:** On macOS, you may need to run `xattr -d com.apple.quarantine /correct/location/of/the/downloaded/late` first. Make sure to use the correct path to the binary.
 
-> **Note:** While there is no native Windows support yet, you can use Late on Windows with WSL. Windows support is being tracked in [issue #6](https://github.com/mlhher/late/issues/6).
+> **Note:** Native Windows support is now available but is currently **experimental**. If you experience issues please open an issue.
 
 ## Interface
 

@@ -50,12 +50,13 @@ Natively supports both thinking and non-thinking models (including extra support
 ## 🚀 Quick Start (Zero Dependencies)
 
 **1. Download the Binary**
-Grab the latest single-binary release for your OS (Linux/macOS) from the [Releases](https://github.com/mlhher/late/releases) page.
+Grab the latest single-binary release for your OS (Linux/macOS/Windows) from the [Releases](https://github.com/mlhher/late/releases) page.
 
 ```bash
 chmod +x late-linux-amd64  # (Adjust for your downloaded filename)
 mv late-linux-amd64 ~/.local/bin/late # Ensure ~/.local/bin is in your system's $PATH
 ```
+> **Note for Windows users:** Native Windows binaries (`.exe`) are now available but are **experimental**. Alternatively, Late also works on Windows via WSL.
 
 **2. Point to Your Model**
 Point Late to any OpenAI-compatible API endpoint (local or cloud).
