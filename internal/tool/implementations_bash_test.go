@@ -175,7 +175,7 @@ func TestValidateBashCommand(t *testing.T) {
 		},
 	}
 
-	tool := BashTool{}
+	tool := ShellTool{}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -279,7 +279,7 @@ func TestValidateBashCommandEdgeCases(t *testing.T) {
 		},
 	}
 
-	tool := BashTool{}
+	tool := ShellTool{}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -414,7 +414,7 @@ func TestIsCdCommand_NonCdCommands(t *testing.T) {
 
 // TestValidateBashCommand_Comprehensive tests comprehensive validation scenarios
 func TestValidateBashCommand_Comprehensive(t *testing.T) {
-	tool := BashTool{}
+	tool := ShellTool{}
 
 	// Test all malicious cat patterns
 	maliciousPatterns := []string{
@@ -498,7 +498,7 @@ func TestValidateBashCommand_Comprehensive(t *testing.T) {
 
 // TestValidateBashCommand_ErrorMessages tests that error messages are informative
 func TestValidateBashCommand_ErrorMessages(t *testing.T) {
-	tool := BashTool{}
+	tool := ShellTool{}
 
 	// Test cd command error message
 	err := tool.ValidateBashCommand("cd /tmp")
@@ -537,9 +537,9 @@ func contains(s, substr string) bool {
 // TestGetAllBaseCommands tests the getAllBaseCommands helper function
 func TestGetAllBaseCommands(t *testing.T) {
 	tests := []struct {
-		name   string
-		input  string
-		want   []string
+		name  string
+		input string
+		want  []string
 	}{
 		{"simple command", "wget url", []string{"wget"}},
 		{"semicolon compound", "echo foo; wget url", []string{"echo", "wget"}},
