@@ -25,6 +25,10 @@ late
 
 Late operates within your current working directory. Always launch it from the root of the project you want to work on.
 
+> **Note:** On macOS, you may need to run `xattr -d com.apple.quarantine /correct/location/of/the/downloaded/late` first. Make sure to use the correct path to the binary.
+
+> **Note:** While there is no native Windows support yet, you can use Late on Windows with WSL. Windows support is being tracked in [issue #6](https://github.com/mlhher/late/issues/6).
+
 ## Interface
 
 Late is a terminal UI with three areas: the **chat viewport** (scrollable history), the **input box** (bottom), and the **status bar** (shows mode, status, token count, and available keybindings).
@@ -89,7 +93,7 @@ The agent wants to execute bash.
 | --- | --- |
 | `--help` | Show all flags and commands |
 | `--version` | Show version information |
-| `--gemma-thinking` | Enable thinking tokens for Gemma 4 models |
+| `--gemma-thinking` | Inject thinking tokens for Gemma 4 models |
 | `--subagent-max-turns <n>` | Set max turns per subagent (default: 500) |
 | `--append-system-prompt "..."` | Append text to the system prompt (e.g. further instructions) |
 

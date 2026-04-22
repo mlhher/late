@@ -12,7 +12,8 @@ Standard AI coding assistants dump massive contexts into a single window, leadin
 ## 🔥 Why Late?
 
 ### 1. The Industry Standard is Broken (And How Late is Different)
-Tools like Claude Code, OpenClaw, OpenCode and virtually every other harness right now are naive, brute-force wrappers. They feed your entire session into a single, ever-growing context window. If the agent gets confused, their only solution is to expect you to throw a bigger model at it, either buying a new GPU or paying more for API calls.
+
+Tools like Claude Code, OpenCode, OpenClaw and virtually every other harness right now are naive, brute-force wrappers. They feed your entire session into a single, ever-growing context window. If the agent gets confused, their only solution is to expect you to throw a bigger model at it, either buying a new GPU or paying more for API calls.
 
 Late takes the opposite approach. A lean orchestrator delegates to ephemeral sub-agents, each spawned with a fresh, strictly scoped context. When a sub-agent finishes its task, its history is destroyed. It never pollutes the planner's context. This mirrors how real engineering teams operate: isolated tasks, no noise.
 
@@ -21,24 +22,29 @@ By ruthlessly managing the KV cache, Late guarantees blazing-fast processing spe
 It runs autonomously on just 5GB VRAM with local models, or drop in any OpenAI-compatible cloud endpoint.
 
 ### 2. Delegation Over Context Bloat
+
 **Zero Prompt Bloat:** Standard terminal agents eat 10,000+ tokens just for their system prompt, exhausting your VRAM or burning your money through API usage before you even start working. Late's core system prompt is ruthlessly optimized to ~1,000 tokens, leaving your context window open for what actually matters: your code. Throwing larger models at a problem doesn't solve context degradation. As context pollutes, models suffer massive performance drops.
 * **The Orchestrator:** Holds the master plan, reads the codebase, and delegates.
 * **Atomic Subagents:** Receive fresh, empty context windows containing *only* the exact instructions for a single task.
 
 ### 3. Zero Silently Broken Code (Exact-Match Diffs)
+
 Standard agents use fragile diff formats that frequently hallucinate and corrupt files. Late forces subagents to use strict exact-match `search`/`replace` string blocks. If the model fails the match, the edit fails loudly, and the Agent initiates an **autonomous self-healing loop** until it gets it right.
 
 ### 4. Zero-Surprise Execution (Human-in-the-Loop)
+
 You shouldn't have to blindly trust a generative model with your terminal. Late surfaces every proposed command for your review — **you approve or reject each action before it runs.**
 * **Speed Heuristic:** Simple read-only commands (`ls`, `cat`, `grep`) are auto-approved to maintain agent velocity. Compound, mutating, or unrecognized commands require your explicit `[y/N]` confirmation before execution. This is a convenience heuristic, not a security sandbox — you are always the final authority.
 * **Project-Scoped:** The agent operates within your project directory by default (`cd` is blocked), keeping it focused on the codebase.
 * **Turn Limits:** Hard configurable caps cleanly cut off infinite hallucinations and prevent runaway token burning.
 
 ### 5. Pure Go & No Dependencies
-A statically compiled engine. No `node_modules`, no virtual environments. Drop the binary in your path and go.
+
+A statically compiled engine. No `node_modules`, no virtual environments, no bloat. Drop the binary in your path and go.
 
 ### 6. Local-First & Model Agnostic
-Requires any OpenAI-compatible endpoint. Late's ephemeral subagent architecture is designed for consumer hardware: subagent contexts are destroyed on completion and never pollute the planner's window, keeping VRAM and context usage flat regardless of task complexity. Late orchestrates its own codebase development on **5GB VRAM** using a local `Qwen3.5-35B-A3B` (~25-30 tokens/sec through `llama.cpp`, 65k context, remaining layers offloaded to system RAM). Two simultaneous agent instances run comfortably at ~15-20 t/s.
+
+Requires any OpenAI-compatible endpoint. Late's ephemeral subagent architecture is designed for consumer hardware: subagent contexts are destroyed on completion and never pollute the planner's window, keeping VRAM and context usage flat regardless of task complexity. Late orchestrates its own codebase development on **5GB VRAM** using a local `Qwen3.5-35B-A3B` (~30 tokens/sec through `llama.cpp`, 65k context, remaining layers offloaded to system RAM). Two simultaneous agent instances run comfortably at ~15 t/s.
 Natively supports both thinking and non-thinking models (including extra support for `Gemma 4`), or can be pointed at heavy-compute cloud endpoints for complex architectural tasks.
 
 ## 🚀 Quick Start (Zero Dependencies)
@@ -83,9 +89,11 @@ make install
 
 ## 🛠️ Advanced Features
 
-* **Native MCP Integration:** Dynamically map external MCP servers directly into Late via standard I/O. Supports `mcp_config.json` at `~/.config/late/` (global) or `.late/` (project-local) using the standard `mcpServers` JSON format.
+* **Native MCP Integration:** Dynamically map external MCP servers directly into Late via standard I/O.
 * **Stateful Resilience:** The Orchestrator maintains continuous, newest-first session history on disk (`~/.local/share/late`), ensuring perfect context retention across runs.
 * **Git Worktree Support:** Run independent, parallel Late instances across multiple Git worktrees for isolated feature development without context switching.
+
+For more information, check out the [quickstart guide](docs/quickstart.md).
 
 ## 📜 License: BSL 1.1
 
@@ -93,6 +101,5 @@ We built this to generate real engineering leverage, not to supply free backend 
 
 * **Free for Builders:** You may use Late freely to write code for any project, including your own commercial startups. We do not restrict your output.
 * **Commercial Restrictions:** You may not monetize Late itself (e.g., wrapping our orchestration engine into a paid AI service), nor deploy Late as internal infrastructure within enterprise environments without a commercial agreement.
-* **Headless & CI/CD Integration:** The core orchestration engine is available as a headless REST API (SSE streaming) for automated pipelines. To bypass BSL commercial restrictions for internal enterprise deployment or to secure priority technical support, contact [contact@mlgpt.io](mailto:contact@mlgpt.io).
 
 *Late safely converts to an open-source GPLv2 license on February 21, 2030.*
