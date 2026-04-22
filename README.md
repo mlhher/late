@@ -63,13 +63,9 @@ Point Late to any OpenAI-compatible API endpoint (local or cloud).
 
 ```bash
 export OPENAI_BASE_URL="http://localhost:8080"
-# Optional: Set your API key if using a cloud provider
-# export OPENAI_API_KEY="your-key"
-# Optional: Set your preferred model (needs backend support)
-# export OPENAI_MODEL="qwen3.5-35b-a3b"
-# Optional: Set a different model for subagents
-# export LATE_SUBAGENT_MODEL="gemma-4-e2b"
 ```
+
+> **Note for Windows users:** Use your shell's native export command (e.g. `$env:OPENAI_BASE_URL="http://localhost:8080"` in PowerShell).
 
 **3. Execute**
 
@@ -77,7 +73,7 @@ export OPENAI_BASE_URL="http://localhost:8080"
 late
 ```
 
-📖 **New to Late?** See the **[Quickstart Guide](docs/quickstart.md)** for features, keybindings, agent tabs, sessions, and tips.
+📖 Next Steps: See the **[Quickstart Guide](docs/quickstart.md)** for advanced setup (e.g. API keys, subagent models), keyboard shortcuts, and core features.
 
 ## 🔨 Build from Source
 
