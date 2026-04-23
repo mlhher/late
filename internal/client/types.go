@@ -91,3 +91,19 @@ type Timings struct {
 	PredictedPerSecond float64 `json:"predicted_per_second"`
 	PromptPerSecond    float64 `json:"prompt_per_second"`
 }
+
+type PropsResponse struct {
+	DefaultGenerationSettings GenerationSettings `json:"default_generation_settings"`
+	NCtx                      int                `json:"n_ctx"`
+}
+
+type GenerationSettings struct {
+	Params GenerationParams `json:"params"`
+}
+
+type GenerationParams struct {
+	Seed        int64   `json:"seed"`
+	Temperature float64 `json:"temperature"`
+	TopK        int     `json:"top_k"`
+	TopP        float64 `json:"top_p"`
+}
