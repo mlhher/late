@@ -62,6 +62,12 @@ func (o *BaseOrchestrator) SetMaxTurns(maxTurns int) {
 	o.maxTurns = maxTurns
 }
 
+func (o *BaseOrchestrator) MaxTokens() int {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.sess.Client().ContextSize()
+}
+
 func (o *BaseOrchestrator) ID() string { return o.id }
 
 func (o *BaseOrchestrator) Submit(text string) error {
@@ -120,9 +126,10 @@ func (o *BaseOrchestrator) Execute(text string) (string, error) {
 
 	onEndTurn := func() {
 		o.mu.Lock()
+		usage := o.acc.Usage
 		o.acc.Reset()
 		o.mu.Unlock()
-		o.eventCh <- common.ContentEvent{ID: o.id}
+		o.eventCh <- common.ContentEvent{ID: o.id, Usage: usage}
 	}
 
 	res, err := executor.RunLoop(
@@ -143,6 +150,7 @@ func (o *BaseOrchestrator) Execute(text string) (string, error) {
 				Content:          accCopy.Content,
 				ReasoningContent: accCopy.Reasoning,
 				ToolCalls:        accCopy.ToolCalls,
+				Usage:            accCopy.Usage,
 			}
 		},
 		o.middlewares,
@@ -183,9 +191,10 @@ func (o *BaseOrchestrator) run() {
 
 	onEndTurn := func() {
 		o.mu.Lock()
+		usage := o.acc.Usage
 		o.acc.Reset()
 		o.mu.Unlock()
-		o.eventCh <- common.ContentEvent{ID: o.id}
+		o.eventCh <- common.ContentEvent{ID: o.id, Usage: usage}
 	}
 
 	_, err := executor.RunLoop(
@@ -206,6 +215,7 @@ func (o *BaseOrchestrator) run() {
 				Content:          accCopy.Content,
 				ReasoningContent: accCopy.Reasoning,
 				ToolCalls:        accCopy.ToolCalls,
+				Usage:            accCopy.Usage,
 			}
 		},
 		o.middlewares,
