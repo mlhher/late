@@ -7,12 +7,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
-func (m Model) View() string {
+func (m Model) View() tea.View {
 	if m.Width == 0 || m.Height == 0 {
-		return ""
+		return tea.NewView("")
 	}
 
 	content := lipgloss.JoinVertical(
@@ -22,17 +23,10 @@ func (m Model) View() string {
 		m.statusBarView(),
 	)
 
-	// Fill each line's remaining width with our dark background using the
-	// terminal's Erase-in-Line sequence. This only processes ~40-50 lines
-	// (terminal height) so it's negligible — unlike the old appStyle.Render
-	// which parsed ANSI codes in the entire viewport content.
-	bg := "\x1b[48;2;25;25;25m"
-	eolFill := "\x1b[48;2;25;25;25m\x1b[K"
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		lines[i] = bg + line + eolFill
-	}
-	return strings.Join(lines, "\n")
+	// Use lipgloss natively to pad and format the final visible viewport exactly to terminal bounds, eliminating "transparent" padding bugs.
+	v := tea.NewView(appStyle.Width(m.Width).Height(m.Height).Render(content))
+	v.AltScreen = true
+	return v
 }
 
 func (m *Model) inputView() string {
@@ -132,7 +126,7 @@ func (m *Model) updateViewport() {
 	}
 
 	history := m.Focused.History()
-	msgWidth := m.Viewport.Width - 2
+	msgWidth := m.Viewport.Width() - 2
 	if msgWidth < 1 {
 		msgWidth = 80
 	}
@@ -151,7 +145,7 @@ func (m *Model) updateViewport() {
 		var rendered string
 		switch msg.Role {
 		case "user":
-			rendered = userMsgStyle.Width(msgWidth).Render(msg.Content)
+			rendered = userMsgStyle.Width(msgWidth + 1).Render(msg.Content)
 		case "assistant":
 			var assistantParts []string
 			if msg.ReasoningContent != "" {
@@ -159,11 +153,12 @@ func (m *Model) updateViewport() {
 				assistantParts = append(assistantParts, thinkingStyle.Width(msgWidth-2).Render(msg.ReasoningContent))
 			}
 			if msg.Content != "" {
-				innerWidth := m.Viewport.Width - AIMsgOverhead - 2
+				innerWidth := m.Viewport.Width() - AIMsgOverhead
 				if innerWidth < 1 {
 					innerWidth = 1
 				}
-				assistantParts = append(assistantParts, m.addBorderPadding(m.renderMarkdownBlock(msg.Content, innerWidth)))
+				md := m.renderMarkdownBlock(msg.Content, innerWidth)
+				assistantParts = append(assistantParts, aiMsgStyle.Width(msgWidth+1).Render(md))
 			}
 			for _, tc := range msg.ToolCalls {
 				// Try to use CallString() for meaningful display
@@ -200,7 +195,7 @@ func (m *Model) updateViewport() {
 			activeParts = append(activeParts, thinkingStyle.Width(msgWidth-2).Render(s.StreamingState.ReasoningContent))
 		}
 		if s.StreamingState.Content != "" {
-			innerWidth := m.Viewport.Width - AIMsgOverhead - 2
+			innerWidth := m.Viewport.Width() - AIMsgOverhead
 			if innerWidth < 1 {
 				innerWidth = 1
 			}
@@ -214,7 +209,7 @@ func (m *Model) updateViewport() {
 			// Render + style NEW chunks and append to cache
 			for i := s.StreamingChunkCount; i < len(chunks); i++ {
 				rendered := m.renderMarkdownBlock(chunks[i], innerWidth)
-				styled := m.addBorderPadding(rendered)
+				styled := aiMsgStyle.Width(msgWidth+1).Render(rendered)
 				if s.StreamingStyledCache != "" {
 					s.StreamingStyledCache += "\n"
 				}
@@ -225,7 +220,7 @@ func (m *Model) updateViewport() {
 			// Render tail as plain text (no glamour — too expensive per frame)
 			var tailStyled string
 			if tail != "" {
-				tailStyled = m.addBorderPadding(m.renderPlainBlock(tail))
+				tailStyled = aiMsgStyle.Width(msgWidth+1).Render(tail)
 			}
 
 			// Combine: simple string concat, NO lipgloss processing
@@ -269,7 +264,7 @@ func (m *Model) updateViewport() {
 		}
 		prompt := fmt.Sprintf("The agent wants to execute a **%s** command.\n\n```json\n%s\n```\n\n> Press **[ y ]** to Approve  |  **[ n ]** to Deny", displayName, tc.Function.Arguments)
 		md, _ := m.Renderer.Render(prompt)
-		blocks = append(blocks, aiMsgStyle.Width(msgWidth).Border(lipgloss.DoubleBorder()).BorderForeground(lipgloss.Color("#FFD700")).Render(md))
+		blocks = append(blocks, aiMsgStyle.Width(msgWidth+1).Border(lipgloss.DoubleBorder()).BorderForeground(lipgloss.Color("#FFD700")).Render(md))
 	}
 
 	if m.Err != nil {
@@ -284,37 +279,11 @@ func (m *Model) updateViewport() {
 	}
 }
 
-// renderMarkdownBlock renders a markdown string through glamour, applies ANSI reset
-// injection for background color consistency, and applies per-line background styling.
 func (m *Model) renderMarkdownBlock(content string, innerWidth int) string {
 	md, _ := m.GetRenderer(innerWidth).Render(content)
+	md = strings.TrimRight(md, "\n")
 
-	// Replace full resets with a combined reset + color restore as a SINGLE ANSI
-	// sequence. This halves the ANSI sequence count vs the two-sequence approach
-	// (\x1b[0m + \x1b[38;...m), reducing terminal emulator parsing overhead.
-	colorRestore := "\x1b[0;38;2;85;85;85;48;2;25;25;25m"
-	md = strings.ReplaceAll(md, "\x1b[0m", colorRestore)
-	md = strings.ReplaceAll(md, "\x1b[m", colorRestore)
-	// Catch bg-only and fg-only resets that glamour/chroma use for tables and links
-	md = strings.ReplaceAll(md, "\x1b[49m", "\x1b[48;2;25;25;25m")
-	md = strings.ReplaceAll(md, "\x1b[39m", "\x1b[38;2;85;85;85m")
-
-	// Use direct ANSI codes + manual padding instead of per-line lipgloss.Render().
-	// lipgloss.Render() per line is expensive: it parses all ANSI codes, restructures
-	// strings, and generates new wrapper codes. We only need width measurement + padding.
-	lines := strings.Split(md, "\n")
-	fullWidth := m.Viewport.Width - AIMsgOverhead
-	bgPrefix := "\x1b[48;2;25;25;25;38;2;85;85;85m"
-
-
-	for i, line := range lines {
-		pad := fullWidth - lipgloss.Width(line)
-		if pad < 0 {
-			pad = 0
-		}
-		lines[i] = bgPrefix + line + strings.Repeat(" ", pad)
-	}
-	return strings.Join(lines, "\n")
+	return md
 }
 
 // splitMarkdownChunks splits markdown content at paragraph boundaries (\n\n)
@@ -338,72 +307,4 @@ func splitMarkdownChunks(content string) (complete []string, tail string) {
 	}
 	tail = content[lastSplit:]
 	return
-}
-
-// renderPlainBlock renders text with word wrapping and background color per line.
-// No glamour, no markdown parsing, no syntax highlighting. Used for the streaming
-// tail where speed is critical — glamour rendering is deferred until the message
-// moves to history.
-func (m *Model) renderPlainBlock(content string) string {
-	fullWidth := m.Viewport.Width - AIMsgOverhead
-	if fullWidth < 1 {
-		fullWidth = 80
-	}
-	bgPrefix := "\x1b[48;2;25;25;25;38;2;236;240;241m"
-
-	// Word-wrap then style. Since content is plain text (no ANSI codes),
-	// we can use simple rune counting for wrapping — essentially free.
-	wrapped := wordWrap(content, fullWidth)
-	lines := strings.Split(wrapped, "\n")
-
-
-	for i, line := range lines {
-		pad := fullWidth - len(line)
-		if pad < 0 {
-			pad = 0
-		}
-		lines[i] = bgPrefix + line + strings.Repeat(" ", pad)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// wordWrap wraps plain text at word boundaries to fit within maxWidth columns.
-func wordWrap(text string, maxWidth int) string {
-	var result strings.Builder
-	for _, paragraph := range strings.Split(text, "\n") {
-		if result.Len() > 0 {
-			result.WriteByte('\n')
-		}
-		lineLen := 0
-		words := strings.Fields(paragraph)
-		for j, word := range words {
-			wLen := len(word)
-			if lineLen > 0 && lineLen+1+wLen > maxWidth {
-				result.WriteByte('\n')
-				lineLen = 0
-			}
-			if lineLen > 0 {
-				result.WriteByte(' ')
-				lineLen++
-			}
-			result.WriteString(word)
-			lineLen += wLen
-			_ = j
-		}
-	}
-	return result.String()
-}
-
-// addBorderPadding applies the AI message left border and padding as simple
-// string operations — no lipgloss. This replaces aiMsgStyle.Render() in the
-// streaming path to avoid per-frame ANSI parsing of the entire content.
-func (m *Model) addBorderPadding(content string) string {
-	lines := strings.Split(content, "\n")
-	// Purple border char + padding, matching aiMsgStyle's visual appearance
-	borderPrefix := " \x1b[35m│\x1b[0;48;2;25;25;25;38;2;85;85;85m    "
-
-	for i, line := range lines {
-		lines[i] = borderPrefix + line
-	}
-	return strings.Join(lines, "\n")
 }

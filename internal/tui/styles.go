@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 var (
@@ -18,8 +18,8 @@ var (
 	thoughtBgColor = lipgloss.Color("#101010") // Near black
 
 	// Layout Constants
-	UserMsgOverhead = 7 // Margin(1)*2 + Border(1) + Padding(2)*2 = 7
-	AIMsgOverhead   = 9 // Margin(1)*2 + Border(1) + PaddingL(4) + PaddingR(2) = 9
+	UserMsgOverhead = 6 // MarginL(1) + Border(1) + Padding(2)*2 = 6
+	AIMsgOverhead   = 8 // MarginL(1) + Border(1) + PaddingL(4) + PaddingR(2) = 8
 
 	// Styles
 	appStyle = lipgloss.NewStyle().
@@ -38,7 +38,7 @@ var (
 			Background(userMsgBg).
 			Foreground(textColor).
 			Padding(0, 2).
-			Margin(0, 1).
+			MarginLeft(1).
 			Align(lipgloss.Left).
 			Border(lipgloss.NormalBorder(), false, false, false, true).
 			BorderLeftForeground(secondaryColor).
@@ -47,13 +47,14 @@ var (
 
 	// AI Bubble
 	aiMsgStyle = lipgloss.NewStyle().
-			Background(aiMsgBg).
-			Padding(0, 2).
-			Margin(0, 1).
-			PaddingLeft(4).
-			Border(lipgloss.NormalBorder(), false, false, false, true).
-			BorderLeftForeground(primaryColor).
-			BorderBackground(aiMsgBg)
+		//Foreground(textColor).
+		Background(aiMsgBg).
+		Padding(0, 2).
+		MarginLeft(1).
+		PaddingLeft(4).
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderLeftForeground(primaryColor).
+		BorderBackground(aiMsgBg)
 
 	// Thinking Block
 	thinkingStyle = lipgloss.NewStyle().

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
 )
 
 // StreamMsg is the TUI-wrapper for session stream events
@@ -323,12 +323,13 @@ func (m *Model) updateLayout() {
 	availableWidth := m.Width
 	m.Input.SetWidth(availableWidth - 8)
 
-	m.Viewport.Width = availableWidth
-	m.Viewport.Height = m.Height - InputHeight - StatusBarHeight - AppPadding
+	m.Viewport.SetWidth(availableWidth)
+	vHeight := m.Height - InputHeight - StatusBarHeight - AppPadding
 
-	if m.Viewport.Height < 1 {
-		m.Viewport.Height = 1
+	if vHeight < 1 {
+		vHeight = 1
 	}
+	m.Viewport.SetHeight(vHeight)
 
 	m.updateViewport()
 }
