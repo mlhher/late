@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"late/internal/client"
 	"late/internal/common"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -40,16 +41,17 @@ const (
 
 // AppState tracks the interactive state of a single orchestrator.
 type AppState struct {
-	State                   ValidationState
-	StreamingState          common.ContentEvent
-	PendingConfirm          *ConfirmRequestMsg
-	StatusText              string
-	RenderedHistory         []string // Cache for rendered messages
-	Closed                  bool     // Whether the agent has finished its task
-	PendingStop             bool     // Whether a stop has been requested
-	TokenCount              int      // Estimated token count for current streaming content
-	CumulativeTokenCount    int      // Total tokens accumulated across entire session (all messages)
-	LastRenderTime          int64    // Unix milliseconds of the last render during streaming
+	State                ValidationState
+	StreamingState       common.ContentEvent
+	PendingConfirm       *ConfirmRequestMsg
+	StatusText           string
+	RenderedHistory      []string // Cache for rendered messages
+	Closed               bool     // Whether the agent has finished its task
+	PendingStop          bool     // Whether a stop has been requested
+	TokenCount           int      // Estimated token count for current streaming content
+	CumulativeTokenCount int      // Total tokens accumulated across entire session (all messages)
+	Usage                client.Usage
+	LastRenderTime       int64 // Unix milliseconds of the last render during streaming
 
 	// Streaming render cache: paragraph-chunked incremental rendering
 	StreamingStyledCache string // Fully assembled + styled output of all completed paragraphs
@@ -96,8 +98,8 @@ func (m *Model) GetAgentState(id string) *AppState {
 		return s
 	}
 	s := &AppState{
-		State:      StateIdle,
-		StatusText: "Ready",
+		State:       StateIdle,
+		StatusText:  "Ready",
 		PendingStop: false,
 	}
 	m.AgentStates[id] = s

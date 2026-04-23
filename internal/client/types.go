@@ -102,11 +102,11 @@ type Usage struct {
 
 type PropsResponse struct {
 	DefaultGenerationSettings GenerationSettings `json:"default_generation_settings"`
-	NCtx                      int                `json:"n_ctx"`
 }
 
 type GenerationSettings struct {
 	Params GenerationParams `json:"params"`
+	NCtx   int              `json:"n_ctx"`
 }
 
 type GenerationParams struct {

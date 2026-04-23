@@ -234,7 +234,7 @@ func (c *Client) DiscoverBackend(ctx context.Context) BackendType {
 		c.backend = BackendLlamaCPP
 		var props PropsResponse
 		if err := json.NewDecoder(resp.Body).Decode(&props); err == nil {
-			c.ctxSize = props.NCtx
+			c.ctxSize = props.DefaultGenerationSettings.NCtx
 		}
 	} else {
 		c.backend = BackendGenericOpenAI
