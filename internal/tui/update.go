@@ -226,19 +226,23 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 			if s.State != StateConfirmTool {
 				s.State = StateStreaming
 			}
-			// Calculate tokens from new content
-			newContentTokens := common.EstimateEventTokens(event)
+			s.Usage = event.Usage
+			if event.Usage.TotalTokens > 0 {
+				s.CumulativeTokenCount = event.Usage.TotalTokens
+			} else {
+				// Fallback to estimation if no real usage data yet
+				newContentTokens := common.EstimateEventTokens(event)
 
-			// Use cached history token count (only recalculate when history changes)
-			history := m.Focused.History()
-			if len(history) != s.CachedHistoryLen {
-				s.CachedHistoryTokens = common.CalculateHistoryTokens(history)
-				s.CachedHistoryLen = len(history)
+				// Use cached history token count (only recalculate when history changes)
+				history := m.Focused.History()
+				if len(history) != s.CachedHistoryLen {
+					s.CachedHistoryTokens = common.CalculateHistoryTokens(history)
+					s.CachedHistoryLen = len(history)
+				}
+
+				// Update cumulative count
+				s.CumulativeTokenCount = s.CachedHistoryTokens + newContentTokens
 			}
-
-			// Update cumulative count
-			s.CumulativeTokenCount = s.CachedHistoryTokens + newContentTokens
-			s.TokenCount = newContentTokens // Keep current count for display purposes
 
 			// Throttle viewport updates to ~33 FPS during streaming
 			if event.ID == m.Focused.ID() {

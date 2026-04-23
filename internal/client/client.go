@@ -30,12 +30,14 @@ type Client struct {
 	cfg        Config
 	httpClient *http.Client
 	backend    BackendType
+	ctxSize    int
 }
 
 func NewClient(cfg Config) *Client {
 	return &Client{
 		cfg:     cfg,
 		backend: BackendUnknown,
+		ctxSize: -1, // -1 means unknown or not applicable
 		httpClient: &http.Client{
 			Transport: &http.Transport{
 				DisableKeepAlives: true,
@@ -230,11 +232,19 @@ func (c *Client) DiscoverBackend(ctx context.Context) BackendType {
 
 	if resp.StatusCode == http.StatusOK {
 		c.backend = BackendLlamaCPP
+		var props PropsResponse
+		if err := json.NewDecoder(resp.Body).Decode(&props); err == nil {
+			c.ctxSize = props.DefaultGenerationSettings.NCtx
+		}
 	} else {
 		c.backend = BackendGenericOpenAI
 	}
 
 	return c.backend
+}
+
+func (c *Client) ContextSize() int {
+	return c.ctxSize
 }
 
 func (c *Client) IsLlamaCPP() bool {

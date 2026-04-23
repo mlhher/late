@@ -31,6 +31,7 @@ type Orchestrator interface {
 
 	// Configuration
 	SetMaxTurns(int)
+	MaxTokens() int
 }
 
 // Event represents something that happened in the orchestrator.
@@ -44,6 +45,7 @@ type ContentEvent struct {
 	Content          string
 	ReasoningContent string
 	ToolCalls        []client.ToolCall
+	Usage            client.Usage
 }
 
 func (e ContentEvent) OrchestratorID() string { return e.ID }

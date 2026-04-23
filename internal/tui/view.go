@@ -107,7 +107,12 @@ func (m *Model) statusBarView() string {
 	}
 
 	// Token count display (after status, before space)
-	tokenDisplay := fmt.Sprintf("| %d tokens", s.CumulativeTokenCount)
+	maxTokens := m.Focused.MaxTokens()
+	tokenDisplay := fmt.Sprintf(" | %d", s.CumulativeTokenCount)
+	if maxTokens > 0 {
+		pct := (s.CumulativeTokenCount * 100) / maxTokens
+		tokenDisplay = fmt.Sprintf(" | %d/%d (%d%%)", s.CumulativeTokenCount, maxTokens, pct)
+	}
 	tokenStyled := statusKeyStyle.Render(tokenDisplay)
 	hints := lipgloss.JoinHorizontal(lipgloss.Left, hierarchyHint, stopKey)
 
