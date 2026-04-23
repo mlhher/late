@@ -13,25 +13,27 @@ var (
 	warningColor   = lipgloss.Color("#F1C40F") // Sunflower/Yellow
 
 	// Message Backgrounds
+	appBgColor     = lipgloss.Color("#191919")
 	userMsgBg      = lipgloss.Color("#16222A") // Very dark blue/black
-	aiMsgBg        = lipgloss.Color("#191919") // Almost black, slightly lighter than terminal
+	aiMsgBg        = appBgColor                // Keep alias for AI msgs
 	thoughtBgColor = lipgloss.Color("#101010") // Near black
+
+	// Base Style for inheritance
+	baseStyle = lipgloss.NewStyle().Background(appBgColor)
 
 	// Layout Constants
 	UserMsgOverhead = 6 // MarginL(1) + Border(1) + Padding(2)*2 = 6
 	AIMsgOverhead   = 8 // MarginL(1) + Border(1) + PaddingL(4) + PaddingR(2) = 8
 
 	// Styles
-	appStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#191919")).
+	appStyle = baseStyle.Copy().
 			Foreground(textColor)
 
-	inputStyle = lipgloss.NewStyle().
+	inputStyle = baseStyle.Copy().
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(primaryColor).
-			BorderBackground(aiMsgBg).
-			Padding(0, 1).
-			Background(aiMsgBg)
+			BorderBackground(appBgColor).
+			Padding(0, 1)
 
 	// User Bubble
 	userMsgStyle = lipgloss.NewStyle().
@@ -46,15 +48,14 @@ var (
 			PaddingLeft(2)
 
 	// AI Bubble
-	aiMsgStyle = lipgloss.NewStyle().
-		//Foreground(textColor).
-		Background(aiMsgBg).
-		Padding(0, 2).
-		MarginLeft(1).
-		PaddingLeft(4).
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderLeftForeground(primaryColor).
-		BorderBackground(aiMsgBg)
+	aiMsgStyle = baseStyle.Copy().
+			Foreground(textColor). // Without this during streaming the text is invisible
+			Padding(0, 2).
+			MarginLeft(1).
+			PaddingLeft(4).
+			Border(lipgloss.NormalBorder(), false, false, false, true).
+			BorderLeftForeground(primaryColor).
+			BorderBackground(appBgColor)
 
 	// Thinking Block
 	thinkingStyle = lipgloss.NewStyle().

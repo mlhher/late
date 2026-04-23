@@ -26,6 +26,7 @@ func (m Model) View() tea.View {
 	// Use lipgloss natively to pad and format the final visible viewport exactly to terminal bounds, eliminating "transparent" padding bugs.
 	v := tea.NewView(appStyle.Width(m.Width).Height(m.Height).Render(content))
 	v.AltScreen = true
+	v.BackgroundColor = appBgColor
 	return v
 }
 
@@ -34,17 +35,15 @@ func (m *Model) inputView() string {
 	if w < 1 {
 		w = 1
 	}
-	bgColor := lipgloss.Color("#191919")
 
 	// Render textarea directly — its styles already set background via FocusedStyle/BlurredStyle
 	textareaView := m.Input.View()
 	content := inputStyle.Width(w - 2).Render(textareaView)
 
 	// Wrap in a fixed-size container that fills the background
-	return lipgloss.NewStyle().
+	return baseStyle.Copy().
 		Width(m.Width).
 		Height(InputHeight).
-		Background(bgColor).
 		Padding(0, 2).
 		AlignVertical(lipgloss.Bottom).
 		Render(content)
@@ -209,7 +208,7 @@ func (m *Model) updateViewport() {
 			// Render + style NEW chunks and append to cache
 			for i := s.StreamingChunkCount; i < len(chunks); i++ {
 				rendered := m.renderMarkdownBlock(chunks[i], innerWidth)
-				styled := aiMsgStyle.Width(msgWidth+1).Render(rendered)
+				styled := aiMsgStyle.Width(msgWidth + 1).Render(rendered)
 				if s.StreamingStyledCache != "" {
 					s.StreamingStyledCache += "\n"
 				}
@@ -220,7 +219,7 @@ func (m *Model) updateViewport() {
 			// Render tail as plain text (no glamour — too expensive per frame)
 			var tailStyled string
 			if tail != "" {
-				tailStyled = aiMsgStyle.Width(msgWidth+1).Render(tail)
+				tailStyled = aiMsgStyle.Width(msgWidth + 1).Render(tail)
 			}
 
 			// Combine: simple string concat, NO lipgloss processing
@@ -280,6 +279,7 @@ func (m *Model) updateViewport() {
 }
 
 func (m *Model) renderMarkdownBlock(content string, innerWidth int) string {
+	// Use new renderer to avoid background color issues
 	md, _ := m.GetRenderer(innerWidth).Render(content)
 	md = strings.TrimRight(md, "\n")
 
