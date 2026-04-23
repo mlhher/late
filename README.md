@@ -143,9 +143,14 @@ Windows config path: `%APPDATA%\late\config.json`
 {
   "openai_base_url": "http://localhost:8080",
   "openai_api_key": "your-key",
-  "openai_model": "your-model"
+  "openai_model": "your-model",
+  "subagent_base_url": "http://10.8.0.2:8080",
+  "subagent_api_key": "your-other-key",
+  "subagent_model": "gemma-4-e4b"
 }
 ```
+
+Subagent precedence follows the same rule: non-empty `LATE_SUBAGENT_*` environment variables override `config.json`; if `subagent_base_url` or `subagent_api_key` are not set, they fall back to resolved OpenAI settings.
 
 ## MCP Integration
 

@@ -165,3 +165,18 @@ export OPENAI_MODEL="o3-mini"
 export LATE_SUBAGENT_MODEL="qwen-32b"
 late
 ```
+
+You can also set these in `%APPDATA%\late\config.json` (or your platform's config path). Precedence is: non-empty environment variables > `config.json` > defaults. Empty environment variables fall back to `config.json` values.
+
+```json
+{
+  "openai_base_url": "http://localhost:8080",
+  "openai_api_key": "your-key",
+  "openai_model": "o3-mini",
+  "subagent_base_url": "http://10.8.0.2:8080",
+  "subagent_api_key": "your-other-key",
+  "subagent_model": "qwen-32b"
+}
+```
+
+If `subagent_base_url` or `subagent_api_key` are omitted, they automatically fall back to resolved OpenAI settings.

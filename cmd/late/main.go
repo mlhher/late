@@ -194,22 +194,14 @@ func main() {
 	c.DiscoverBackend(context.Background())
 
 	// Initialize Subagent Client
-	subModelName := os.Getenv("LATE_SUBAGENT_MODEL")
-	subBaseURL := os.Getenv("LATE_SUBAGENT_BASE_URL")
-	if subBaseURL == "" {
-		subBaseURL = resolvedOpenAIConfig.BaseURL
-	}
-	subAPIKey := os.Getenv("LATE_SUBAGENT_API_KEY")
-	if subAPIKey == "" {
-		subAPIKey = resolvedOpenAIConfig.APIKey
-	}
+	resolvedSubagentConfig := appconfig.ResolveSubagentSettings(appConfig, resolvedOpenAIConfig)
 
 	subagentClient := c
-	if subModelName != "" {
+	if resolvedSubagentConfig.Model != "" {
 		subagentClient = client.NewClient(client.Config{
-			BaseURL: subBaseURL,
-			APIKey:  subAPIKey,
-			Model:   subModelName,
+			BaseURL: resolvedSubagentConfig.BaseURL,
+			APIKey:  resolvedSubagentConfig.APIKey,
+			Model:   resolvedSubagentConfig.Model,
 		})
 		subagentClient.DiscoverBackend(context.Background())
 	}

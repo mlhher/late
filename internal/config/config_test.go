@@ -130,7 +130,10 @@ func TestLoadConfig_ParsesOpenAIFields(t *testing.T) {
 		"enabled_tools": {"bash": true},
 		"openai_base_url": "https://example.test/v1",
 		"openai_api_key": "secret",
-		"openai_model": "gpt-test"
+		"openai_model": "gpt-test",
+		"subagent_base_url": "https://subagent.example/v1",
+		"subagent_api_key": "sub-secret",
+		"subagent_model": "qwen-sub"
 	}`
 	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
@@ -148,6 +151,15 @@ func TestLoadConfig_ParsesOpenAIFields(t *testing.T) {
 	}
 	if cfg.OpenAIModel != "gpt-test" {
 		t.Fatalf("OpenAIModel = %q", cfg.OpenAIModel)
+	}
+	if cfg.SubagentBaseURL != "https://subagent.example/v1" {
+		t.Fatalf("SubagentBaseURL = %q", cfg.SubagentBaseURL)
+	}
+	if cfg.SubagentAPIKey != "sub-secret" {
+		t.Fatalf("SubagentAPIKey = %q", cfg.SubagentAPIKey)
+	}
+	if cfg.SubagentModel != "qwen-sub" {
+		t.Fatalf("SubagentModel = %q", cfg.SubagentModel)
 	}
 }
 
@@ -365,6 +377,118 @@ func TestResolveOpenAISettings(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := ResolveOpenAISettingsWithEnv(tt.cfg, func(key string) (string, bool) {
+				value, ok := tt.env[key]
+				if tt.present != nil {
+					ok = tt.present[key]
+				}
+				return value, ok
+			})
+
+			if got.BaseURL != tt.want.BaseURL {
+				t.Fatalf("BaseURL = %q, want %q", got.BaseURL, tt.want.BaseURL)
+			}
+			if got.APIKey != tt.want.APIKey {
+				t.Fatalf("APIKey = %q, want %q", got.APIKey, tt.want.APIKey)
+			}
+			if got.Model != tt.want.Model {
+				t.Fatalf("Model = %q, want %q", got.Model, tt.want.Model)
+			}
+		})
+	}
+}
+
+func TestResolveSubagentSettings(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     *Config
+		openAI  OpenAISettings
+		env     map[string]string
+		present map[string]bool
+		want    SubagentSettings
+	}{
+		{
+			name:   "env only",
+			openAI: OpenAISettings{BaseURL: "https://openai.example", APIKey: "openai-key", Model: "openai-model"},
+			env: map[string]string{
+				"LATE_SUBAGENT_BASE_URL": "https://env-sub.example",
+				"LATE_SUBAGENT_API_KEY":  "env-sub-key",
+				"LATE_SUBAGENT_MODEL":    "env-sub-model",
+			},
+			present: map[string]bool{
+				"LATE_SUBAGENT_BASE_URL": true,
+				"LATE_SUBAGENT_API_KEY":  true,
+				"LATE_SUBAGENT_MODEL":    true,
+			},
+			want: SubagentSettings{BaseURL: "https://env-sub.example", APIKey: "env-sub-key", Model: "env-sub-model"},
+		},
+		{
+			name: "config only",
+			cfg: &Config{
+				SubagentBaseURL: "https://config-sub.example",
+				SubagentAPIKey:  "config-sub-key",
+				SubagentModel:   "config-sub-model",
+			},
+			openAI: OpenAISettings{BaseURL: "https://openai.example", APIKey: "openai-key", Model: "openai-model"},
+			want:   SubagentSettings{BaseURL: "https://config-sub.example", APIKey: "config-sub-key", Model: "config-sub-model"},
+		},
+		{
+			name: "env wins over config",
+			cfg: &Config{
+				SubagentBaseURL: "https://config-sub.example",
+				SubagentAPIKey:  "config-sub-key",
+				SubagentModel:   "config-sub-model",
+			},
+			openAI: OpenAISettings{BaseURL: "https://openai.example", APIKey: "openai-key", Model: "openai-model"},
+			env: map[string]string{
+				"LATE_SUBAGENT_BASE_URL": "https://env-sub.example",
+				"LATE_SUBAGENT_API_KEY":  "env-sub-key",
+				"LATE_SUBAGENT_MODEL":    "env-sub-model",
+			},
+			present: map[string]bool{
+				"LATE_SUBAGENT_BASE_URL": true,
+				"LATE_SUBAGENT_API_KEY":  true,
+				"LATE_SUBAGENT_MODEL":    true,
+			},
+			want: SubagentSettings{BaseURL: "https://env-sub.example", APIKey: "env-sub-key", Model: "env-sub-model"},
+		},
+		{
+			name: "empty env falls back to config",
+			cfg: &Config{
+				SubagentBaseURL: "https://config-sub.example",
+				SubagentAPIKey:  "config-sub-key",
+				SubagentModel:   "config-sub-model",
+			},
+			openAI: OpenAISettings{BaseURL: "https://openai.example", APIKey: "openai-key", Model: "openai-model"},
+			env: map[string]string{
+				"LATE_SUBAGENT_BASE_URL": "",
+				"LATE_SUBAGENT_API_KEY":  "",
+				"LATE_SUBAGENT_MODEL":    "",
+			},
+			present: map[string]bool{
+				"LATE_SUBAGENT_BASE_URL": true,
+				"LATE_SUBAGENT_API_KEY":  true,
+				"LATE_SUBAGENT_MODEL":    true,
+			},
+			want: SubagentSettings{BaseURL: "https://config-sub.example", APIKey: "config-sub-key", Model: "config-sub-model"},
+		},
+		{
+			name: "openai fallback for base and api key",
+			cfg: &Config{
+				SubagentModel: "config-sub-model",
+			},
+			openAI: OpenAISettings{BaseURL: "https://openai.example", APIKey: "openai-key", Model: "openai-model"},
+			want:   SubagentSettings{BaseURL: "https://openai.example", APIKey: "openai-key", Model: "config-sub-model"},
+		},
+		{
+			name:   "no model keeps behavior unchanged",
+			openAI: OpenAISettings{BaseURL: "https://openai.example", APIKey: "openai-key", Model: "openai-model"},
+			want:   SubagentSettings{BaseURL: "https://openai.example", APIKey: "openai-key", Model: ""},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ResolveSubagentSettingsWithEnv(tt.cfg, tt.openAI, func(key string) (string, bool) {
 				value, ok := tt.env[key]
 				if tt.present != nil {
 					ok = tt.present[key]

@@ -19,6 +19,12 @@ type OpenAISettings struct {
 	Model   string
 }
 
+type SubagentSettings struct {
+	BaseURL string
+	APIKey  string
+	Model   string
+}
+
 const (
 	configDirPerm  os.FileMode = 0o700
 	configFilePerm os.FileMode = 0o600
@@ -26,10 +32,13 @@ const (
 
 // Config represents the application configuration.
 type Config struct {
-	EnabledTools  map[string]bool `json:"enabled_tools"`
-	OpenAIBaseURL string          `json:"openai_base_url,omitempty"`
-	OpenAIAPIKey  string          `json:"openai_api_key,omitempty"`
-	OpenAIModel   string          `json:"openai_model,omitempty"`
+	EnabledTools     map[string]bool `json:"enabled_tools"`
+	OpenAIBaseURL    string          `json:"openai_base_url,omitempty"`
+	OpenAIAPIKey     string          `json:"openai_api_key,omitempty"`
+	OpenAIModel      string          `json:"openai_model,omitempty"`
+	SubagentBaseURL  string          `json:"subagent_base_url,omitempty"`
+	SubagentAPIKey   string          `json:"subagent_api_key,omitempty"`
+	SubagentModel    string          `json:"subagent_model,omitempty"`
 }
 
 func defaultConfig() Config {
@@ -119,6 +128,39 @@ func ResolveOpenAISettingsWithEnv(cfg *Config, lookup EnvLookup) OpenAISettings 
 		resolved.APIKey = value
 	}
 	if value, ok := nonEmptyEnv(lookup, "OPENAI_MODEL"); ok {
+		resolved.Model = value
+	}
+
+	return resolved
+}
+
+func ResolveSubagentSettings(cfg *Config, openAI OpenAISettings) SubagentSettings {
+	return ResolveSubagentSettingsWithEnv(cfg, openAI, os.LookupEnv)
+}
+
+func ResolveSubagentSettingsWithEnv(cfg *Config, openAI OpenAISettings, lookup EnvLookup) SubagentSettings {
+	resolved := SubagentSettings{
+		BaseURL: openAI.BaseURL,
+		APIKey:  openAI.APIKey,
+	}
+
+	if cfg != nil {
+		if cfg.SubagentBaseURL != "" {
+			resolved.BaseURL = cfg.SubagentBaseURL
+		}
+		if cfg.SubagentAPIKey != "" {
+			resolved.APIKey = cfg.SubagentAPIKey
+		}
+		resolved.Model = cfg.SubagentModel
+	}
+
+	if value, ok := nonEmptyEnv(lookup, "LATE_SUBAGENT_BASE_URL"); ok {
+		resolved.BaseURL = value
+	}
+	if value, ok := nonEmptyEnv(lookup, "LATE_SUBAGENT_API_KEY"); ok {
+		resolved.APIKey = value
+	}
+	if value, ok := nonEmptyEnv(lookup, "LATE_SUBAGENT_MODEL"); ok {
 		resolved.Model = value
 	}
 
