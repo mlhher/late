@@ -187,6 +187,186 @@ var whitelistedCommands = map[string]bool{
 	"file":   true,
 }
 
+// Windows PowerShell commands that are considered read-only/safe for
+// auto-approval when no risky syntax is present.
+var whitelistedWindowsCommands = map[string]bool{
+	"cat":            true,
+	"date":           true,
+	"dir":            true,
+	"echo":           true,
+	"gc":             true,
+	"gci":            true,
+	"get-childitem":  true,
+	"get-content":    true,
+	"get-date":       true,
+	"get-location":   true,
+	"ls":             true,
+	"measure-object": true,
+	"pwd":            true,
+	"select-string":  true,
+	"sls":            true,
+	"type":           true,
+	"whoami":         true,
+	"write-output":   true,
+}
+
+// tokenizePowerShellCommand splits a command into tokens while honoring
+// single/double quotes and PowerShell backtick escaping.
+func tokenizePowerShellCommand(command string) []string {
+	tokens := make([]string, 0)
+	var current strings.Builder
+	inSingle := false
+	inDouble := false
+	escaped := false
+
+	flush := func() {
+		if current.Len() > 0 {
+			tokens = append(tokens, current.String())
+			current.Reset()
+		}
+	}
+
+	for i := 0; i < len(command); i++ {
+		ch := command[i]
+
+		if escaped {
+			current.WriteByte(ch)
+			escaped = false
+			continue
+		}
+
+		if !inSingle && ch == '`' {
+			escaped = true
+			continue
+		}
+
+		if ch == '\'' && !inDouble {
+			inSingle = !inSingle
+			continue
+		}
+		if ch == '"' && !inSingle {
+			inDouble = !inDouble
+			continue
+		}
+
+		if !inSingle && !inDouble {
+			if ch == ';' || ch == '|' {
+				flush()
+				tokens = append(tokens, string(ch))
+				continue
+			}
+			if ch == '&' {
+				flush()
+				if i+1 < len(command) && command[i+1] == '&' {
+					tokens = append(tokens, "&&")
+					i++
+				} else {
+					tokens = append(tokens, "&")
+				}
+				continue
+			}
+			if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+				flush()
+				continue
+			}
+		}
+
+		current.WriteByte(ch)
+	}
+
+	flush()
+	return tokens
+}
+
+func getPowerShellBaseCommands(command string) []string {
+	tokens := tokenizePowerShellCommand(command)
+	commands := make([]string, 0)
+	expectCommand := true
+
+	for _, token := range tokens {
+		switch token {
+		case ";", "|", "||", "&&", "&":
+			expectCommand = true
+			continue
+		}
+		if expectCommand {
+			commands = append(commands, strings.ToLower(token))
+			expectCommand = false
+		}
+	}
+
+	return commands
+}
+
+func containsPowerShellRiskySyntax(command string) bool {
+	lower := strings.ToLower(command)
+	if strings.ContainsAny(command, "\n\r\x00") {
+		return true
+	}
+	if strings.ContainsAny(command, "><") {
+		return true
+	}
+	if strings.Contains(lower, "$(") {
+		return true
+	}
+
+	for _, keyword := range []string{
+		" invoke-expression",
+		" iex ",
+		" start-process",
+		" invoke-command",
+		" new-object",
+		" remove-item",
+		" rename-item",
+		" move-item",
+		" copy-item",
+		" set-content",
+		" add-content",
+		" out-file",
+		" clear-content",
+		" set-itemproperty",
+		" -encodedcommand",
+	} {
+		if strings.Contains(" "+lower, keyword) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func extractPowerShellTargetPath(command string) string {
+	tokens := tokenizePowerShellCommand(strings.TrimSpace(command))
+	if len(tokens) < 2 {
+		return ""
+	}
+
+	cmd := strings.ToLower(tokens[0])
+	target := ""
+
+	switch cmd {
+	case "mkdir", "md":
+		target = tokens[1]
+	case "new-item", "ni":
+		if len(tokens) == 2 {
+			target = tokens[1]
+		} else if len(tokens) >= 3 && strings.EqualFold(tokens[1], "-Path") {
+			target = tokens[2]
+		}
+	default:
+		return ""
+	}
+
+	if target == "" || strings.HasPrefix(target, "-") {
+		return ""
+	}
+	if strings.HasPrefix(target, "~") || strings.Contains(target, "$") || strings.ContainsAny(target, "*?[") {
+		return ""
+	}
+
+	return target
+}
+
 // containsShellMetacharacters returns true if the command string contains
 // any shell syntax that could embed or disguise a sub-command.
 // When this returns true, RequiresConfirmation should always return true
@@ -519,9 +699,27 @@ func (t ShellTool) RequiresConfirmation(args json.RawMessage) bool {
 		return true // Default to requiring confirmation if we can't parse
 	}
 
-	// Conservative Windows policy: always require confirmation.
 	if runtime.GOOS == "windows" {
-		return true
+		// Denylist first: if command shape is risky or can hide execution intent,
+		// always require confirmation.
+		if containsPowerShellRiskySyntax(params.Command) {
+			return true
+		}
+
+		// Permit creation only for simple, explicit new paths inside allowed roots.
+		if target := extractPowerShellTargetPath(params.Command); target != "" && isNewPath(target, params.Cwd) {
+			return false
+		}
+
+		// Parser-backed base command extraction allows safer classification than
+		// naive whitespace splitting.
+		baseCommands := getPowerShellBaseCommands(params.Command)
+		for _, cmd := range baseCommands {
+			if !whitelistedWindowsCommands[cmd] {
+				return true
+			}
+		}
+		return false
 	}
 
 	// If the command contains any shell metacharacters that could embed
