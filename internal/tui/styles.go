@@ -33,6 +33,7 @@ var (
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(primaryColor).
 			BorderBackground(appBgColor).
+			MarginBackground(appBgColor).
 			Padding(0, 1)
 
 	// User Bubble
@@ -41,6 +42,7 @@ var (
 			Foreground(textColor).
 			Padding(0, 2).
 			MarginLeft(1).
+			MarginBackground(appBgColor).
 			Align(lipgloss.Left).
 			Border(lipgloss.NormalBorder(), false, false, false, true).
 			BorderLeftForeground(secondaryColor).
@@ -51,6 +53,7 @@ var (
 	aiMsgStyle = baseStyle.Copy().
 			Padding(0, 2).
 			MarginLeft(1).
+			MarginBackground(appBgColor).
 			PaddingLeft(4).
 			Border(lipgloss.NormalBorder(), false, false, false, true).
 			BorderLeftForeground(primaryColor).
@@ -72,12 +75,17 @@ var (
 			Foreground(primaryColor).
 			Bold(true).
 			Background(thoughtBgColor).
+			MarginBackground(appBgColor).
 			MarginLeft(1).
 			PaddingLeft(1)
 
+	thoughtHeaderStyle = tagStyle.Copy().
+				Foreground(subtextColor)
+
 	statusBarBaseStyle = lipgloss.NewStyle().
 				Height(StatusBarHeight).
-				Background(lipgloss.Color("#121212")).
+				Background(appBgColor).
+				MarginBackground(appBgColor).
 				Foreground(textColor)
 
 	statusModeStyle = lipgloss.NewStyle().
@@ -85,19 +93,25 @@ var (
 			Foreground(textColor).
 			Padding(0, 1).
 			Bold(true).
-			MarginRight(1)
+			MarginRight(1).
+			MarginBackground(appBgColor)
 
 	statusKeyStyle = lipgloss.NewStyle().
 			Foreground(primaryColor).
+			Background(appBgColor).
+			MarginBackground(appBgColor).
 			Bold(true)
 
 	statusTextStyle = lipgloss.NewStyle().
 			Foreground(subtextColor).
+			Background(appBgColor).
+			MarginBackground(appBgColor).
 			MarginLeft(1)
 
 	statusWarningStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#121212")).
 				Background(warningColor).
+				MarginBackground(appBgColor).
 				Bold(true).
 				Padding(0, 1).
 				MarginLeft(1)

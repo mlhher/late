@@ -96,19 +96,33 @@ func (m *Model) statusBarView() string {
 		}
 	}
 
-	mode := statusModeStyle.Render(modeStr)
+	// Only breathe when agent is active
+	active := s.State == StateStreaming || s.State == StateThinking
+
+	var mode string
+	if active {
+		ms := float64(time.Now().UnixNano()) / 1e6
+		pulseFactor := (math.Sin(ms/800.0) + 1.0) / 2.0 // 0.0 to 1.0
+		grad := lipgloss.Blend1D(100, lipgloss.Color("#4A235A"), primaryColor)
+		breathColor := grad[int(pulseFactor*99)]
+		mode = statusModeStyle.Copy().Background(breathColor).Render(modeStr)
+	} else {
+		mode = statusModeStyle.Render(modeStr)
+	}
+
 	status := statusTextStyle.Render(statusText)
 
 	// Build key hints
-	stopKey := statusKeyStyle.Render("Ctrl+g") + " Stop "
+	stopKey := lipgloss.JoinHorizontal(lipgloss.Left, statusKeyStyle.Render("Ctrl+g"), statusTextStyle.Render(" Stop "))
 
 	// Add hierarchy hints
 	var hierarchyHint string
 	if m.Focused.Parent() != nil {
-		hierarchyHint = statusKeyStyle.Render("Esc") + " Back "
+		hierarchyHint = lipgloss.JoinHorizontal(lipgloss.Left, statusKeyStyle.Render("Esc"), statusTextStyle.Render(" Back "))
 	}
 	if len(m.Focused.Children()) > 0 {
-		hierarchyHint += statusKeyStyle.Render("Tab") + " Subagents "
+		hNext := lipgloss.JoinHorizontal(lipgloss.Left, statusKeyStyle.Render("Tab"), statusTextStyle.Render(" Subagents "))
+		hierarchyHint = lipgloss.JoinHorizontal(lipgloss.Left, hierarchyHint, hNext)
 	}
 
 	// Token count display (after status, before space)
@@ -125,7 +139,7 @@ func (m *Model) statusBarView() string {
 	if spaceWidth < 0 {
 		spaceWidth = 0
 	}
-	space := strings.Repeat(" ", spaceWidth)
+	space := statusBarBaseStyle.Copy().Width(spaceWidth).Render("")
 
 	content := lipgloss.JoinHorizontal(lipgloss.Left, mode, status, warning, tokenStyled, space, hints)
 	return statusBarBaseStyle.Width(w).Render(content)
@@ -160,7 +174,7 @@ func (m *Model) updateViewport() {
 		case "assistant":
 			var assistantParts []string
 			if msg.ReasoningContent != "" {
-				assistantParts = append(assistantParts, tagStyle.Width(msgWidth+1).Render("Thinking Process:"))
+				assistantParts = append(assistantParts, thoughtHeaderStyle.Width(msgWidth+1).Render("Thoughts:"))
 				assistantParts = append(assistantParts, thinkingStyle.Width(msgWidth-2).Render(msg.ReasoningContent))
 			}
 			if msg.Content != "" {
@@ -202,7 +216,7 @@ func (m *Model) updateViewport() {
 	if (s.State == StateStreaming || s.State == StateThinking) && s.State != StateConfirmTool {
 		var activeParts []string
 		if s.StreamingState.ReasoningContent != "" {
-			activeParts = append(activeParts, tagStyle.Width(msgWidth+1).Render("Thoughts:"))
+			activeParts = append(activeParts, m.renderAnimatedTag("Thoughts:", thoughtHeaderStyle, msgWidth+1))
 			activeParts = append(activeParts, thinkingStyle.Width(msgWidth-2).Render(s.StreamingState.ReasoningContent))
 		}
 		if s.StreamingState.Content != "" {
@@ -242,7 +256,18 @@ func (m *Model) updateViewport() {
 			// Render tail as plain text (no glamour — too expensive per frame)
 			var tailStyled string
 			if tail != "" {
-				tailStyled = aiMsgStyle.Copy().Foreground(textColor).Width(msgWidth + 1).Render(tail)
+				// Trim leading newlines from tail to prevent "jumping" when a new paragraph starts
+				t := strings.TrimLeft(tail, "\n")
+				if t != "" {
+					// Pulsing Caret for streaming effect
+					ms := float64(time.Now().UnixNano()) / 1e6
+					caretOpacity := (math.Sin(ms/150.0) + 1.0) / 2.0
+					caretGrad := lipgloss.Blend1D(100, appBgColor, primaryColor)
+					caretCol := caretGrad[int(caretOpacity*99)]
+					caret := lipgloss.NewStyle().Foreground(caretCol).Render("█")
+
+					tailStyled = aiMsgStyle.Copy().Foreground(textColor).Width(msgWidth + 1).Render(t + caret)
+				}
 			}
 
 			// Combine: simple string concat, NO lipgloss processing
@@ -268,12 +293,12 @@ func (m *Model) updateViewport() {
 					}
 				}
 			}
-			activeParts = append(activeParts, tagStyle.Width(msgWidth+1).Render(fmt.Sprintf("%s %s", m.Spinner.View(), callStr)))
+			activeParts = append(activeParts, m.renderAnimatedTag(fmt.Sprintf("%s %s", m.Spinner.View(), callStr), tagStyle, msgWidth+1))
 		}
 		if len(activeParts) > 0 {
 			blocks = append(blocks, strings.Join(activeParts, "\n"))
 		} else if s.State == StateThinking {
-			blocks = append(blocks, m.renderAnimatedThinking(msgWidth-2))
+			blocks = append(blocks, m.renderAnimatedTag("Thinking...", thinkingStyle, msgWidth-2))
 		}
 	}
 
@@ -306,8 +331,7 @@ func (m *Model) updateViewport() {
 	}
 }
 
-func (m *Model) renderAnimatedThinking(width int) string {
-	text := "Thinking..."
+func (m *Model) renderAnimatedTag(text string, baseStyle lipgloss.Style, width int) string {
 	// Use millisecond timestamp for smooth movement
 	ms := float64(time.Now().UnixNano()) / 1e6
 
@@ -316,35 +340,36 @@ func (m *Model) renderAnimatedThinking(width int) string {
 	// speed: lower is faster (ms per unit of movement)
 	speed := 100.0
 
-	grad := lipgloss.Blend1D(100, subtextColor, textColor)
+	// Get base and shine colors from the provided style if possible
+	fg := baseStyle.GetForeground()
+	bg := baseStyle.GetBackground()
+
+	// If background is unset, use the app background to prevent leakage
+	if bg == nil {
+		bg = appBgColor
+	}
+
+	grad := lipgloss.Blend1D(100, fg, textColor)
 	var sb strings.Builder
 	for i, r := range text {
 		pos := float64(i)
-		// cycle: the center point of the highlight wave, moving across the text
 		cycle := math.Mod(ms/speed, float64(len(text)+int(waveWidth))) - waveWidth/2
-
-		// dist: distance of this char from wave center
 		dist := math.Abs(pos - cycle)
 
 		factor := 0.0
 		if dist < waveWidth {
-			// factor 1.0 at center, 0.0 at edges of waveWidth
 			factor = 1.0 - (dist / waveWidth)
-			// Apply a smooth curve (sine squared) for a softer look
 			factor = math.Pow(math.Sin(factor*math.Pi/2), 2)
 		}
 
 		step := int(factor * 99)
-		// Important: We must apply the background color to the inner style as well,
-		// because Lipgloss.Render() appends a reset code that would otherwise
-		// clear the background applied by the outer thinkingStyle.
 		charStyle := lipgloss.NewStyle().
 			Foreground(grad[step]).
-			Background(thoughtBgColor)
+			Background(bg)
 		sb.WriteString(charStyle.Render(string(r)))
 	}
 
-	return thinkingStyle.Width(width).Render(sb.String())
+	return baseStyle.Copy().Width(width).Render(sb.String())
 }
 
 func (m *Model) renderMarkdownBlock(content string, innerWidth int) string {
