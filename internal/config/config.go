@@ -32,13 +32,14 @@ const (
 
 // Config represents the application configuration.
 type Config struct {
-	EnabledTools     map[string]bool `json:"enabled_tools"`
-	OpenAIBaseURL    string          `json:"openai_base_url,omitempty"`
-	OpenAIAPIKey     string          `json:"openai_api_key,omitempty"`
-	OpenAIModel      string          `json:"openai_model,omitempty"`
-	SubagentBaseURL  string          `json:"subagent_base_url,omitempty"`
-	SubagentAPIKey   string          `json:"subagent_api_key,omitempty"`
-	SubagentModel    string          `json:"subagent_model,omitempty"`
+	EnabledTools    map[string]bool `json:"enabled_tools"`
+	OpenAIBaseURL   string          `json:"openai_base_url,omitempty"`
+	OpenAIAPIKey    string          `json:"openai_api_key,omitempty"`
+	OpenAIModel     string          `json:"openai_model,omitempty"`
+	SubagentBaseURL string          `json:"subagent_base_url,omitempty"`
+	SubagentAPIKey  string          `json:"subagent_api_key,omitempty"`
+	SubagentModel   string          `json:"subagent_model,omitempty"`
+	SkillsDir       string          `json:"skills_dir,omitempty"`
 }
 
 func defaultConfig() Config {
