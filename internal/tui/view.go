@@ -250,7 +250,7 @@ func (m *Model) updateViewport() {
 		if len(activeParts) > 0 {
 			blocks = append(blocks, strings.Join(activeParts, "\n"))
 		} else if s.State == StateThinking {
-			blocks = append(blocks, thinkingStyle.Render("Thinking..."))
+			blocks = append(blocks, thinkingStyle.Width(msgWidth-2).Render("Thinking..."))
 		}
 	}
 
