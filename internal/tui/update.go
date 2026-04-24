@@ -102,9 +102,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		forwardToViewport = true
 	case spinner.TickMsg:
 		// Only redraw on tick to animate tool calls/thinking if an agent is actually active
+		// AND showing a spinner inside the viewport. Status bar spinner animates via View().
 		s := m.GetAgentState(m.Focused.ID())
 		if s.State == StateThinking || s.State == StateStreaming {
-			m.updateViewport()
+			if len(s.StreamingState.ToolCalls) > 0 {
+				m.updateViewport()
+			}
 		}
 		forwardToViewport = false
 	default:

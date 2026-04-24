@@ -20,6 +20,7 @@ func (m Model) View() tea.View {
 	vStr := lipgloss.NewStyle().
 		Height(m.Viewport.Height()).
 		Width(m.Width).
+		Background(appBgColor).
 		Render(m.Viewport.View())
 
 	iStr := m.inputView()
@@ -32,8 +33,7 @@ func (m Model) View() tea.View {
 		sStr,
 	)
 
-	// Use lipgloss natively to pad and format the final visible viewport exactly to terminal bounds, eliminating "transparent" padding bugs.
-	v := tea.NewView(appStyle.Width(m.Width).Height(m.Height).Render(content))
+	v := tea.NewView(content)
 	v.AltScreen = true
 	v.BackgroundColor = appBgColor
 	return v
@@ -214,7 +214,18 @@ func (m *Model) updateViewport() {
 			// Chunks are glamour-rendered once, styled, and APPENDED to a
 			// cached string. The tail (current incomplete paragraph) skips
 			// glamour entirely for speed — just plain text with background.
-			chunks, tail := splitMarkdownChunks(s.StreamingState.Content)
+			var chunks []string
+			var tail string
+			if s.StreamingState.Content == s.LastStreamingContent {
+				// Optimization: use cached chunks if content hasn't changed
+				chunks = s.LastChunks
+				tail = s.LastTail
+			} else {
+				chunks, tail = splitMarkdownChunks(s.StreamingState.Content)
+				s.LastStreamingContent = s.StreamingState.Content
+				s.LastChunks = chunks
+				s.LastTail = tail
+			}
 
 			// Render + style NEW chunks and append to cache
 			for i := s.StreamingChunkCount; i < len(chunks); i++ {
@@ -282,6 +293,11 @@ func (m *Model) updateViewport() {
 	}
 
 	fullContent := strings.Join(blocks, "\n")
+	if fullContent == s.LastTotalContent {
+		return
+	}
+	s.LastTotalContent = fullContent
+
 	atBottom := m.Viewport.AtBottom()
 	m.Viewport.SetContent(fullContent)
 	if atBottom {

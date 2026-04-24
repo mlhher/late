@@ -60,6 +60,12 @@ type AppState struct {
 	// History token cache
 	CachedHistoryTokens int // Cached total token count for completed history
 	CachedHistoryLen    int // History length when tokens were last computed
+
+	// Performance caches
+	LastStreamingContent string   // To avoid re-splitting if content hasn't changed
+	LastChunks           []string // Cached result of splitMarkdownChunks
+	LastTail             string   // Cached result of splitMarkdownChunks
+	LastTotalContent     string   // To avoid redundant Viewport.SetContent calls
 }
 
 type Model struct {
