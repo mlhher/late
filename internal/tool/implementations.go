@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"regexp"
 	"runtime"
 	"strings"
 	"time"
 
 	"late/internal/common"
+	"mvdan.cc/sh/v3/syntax"
 )
 
 // ReadFileTool reads content from a file.
@@ -185,6 +185,7 @@ var whitelistedCommands = map[string]bool{
 	"wc":     true,
 	"seq":    true,
 	"file":   true,
+	"echo":   true,
 }
 
 // Windows PowerShell commands that are considered read-only/safe for
@@ -367,166 +368,126 @@ func extractPowerShellTargetPath(command string) string {
 	return target
 }
 
-// containsShellMetacharacters returns true if the command string contains
-// any shell syntax that could embed or disguise a sub-command.
-// When this returns true, RequiresConfirmation should always return true
-// regardless of the base command, because we cannot trust our naive
-// string-split parsing to extract the real commands from the string.
-func containsShellMetacharacters(command string) bool {
-	// Newline / carriage return / NUL: shell -c treats these as command
-	// separators, and our base-command extractor does not split on them.
-	// Without this check, `grep foo\n<payload>` auto-approves on the
-	// basis of `grep` alone.
-	if strings.ContainsAny(command, "\n\r\x00") {
+// isSafeWordPart returns true if the WordPart is a literal or a quoted string
+// that contains only literals (no expansions, no subshells).
+func isSafeWordPart(p syntax.WordPart) bool {
+	switch n := p.(type) {
+	case *syntax.Lit:
 		return true
-	}
-	// Process substitution: >(cmd) or <(cmd)
-	if strings.Contains(command, ">(") || strings.Contains(command, "<(") {
+	case *syntax.SglQuoted:
 		return true
-	}
-	// Command substitution: $(cmd) or backticks
-	if strings.Contains(command, "$(") || strings.Contains(command, "`") {
-		return true
-	}
-	// Variable expansion that could hide commands: ${...}
-	if strings.Contains(command, "${") {
-		return true
-	}
-	// Output redirection: > or >> (could write arbitrary files)
-	if strings.Contains(command, ">") {
-		return true
-	}
-	// Input redirection from a file: <
-	// (Harmless by itself, but combined with other constructs can be tricky)
-	if strings.Contains(command, "<") {
-		return true
-	}
-	// Eval or source
-	for _, keyword := range []string{" eval ", " source ", ";eval ", ";source "} {
-		if strings.Contains(command, keyword) {
-			return true
+	case *syntax.DblQuoted:
+		for _, qp := range n.Parts {
+			if !isSafeWordPart(qp) {
+				return false
+			}
 		}
-	}
-	return false
-}
-
-// extractTargetPath returns the target path argument for simple creation
-// commands. It intentionally refuses flags, chaining, and other ambiguous
-// forms so they continue through the normal confirmation path.
-func extractTargetPath(command string) string {
-	fields := strings.Fields(strings.TrimSpace(command))
-	if len(fields) != 2 {
-		return ""
-	}
-	target := fields[1]
-	if strings.HasPrefix(target, "-") {
-		return ""
-	}
-	// Reject shell-expanded targets so auto-approval remains conservative
-	// when execution runs through bash -c.
-	if strings.HasPrefix(target, "~") || strings.Contains(target, "$") || strings.ContainsAny(target, "*?[") {
-		return ""
-	}
-
-	switch strings.ToLower(fields[0]) {
-	case "mkdir", "touch", "new-item":
-		return target
+		return true
 	default:
-		return ""
+		return false
 	}
 }
 
-// Maximum number of output lines to prevent memory exhaustion
-const maxBashOutputLines = 1024
-
-// Roughly 8192 tokens (assuming ~4 chars per token)
-const maxReadFileChars = 32768
-
-// isMaliciousCatCommand detects when cat is used with output redirection to write files.
-// Returns true if the command attempts to write using cat shenanigans, false if safe.
-func isMaliciousCatCommand(command string) (bool, error) {
-	// Pattern to detect cat with output redirection (>)
-	// Matches: cat > file, cat >> file, cat 2> file, echo | cat > file, etc.
-	// Does NOT match: cat file.txt (reading), cat < file.txt (input redirection), cat file | grep (piping)
-
-	// First, strip comments and quotes to avoid false positives
-	cleanCmd := command
-	// Remove single-line comments
-	if idx := strings.Index(cleanCmd, "#"); idx != -1 {
-		cleanCmd = cleanCmd[:idx]
+// analyzeBashCommand performs a deep AST analysis of a bash command to identify
+// security risks (blocking) and complexity (confirmation requirements).
+func (t *ShellTool) analyzeBashCommand(command string) (isBlocked bool, blockReason error, needsConfirmation bool) {
+	parser := syntax.NewParser()
+	f, err := parser.Parse(strings.NewReader(command), "")
+	if err != nil {
+		// If we can't parse it, it might be a weird one-liner that's valid shell but not POSIX/Bash.
+		// Conservative approach: require confirmation, but don't block unless we're sure.
+		return false, nil, true
 	}
 
-	// Pattern explanation:
-	// - Match "cat" command (possibly with whitespace before it)
-	// - Followed by output redirection (>, >>, 2>)
-	// - The redirection must be a standalone redirection, not part of a pipe
+	needsConfirmation = false
+	isBlocked = false
 
-	// This regex matches:
-	// - cat followed by whitespace and > (output redirection)
-	// - cat followed by whitespace and >> (append redirection)
-	// - cat followed by 2> (stderr redirection)
-	// - | cat followed by whitespace and > (pipe to cat with output redirection)
-	maliciousPatterns := []string{
-		`(?i)\bcat\s+>>\s+`,      // cat >> file
-		`(?i)\bcat\s+>\s+`,       // cat > file
-		`(?i)\bcat\s+2>\s+`,      // cat 2> file
-		`(?i)\|\s*cat\s+>\s+`,    // | cat > file
-		`(?i)\|\s*cat\s+>>\s+`,   // | cat >> file
-		`(?i)\|\s*cat\s+2>\s+`,   // | cat 2> file
-		`(?i)cat\s+\d+\s*>`,      // cat 0> file, cat 1> file, cat 1 > file, etc.
-		`(?i)\|\s*cat\s+\d+\s*>`, // | cat 1> file
-	}
+	syntax.Walk(f, func(node syntax.Node) bool {
+		switch n := node.(type) {
+		case *syntax.CallExpr:
+			if len(n.Args) > 0 {
+				// Try to get the command name even if quoted
+				var cmdName string
+				word := n.Args[0]
+				if len(word.Parts) == 1 {
+					switch p := word.Parts[0].(type) {
+					case *syntax.Lit:
+						cmdName = p.Value
+					case *syntax.SglQuoted:
+						cmdName = p.Value
+					case *syntax.DblQuoted:
+						if len(p.Parts) == 1 {
+							if lit, ok := p.Parts[0].(*syntax.Lit); ok {
+								cmdName = lit.Value
+							}
+						}
+					}
+				}
 
-	for _, pattern := range maliciousPatterns {
-		re := regexp.MustCompile(pattern)
-		if re.MatchString(cleanCmd) {
-			return true, fmt.Errorf("cat cannot be used with output redirection (>) to write files")
+				if cmdName == "" {
+					needsConfirmation = true
+				} else {
+					if cmdName == "cd" {
+						isBlocked = true
+						needsConfirmation = true
+						blockReason = fmt.Errorf("Do not use `cd` to change directories. Use the `cwd` parameter in the shell tool instead.")
+						return false
+					}
+					if !whitelistedCommands[cmdName] {
+						needsConfirmation = true
+					}
+				}
+			}
+			if len(n.Assigns) > 0 {
+				needsConfirmation = true
+			}
+			// Check if any argument is not a simple literal/safe quoted part
+			for _, arg := range n.Args {
+				if arg != nil {
+					for _, p := range arg.Parts {
+						if !isSafeWordPart(p) {
+							needsConfirmation = true
+						}
+					}
+				}
+			}
+
+		case *syntax.Redirect:
+			// Op is RedirOperator. Check if it's an output redirect.
+			// RdrOut (>), AppOut (>>), RdrAll (&>), AppAll (&>>), RdrClob (>|), AppClob (not used in bash really but safe to block)
+			switch n.Op {
+			case syntax.RdrOut, syntax.AppOut, syntax.RdrAll, syntax.AppAll, syntax.RdrClob, syntax.AppClob, syntax.DplOut:
+				isBlocked = true
+				needsConfirmation = true
+				blockReason = fmt.Errorf("Output redirection (>) is blocked. Use `write_file` or `target_edit` to modify files.")
+				return false
+			}
+		case *syntax.BinaryCmd:
+			// Pipes (|), logical operators (&&, ||), etc.
+			needsConfirmation = true
+		case *syntax.CmdSubst, *syntax.Subshell, *syntax.ProcSubst:
+			// $(cmd), `cmd`, (cmd), <(cmd)
+			needsConfirmation = true
+		case *syntax.IfClause, *syntax.WhileClause, *syntax.ForClause, *syntax.CaseClause, *syntax.Block:
+			// Control structures
+			needsConfirmation = true
+		case *syntax.ParamExp:
+			// ${var}
+			needsConfirmation = true
 		}
-	}
+		return true
+	})
 
-	return false, nil
-}
-
-// isCdCommand detects when a shell command contains `cd` to change directories.
-// Returns true if the command attempts to change directories, false if safe.
-// Returns an error with instructions on using the `cwd` parameter instead.
-func isCdCommand(command string) (bool, error) {
-	// First, strip comments to avoid false positives
-	cleanCmd := command
-	if idx := strings.Index(cleanCmd, "#"); idx != -1 {
-		cleanCmd = cleanCmd[:idx]
-	}
-
-	// Pattern explanation:
-	// - Optional leading whitespace
-	// - "cd" as a standalone word (not part of another word like cd_log or mkdir)
-	// - Followed by optional space and any arguments
-	// - The \b word boundary ensures we match "cd" but not "cd_log" or "mkdir"
-	pattern := `^\s*cd\s+`
-	re := regexp.MustCompile(pattern)
-
-	if re.MatchString(cleanCmd) {
-		return true, fmt.Errorf("Do not use `cd` to change directories. Use the `cwd` parameter in the shell tool instead.")
-	}
-
-	return false, nil
+	return isBlocked, blockReason, needsConfirmation
 }
 
 // ValidateBashCommand validates shell commands before execution.
 // Returns an error if the command uses malicious patterns like cat shenanigans or cd commands.
 func (t *ShellTool) ValidateBashCommand(command string) error {
-	// Check for malicious cat commands
-	isMalicious, err := isMaliciousCatCommand(command)
-	if isMalicious {
+	blocked, err, _ := t.analyzeBashCommand(command)
+	if blocked {
 		return err
 	}
-
-	// Check for cd commands
-	isCd, err := isCdCommand(command)
-	if isCd {
-		return err
-	}
-
 	return nil
 }
 
@@ -551,62 +512,15 @@ func (t *ShellTool) WrapError(ctx context.Context, err error) error {
 // IsCommandBlocked checks if a shell command should be blocked entirely (not asked for confirmation).
 // Returns true and an error if the command is blocked (e.g., cd commands).
 func (t *ShellTool) IsCommandBlocked(command string) (bool, error) {
-	// Block cd commands immediately - they should never be confirmed, only rejected
-	isCd, err := isCdCommand(command)
-	if isCd {
-		return true, err
-	}
-
-	// Block cat with output redirection immediately
-	isMalicious, err := isMaliciousCatCommand(command)
-	if isMalicious {
-		return true, err
-	}
-
-	return false, nil
+	blocked, err, _ := t.analyzeBashCommand(command)
+	return blocked, err
 }
 
-// getAllBaseCommands splits a compound shell command into individual segments
-// and extracts the base command (first word) from each segment.
-// For example: "echo foo; wget url | cat" returns ["echo", "wget", "cat"]
-//
-// Note: This function does NOT handle quoted strings or subshells.
-// Examples:
-// - echo 'hello && goodbye' ; ls  → ["echo", "goodbye'", "ls"]
-// - echo foo; (cd /tmp && ls)     → ["echo", "(cd", "ls"]
-// These edge cases currently cause over-confirmation (safer than under-confirmation).
-func getAllBaseCommands(command string) []string {
-	var commands = []string{}
+// Maximum number of output lines to prevent memory exhaustion
+const maxBashOutputLines = 1024
 
-	// Replace && and || with ; first, then split by ; and |
-	normalized := command
-	normalized = strings.ReplaceAll(normalized, "&&", ";")
-	normalized = strings.ReplaceAll(normalized, "||", ";")
-	normalized = strings.ReplaceAll(normalized, "&", ";")
-
-	parts := strings.Split(normalized, ";")
-	for _, part := range parts {
-		// Trim whitespace
-		trimmed := strings.TrimSpace(part)
-		if trimmed == "" {
-			continue
-		}
-		// Split by | to handle pipes
-		pipeParts := strings.Split(trimmed, "|")
-		for _, pipePart := range pipeParts {
-			pipeTrimmed := strings.TrimSpace(pipePart)
-			if pipeTrimmed == "" {
-				continue
-			}
-			// Extract first word (base command)
-			words := strings.Fields(pipeTrimmed)
-			if len(words) > 0 {
-				commands = append(commands, words[0])
-			}
-		}
-	}
-	return commands
-}
+// Roughly 8192 tokens (assuming ~4 chars per token)
+const maxReadFileChars = 32768
 
 // ShellTool executes host-native shell commands with security restrictions.
 type ShellTool struct{}
@@ -722,27 +636,32 @@ func (t ShellTool) RequiresConfirmation(args json.RawMessage) bool {
 		return false
 	}
 
-	// If the command contains any shell metacharacters that could embed
-	// sub-commands or disguise intent, always require confirmation.
-	// This is the primary defense: we don't try to parse complex shell
-	// syntax, we just punt to the human.
-	if containsShellMetacharacters(params.Command) {
-		return true
-	}
+	if runtime.GOOS == "windows" {
+		// Denylist first: if command shape is risky or can hide execution intent,
+		// always require confirmation.
+		if containsPowerShellRiskySyntax(params.Command) {
+			return true
+		}
 
-	if target := extractTargetPath(params.Command); target != "" && isNewPath(target, params.Cwd) {
+		// Permit creation only for simple, explicit new paths inside allowed roots.
+		if target := extractPowerShellTargetPath(params.Command); target != "" && isNewPath(target, params.Cwd) {
+			return false
+		}
+
+		// Parser-backed base command extraction allows safer classification than
+		// naive whitespace splitting.
+		baseCommands := getPowerShellBaseCommands(params.Command)
+		for _, cmd := range baseCommands {
+			if !whitelistedWindowsCommands[cmd] {
+				return true
+			}
+		}
 		return false
 	}
 
-	// Get all base commands from potentially compound commands
-	baseCommands := getAllBaseCommands(params.Command)
-	// Require confirmation if ANY command is not whitelisted
-	for _, cmd := range baseCommands {
-		if !whitelistedCommands[cmd] {
-			return true
-		}
-	}
-	return false
+	_, _, needsConfirmation := t.analyzeBashCommand(params.Command)
+	return needsConfirmation
+
 }
 
 func (t ShellTool) CallString(args json.RawMessage) string {
