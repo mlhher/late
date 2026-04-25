@@ -102,7 +102,7 @@ func (m *Model) statusBarView() string {
 	var mode string
 	if active {
 		ms := float64(time.Now().UnixNano()) / 1e6
-		pulseFactor := (math.Sin(ms/800.0) + 1.0) / 2.0 // 0.0 to 1.0
+		pulseFactor := (math.Sin(ms/700.0) + 1.0) / 2.0 // 0.0 to 1.0
 		grad := lipgloss.Blend1D(100, lipgloss.Color("#4A235A"), primaryColor)
 		breathColor := grad[int(pulseFactor*99)]
 		mode = statusModeStyle.Copy().Background(breathColor).Render(modeStr)
@@ -295,12 +295,12 @@ func (m *Model) updateViewport() {
 					}
 				}
 			}
-			activeParts = append(activeParts, m.renderAnimatedTag(fmt.Sprintf("%s %s", m.Spinner.View(), callStr), tagStyle, msgWidth+1))
+			activeParts = append(activeParts, m.renderAnimatedTag(fmt.Sprintf("%s %s", m.Spinner.View(), callStr), tagStyle, msgWidth+1, true))
 		}
 		if len(activeParts) > 0 {
 			blocks = append(blocks, strings.Join(activeParts, "\n"))
 		} else if s.State == StateThinking {
-			blocks = append(blocks, m.renderAnimatedTag("Thinking", thinkingStyle, msgWidth-2))
+			blocks = append(blocks, m.renderAnimatedTag("Thinking", thinkingStyle, msgWidth-2, true))
 		}
 	}
 
@@ -334,26 +334,31 @@ func (m *Model) updateViewport() {
 	}
 }
 
-func (m *Model) renderAnimatedTag(text string, baseStyle lipgloss.Style, width int) string {
+func (m *Model) renderAnimatedTag(text string, baseStyle lipgloss.Style, width int, active bool) string {
 	textWidth := lipgloss.Width(text)
 
-	// Sensible animation: only animate if truncated, or if it's a special active placeholder
-	shouldAnimate := textWidth > width ||
-		text == "Thinking" ||
-		strings.Contains(text, "(invalid args)") ||
-		strings.HasSuffix(text, "...")
+	isTruncated := textWidth > width
+	shouldAnimate := active && (isTruncated || text == "Thinking" || strings.HasSuffix(text, "..."))
 
 	if !shouldAnimate {
+		if isTruncated {
+			text = m.truncateWithEllipsis(text, width)
+		}
 		return baseStyle.Copy().Width(width).Render(text)
 	}
 
 	// Use millisecond timestamp for smooth movement
 	ms := float64(time.Now().UnixNano()) / 1e6
 
-	// waveWidth: how many characters are "in the highlight"
-	waveWidth := 4.0
-	// speed: lower is faster (ms per unit of movement)
-	speed := 100.0
+	// Use width instead of textWidth for truncated tags to prevent violent shifting
+	// when characters are appended during streaming. For small tags (Thinking, etc),
+	// use the actual text width so the animation doesn't feel too slow.
+	period := float64(textWidth)
+	if isTruncated {
+		text = m.truncateWithEllipsis(text, width)
+		textWidth = lipgloss.Width(text)
+		period = float64(width)
+	}
 
 	// Get base and shine colors from the provided style if possible
 	fg := baseStyle.GetForeground()
@@ -364,20 +369,22 @@ func (m *Model) renderAnimatedTag(text string, baseStyle lipgloss.Style, width i
 		bg = appBgColor
 	}
 
-	// Use width instead of textWidth for truncated tags to prevent violent shifting
-	// when characters are appended during streaming. For small tags (Thinking, etc),
-	// use the actual text width so the animation doesn't feel too slow.
-	period := float64(textWidth)
-	if textWidth > width {
-		period = float64(width)
-	}
+	// Dynamic speed and waveWidth based on period:
+	// Short strings loop fast, long strings loop reasonably fast without
+	// the shine moving at light speed.
+	waveWidth := 4.0 + math.Sqrt(period)*0.5
+	speed := 10.0 + 1400.0/(period+10.0)
+	totalLoop := period + waveWidth
+	cycle := math.Mod(ms/speed, totalLoop)
 
 	grad := lipgloss.Blend1D(100, fg, textColor)
 	var sb strings.Builder
 	for i, r := range text {
 		pos := float64(i)
-		cycle := math.Mod(ms/speed, period+waveWidth) - waveWidth/2
 		dist := math.Abs(pos - cycle)
+		if dist > totalLoop/2 {
+			dist = totalLoop - dist
+		}
 
 		factor := 0.0
 		if dist < waveWidth {
@@ -395,10 +402,33 @@ func (m *Model) renderAnimatedTag(text string, baseStyle lipgloss.Style, width i
 	return baseStyle.Copy().Width(width).Render(sb.String())
 }
 
+func (m *Model) truncateWithEllipsis(s string, w int) string {
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	if w <= 3 {
+		return "..."
+	}
+
+	limit := w - 3
+	runes := []rune(s)
+	res := ""
+	currW := 0
+	for _, r := range runes {
+		rw := lipgloss.Width(string(r))
+		if currW+rw > limit {
+			break
+		}
+		res += string(r)
+		currW += rw
+	}
+	return res + "..."
+}
+
 func (m *Model) renderMarkdownBlock(content string, innerWidth int) string {
 	// Use new renderer to avoid background color issues
 	md, _ := m.GetRenderer(innerWidth).Render(content)
-	md = strings.TrimRight(md, "\n")
+	//md = strings.TrimRight(md, "\n")
 
 	return md
 }
