@@ -218,7 +218,7 @@ func (m *Model) updateViewport() {
 	if (s.State == StateStreaming || s.State == StateThinking) && s.State != StateConfirmTool {
 		var activeParts []string
 		if s.StreamingState.ReasoningContent != "" {
-			activeParts = append(activeParts, m.renderAnimatedTag("Thoughts:", thoughtHeaderStyle, msgWidth+1))
+			activeParts = append(activeParts, thoughtHeaderStyle.Width(msgWidth+1).Render("Thoughts:"))
 			activeParts = append(activeParts, thinkingStyle.Width(msgWidth-2).Render(s.StreamingState.ReasoningContent))
 		}
 		if s.StreamingState.Content != "" {
@@ -300,7 +300,7 @@ func (m *Model) updateViewport() {
 		if len(activeParts) > 0 {
 			blocks = append(blocks, strings.Join(activeParts, "\n"))
 		} else if s.State == StateThinking {
-			blocks = append(blocks, m.renderAnimatedTag("Thinking...", thinkingStyle, msgWidth-2))
+			blocks = append(blocks, m.renderAnimatedTag("Thinking", thinkingStyle, msgWidth-2))
 		}
 	}
 
