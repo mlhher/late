@@ -35,7 +35,7 @@ const (
 // Fixed layout heights (crush-style)
 const (
 	InputHeight     = 9
-	StatusBarHeight = 1
+	StatusBarHeight = 2
 	AppPadding      = 0
 )
 

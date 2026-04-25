@@ -139,7 +139,9 @@ func (m *Model) statusBarView() string {
 	if spaceWidth < 0 {
 		spaceWidth = 0
 	}
-	space := statusBarBaseStyle.Copy().Width(spaceWidth).Render("")
+	// Important: Use a style WITHOUT a border for the internal space filler to avoid duplication
+	spaceStyle := lipgloss.NewStyle().Background(appBgColor).MarginBackground(appBgColor)
+	space := spaceStyle.Width(spaceWidth).Render("")
 
 	content := lipgloss.JoinHorizontal(lipgloss.Left, mode, status, warning, tokenStyled, space, hints)
 	return statusBarBaseStyle.Width(w).Render(content)

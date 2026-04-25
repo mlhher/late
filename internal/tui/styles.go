@@ -30,11 +30,12 @@ var (
 			Foreground(textColor)
 
 	inputStyle = baseStyle.Copy().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(primaryColor).
+			Border(lipgloss.NormalBorder(), true, false, false, false).
+			BorderForeground(lipgloss.Color("#252525")).
 			BorderBackground(appBgColor).
 			MarginBackground(appBgColor).
-			Padding(0, 1)
+			Padding(0, 1).
+			Height(InputHeight - 1)
 
 	// User Bubble
 	userMsgStyle = lipgloss.NewStyle().
@@ -83,10 +84,13 @@ var (
 				Foreground(subtextColor)
 
 	statusBarBaseStyle = lipgloss.NewStyle().
-				Height(StatusBarHeight).
 				Background(appBgColor).
 				MarginBackground(appBgColor).
-				Foreground(textColor)
+				Border(lipgloss.NormalBorder(), true, false, false, false).
+				BorderForeground(lipgloss.Color("#444444")).
+				BorderBackground(appBgColor).
+				Foreground(textColor).
+				Height(StatusBarHeight - 1)
 
 	statusModeStyle = lipgloss.NewStyle().
 			Background(primaryColor).
