@@ -335,6 +335,18 @@ func (m *Model) updateViewport() {
 }
 
 func (m *Model) renderAnimatedTag(text string, baseStyle lipgloss.Style, width int) string {
+	textWidth := lipgloss.Width(text)
+
+	// Sensible animation: only animate if truncated, or if it's a special active placeholder
+	shouldAnimate := textWidth > width ||
+		text == "Thinking" ||
+		strings.Contains(text, "(invalid args)") ||
+		strings.HasSuffix(text, "...")
+
+	if !shouldAnimate {
+		return baseStyle.Copy().Width(width).Render(text)
+	}
+
 	// Use millisecond timestamp for smooth movement
 	ms := float64(time.Now().UnixNano()) / 1e6
 
@@ -352,11 +364,19 @@ func (m *Model) renderAnimatedTag(text string, baseStyle lipgloss.Style, width i
 		bg = appBgColor
 	}
 
+	// Use width instead of textWidth for truncated tags to prevent violent shifting
+	// when characters are appended during streaming. For small tags (Thinking, etc),
+	// use the actual text width so the animation doesn't feel too slow.
+	period := float64(textWidth)
+	if textWidth > width {
+		period = float64(width)
+	}
+
 	grad := lipgloss.Blend1D(100, fg, textColor)
 	var sb strings.Builder
 	for i, r := range text {
 		pos := float64(i)
-		cycle := math.Mod(ms/speed, float64(len(text)+int(waveWidth))) - waveWidth/2
+		cycle := math.Mod(ms/speed, period+waveWidth) - waveWidth/2
 		dist := math.Abs(pos - cycle)
 
 		factor := 0.0
