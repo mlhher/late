@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"late/internal/client"
 	"late/internal/common"
+	"late/internal/pathutil"
+	"late/internal/skill"
 	"late/internal/session"
 	"late/internal/tool"
 )
@@ -116,6 +118,25 @@ func RegisterTools(reg *tool.Registry, enabledTools map[string]bool, isPlanning 
 		if enabledTools["target_edit"] {
 			reg.Register(tool.NewTargetEditTool())
 		}
+	}
+
+	// Register Skills
+	skillDirs := []string{}
+	if userSkillsDir, err := pathutil.LateSkillsDir(); err == nil {
+		skillDirs = append(skillDirs, userSkillsDir)
+	}
+	skillDirs = append(skillDirs, pathutil.LateProjectSkillsDir())
+
+	skills, err := skill.DiscoverSkills(skillDirs)
+	if err == nil && len(skills) > 0 {
+		skillMap := make(map[string]*skill.Skill)
+		for _, s := range skills {
+			skillMap[s.Metadata.Name] = s
+		}
+		reg.Register(tool.ActivateSkillTool{
+			Skills: skillMap,
+			Reg:    reg,
+		})
 	}
 }
 

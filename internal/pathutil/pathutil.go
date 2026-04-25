@@ -44,3 +44,15 @@ func LateUserMCPConfigPath() (string, error) {
 	}
 	return filepath.Join(lateConfigDir, "mcp_config.json"), nil
 }
+
+func LateSkillsDir() (string, error) {
+	lateConfigDir, err := LateConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(lateConfigDir, "skills"), nil
+}
+
+func LateProjectSkillsDir() string {
+	return filepath.Join(".late", "skills")
+}
