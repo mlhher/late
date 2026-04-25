@@ -35,12 +35,21 @@ func TestAnalyzeBashCommand(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			blocked, _, confirm := st.analyzeBashCommand(tc.command)
+			analyzer := &BashAnalyzer{}
+			analysis := analyzer.Analyze(tc.command)
+			if analysis.IsBlocked != tc.expectBlocked {
+				t.Errorf("blocked mismatch (analyzer): got %v, want %v", analysis.IsBlocked, tc.expectBlocked)
+			}
+			if analysis.NeedsConfirmation != tc.expectConfirm {
+				t.Errorf("confirm mismatch (analyzer): got %v, want %v", analysis.NeedsConfirmation, tc.expectConfirm)
+			}
+
+			blocked, _, confirm := st.analyzeBashCommand(tc.command, "")
 			if blocked != tc.expectBlocked {
-				t.Errorf("blocked mismatch: got %v, want %v", blocked, tc.expectBlocked)
+				t.Errorf("blocked mismatch (shelltool): got %v, want %v", blocked, tc.expectBlocked)
 			}
 			if confirm != tc.expectConfirm {
-				t.Errorf("confirm mismatch: got %v, want %v", confirm, tc.expectConfirm)
+				t.Errorf("confirm mismatch (shelltool): got %v, want %v", confirm, tc.expectConfirm)
 			}
 			
 			// Also test RequiresConfirmation with marshaled args

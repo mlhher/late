@@ -82,9 +82,10 @@ func TUIConfirmMiddleware(messenger Messenger, reg *common.ToolRegistry) common.
 					if bashTool, ok := t.(*tool.ShellTool); ok {
 						var params struct {
 							Command string `json:"command"`
+							Cwd     string `json:"cwd"`
 						}
 						if err := json.Unmarshal([]byte(tc.Function.Arguments), &params); err == nil {
-							if blocked, err := bashTool.IsCommandBlocked(params.Command); blocked {
+							if blocked, err := bashTool.IsCommandBlocked(params.Command, params.Cwd); blocked {
 								return "", bashTool.WrapError(ctx, err) // Reject immediately with descriptive guidance
 							}
 						}
