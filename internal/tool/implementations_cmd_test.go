@@ -5,6 +5,7 @@ package tool
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"late/internal/common"
 	"path/filepath"
 	"strings"
@@ -83,17 +84,93 @@ func TestPSShellCommand_EncodedCommandDecodesCorrectly(t *testing.T) {
 	}
 }
 
-func TestPSShellTool_WindowsAlwaysRequiresConfirmation(t *testing.T) {
+func TestPSShellTool_WindowsSelectiveRequiresConfirmation(t *testing.T) {
 	tool := ShellTool{}
-	cases := []json.RawMessage{
-		json.RawMessage(`{"command":"dir"}`),
-		json.RawMessage(`{"command":"Get-ChildItem"}`),
-		json.RawMessage(`{"command":"echo hello"}`),
+	tests := []struct {
+		name string
+		args json.RawMessage
+		want bool
+	}{
+		{name: "dir is safe", args: json.RawMessage(`{"command":"dir"}`), want: false},
+		{name: "Get-ChildItem is safe", args: json.RawMessage(`{"command":"Get-ChildItem"}`), want: false},
+		{name: "echo is safe", args: json.RawMessage(`{"command":"echo hello"}`), want: false},
+		{name: "risky remove-item", args: json.RawMessage(`{"command":"Remove-Item foo.txt"}`), want: true},
+		{name: "unknown command", args: json.RawMessage(`{"command":"git status"}`), want: true},
+		{name: "pipeline to unknown command", args: json.RawMessage(`{"command":"Get-ChildItem | ForEach-Object { $_ }"}`), want: true},
+		{name: "iex risky syntax", args: json.RawMessage(`{"command":"IEX 'Get-ChildItem'"}`), want: true},
 	}
-	for _, args := range cases {
-		if !tool.RequiresConfirmation(args) {
-			t.Fatalf("expected RequiresConfirmation=true on Windows for %s", string(args))
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tool.RequiresConfirmation(tt.args); got != tt.want {
+				t.Fatalf("RequiresConfirmation(%s)=%v, want %v", string(tt.args), got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPSShellTool_WindowsNewPathCarveout(t *testing.T) {
+	tool := ShellTool{}
+	tempDir := t.TempDir()
+	newPath := filepath.Join(tempDir, "new-folder")
+	existingPath := filepath.Join(tempDir, "existing-folder")
+	if err := os.Mkdir(existingPath, 0755); err != nil {
+		t.Fatalf("failed to create existing folder fixture: %v", err)
+	}
+	makeArgs := func(command, cwd string) json.RawMessage {
+		payload, err := json.Marshal(map[string]string{
+			"command": command,
+			"cwd":     cwd,
+		})
+		if err != nil {
+			t.Fatalf("failed to marshal args: %v", err)
 		}
+		return json.RawMessage(payload)
+	}
+
+	tests := []struct {
+		name string
+		args json.RawMessage
+		want bool
+	}{
+		{
+			name: "new-item new path can auto-approve",
+				args: makeArgs(`New-Item -Path "`+newPath+`"`, tempDir),
+			want: false,
+		},
+		{
+			name: "new-item existing path requires confirmation",
+				args: makeArgs(`New-Item -Path "`+existingPath+`"`, tempDir),
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tool.RequiresConfirmation(tt.args); got != tt.want {
+				t.Fatalf("RequiresConfirmation(%s)=%v, want %v", string(tt.args), got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPowerShellParserBackedCommandExtraction(t *testing.T) {
+	got := getPowerShellBaseCommands(`Get-ChildItem 'C:\Program Files' | Select-String "go"; echo done`)
+	want := []string{"get-childitem", "select-string", "echo"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("getPowerShellBaseCommands mismatch: got %v want %v", got, want)
+	}
+
+	if !containsPowerShellRiskySyntax("IEX 'Get-ChildItem'") {
+		t.Fatal("expected IEX command to be treated as risky")
+	}
+
+	if containsPowerShellRiskySyntax("Get-ChildItem") {
+		t.Fatal("expected simple Get-ChildItem to be non-risky")
+	}
+
+	if got := extractPowerShellTargetPath(`New-Item -Path C:\tmp\newfile.txt`); got == "" {
+		t.Fatal("expected New-Item -Path target extraction to succeed")
 	}
 }
 
