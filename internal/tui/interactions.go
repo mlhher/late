@@ -72,8 +72,8 @@ func TUIConfirmMiddleware(messenger Messenger, reg *common.ToolRegistry) common.
 			// Check if the tool requires confirmation
 			if reg != nil {
 				if t := reg.Get(tc.Function.Name); t != nil {
-					// Check project-allowed tools (e.g. MCP tools that the user "Always Allowed")
-					if allowed, _ := tool.LoadAllowedTools(); allowed[tc.Function.Name] {
+					// Check project-allowed tools (local or global)
+					if allowed, _ := tool.LoadAllAllowedTools(); allowed[tc.Function.Name] {
 						approvedCtx := context.WithValue(ctx, common.ToolApprovalKey, true)
 						return next(approvedCtx, tc)
 					}
@@ -84,7 +84,6 @@ func TUIConfirmMiddleware(messenger Messenger, reg *common.ToolRegistry) common.
 					}
 
 					// For ShellTool, check if the command is blocked (e.g., cd commands)
-					// Blocked commands should be rejected immediately without asking for confirmation
 					if bashTool, ok := t.(*tool.ShellTool); ok {
 						var params struct {
 							Command string `json:"command"`
@@ -92,7 +91,7 @@ func TUIConfirmMiddleware(messenger Messenger, reg *common.ToolRegistry) common.
 						}
 						if err := json.Unmarshal([]byte(tc.Function.Arguments), &params); err == nil {
 							if blocked, err := bashTool.IsCommandBlocked(params.Command, params.Cwd); blocked {
-								return "", bashTool.WrapError(ctx, err) // Reject immediately with descriptive guidance
+								return "", bashTool.WrapError(ctx, err)
 							}
 						}
 					}
@@ -113,20 +112,19 @@ func TUIConfirmMiddleware(messenger Messenger, reg *common.ToolRegistry) common.
 			select {
 			case choice := <-resultCh:
 				switch choice {
-				case "y", "a":
-					if choice == "a" {
+				case "y", "a", "A":
+					if choice == "a" || choice == "A" {
+						global := (choice == "A")
 						if t := reg.Get(tc.Function.Name); t != nil {
-							if bashTool, ok := t.(*tool.ShellTool); ok {
-								// For ShellTool, save the specific command/flags pattern
+							if _, ok := t.(*tool.ShellTool); ok {
 								var params struct {
 									Command string `json:"command"`
 								}
 								if err := json.Unmarshal([]byte(tc.Function.Arguments), &params); err == nil {
-									_ = bashTool.SaveToAllowList(params.Command)
+									_ = tool.SaveAllowedCommand(params.Command, global)
 								}
 							} else {
-								// For other tools (MCP, etc.), save the tool name globally for the project
-								_ = tool.SaveAllowedTool(tc.Function.Name)
+								_ = tool.SaveAllowedTool(tc.Function.Name, global)
 							}
 						}
 					}

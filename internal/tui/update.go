@@ -195,7 +195,7 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 
 		case "a", "A":
 			if focusedState.State == StateConfirmTool && focusedState.PendingConfirm != nil {
-				focusedState.PendingConfirm.ResultCh <- "a"
+				focusedState.PendingConfirm.ResultCh <- msg.String()
 				focusedState.PendingConfirm = nil
 				focusedState.State = StateThinking
 				m.updateViewport()

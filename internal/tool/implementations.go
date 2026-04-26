@@ -174,13 +174,13 @@ func (t *ShellTool) getAnalyzer(cwd string) CommandAnalyzer {
 	if runtime.GOOS == "windows" {
 		return &PowerShellAnalyzer{Cwd: cwd}
 	}
-	allowed, _ := LoadAllowedCommands()
+	allowed, _ := LoadAllAllowedCommands()
 	return &BashAnalyzer{ProjectAllowedCommands: allowed}
 }
 
-// SaveToAllowList persists a command to the project-specific allow-list.
+// SaveToAllowList persists a command to the allow-list. Defaults to local scope.
 func (t *ShellTool) SaveToAllowList(command string) error {
-	return SaveAllowedCommand(command)
+	return SaveAllowedCommand(command, false)
 }
 
 // analyzeBashCommand is now a wrapper around the platform-specific analyzer.

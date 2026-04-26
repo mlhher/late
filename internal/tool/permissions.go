@@ -167,22 +167,37 @@ func IsSafePath(path string) bool {
 }
 
 const (
-	allowedCommandsFile = ".late/allowed_commands.json"
-	allowedToolsFile    = ".late/allowed_tools.json"
+	localAllowedCommandsFile = ".late/allowed_commands.json"
+	localAllowedToolsFile    = ".late/allowed_tools.json"
+	globalConfigDirName     = "late"
+	commandsFileName        = "allowed_commands.json"
+	toolsFileName           = "allowed_tools.json"
 )
 
-// LoadAllowedCommands loads the project-specific allow-list from .late/allowed_commands.json.
-// The returned map structure is: Command (normalized) -> map of allowed Flags.
-func LoadAllowedCommands() (map[string]map[string]bool, error) {
+func getGlobalConfigPath(fileName string) string {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(configDir, globalConfigDirName, fileName)
+}
+
+func getFilePath(localPath string, fileName string, global bool) string {
+	if global {
+		return getGlobalConfigPath(fileName)
+	}
+	return localPath
+}
+
+// LoadAllowedCommands loads allowed commands from either local or global allow-list.
+func LoadAllowedCommands(global bool) (map[string]map[string]bool, error) {
 	allowed := make(map[string]map[string]bool)
-	
-	// Ensure the directory exists
-	dir := filepath.Dir(allowedCommandsFile)
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
+	path := getFilePath(localAllowedCommandsFile, commandsFileName, global)
+	if path == "" {
 		return allowed, nil
 	}
 
-	data, err := os.ReadFile(allowedCommandsFile)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return allowed, nil
@@ -190,7 +205,6 @@ func LoadAllowedCommands() (map[string]map[string]bool, error) {
 		return nil, err
 	}
 
-	// JSON format: { "git log": ["--oneline", "-*"], ... }
 	var list map[string][]string
 	if err := json.Unmarshal(data, &list); err != nil {
 		return nil, err
@@ -206,21 +220,46 @@ func LoadAllowedCommands() (map[string]map[string]bool, error) {
 	return allowed, nil
 }
 
-// SaveAllowedCommand adds a command string (potentially compound) to the project-specific allow-list.
-// It extracts all distinct commands and their flags using the AST parser.
-func SaveAllowedCommand(command string) error {
-	// Extract all normalized commands and their flags
+// LoadAllAllowedCommands loads both local and global allowed commands and merges them.
+func LoadAllAllowedCommands() (map[string]map[string]bool, error) {
+	merged := make(map[string]map[string]bool)
+
+	// Load global first
+	global, err := LoadAllowedCommands(true)
+	if err == nil {
+		for cmd, flags := range global {
+			merged[cmd] = flags
+		}
+	}
+
+	// Load local and override/merge
+	local, err := LoadAllowedCommands(false)
+	if err == nil {
+		for cmd, flags := range local {
+			if _, exists := merged[cmd]; !exists {
+				merged[cmd] = make(map[string]bool)
+			}
+			for flag := range flags {
+				merged[cmd][flag] = true
+			}
+		}
+	}
+
+	return merged, nil
+}
+
+// SaveAllowedCommand adds a command string to the specified allow-list (local or global).
+func SaveAllowedCommand(command string, global bool) error {
 	commands := ParseCommandsForAllowList(command)
 	if len(commands) == 0 {
 		return nil
 	}
 
-	allowed, err := LoadAllowedCommands()
+	allowed, err := LoadAllowedCommands(global)
 	if err != nil {
 		return err
 	}
 
-	// Merge new commands and flags into the existing set
 	for key, flags := range commands {
 		if _, exists := allowed[key]; !exists {
 			allowed[key] = make(map[string]bool)
@@ -230,7 +269,6 @@ func SaveAllowedCommand(command string) error {
 		}
 	}
 
-	// Convert back to serializable format
 	serializable := make(map[string][]string)
 	for cmd, flagMap := range allowed {
 		var flagList []string
@@ -245,20 +283,24 @@ func SaveAllowedCommand(command string) error {
 		return err
 	}
 
-	// Ensure the directory exists
-	dir := filepath.Dir(allowedCommandsFile)
+	path := getFilePath(localAllowedCommandsFile, commandsFileName, global)
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 
-	return os.WriteFile(allowedCommandsFile, data, 0644)
+	return os.WriteFile(path, data, 0644)
 }
 
-// LoadAllowedTools loads the project-specific list of tools that are always allowed.
-func LoadAllowedTools() (map[string]bool, error) {
+// LoadAllowedTools loads the list of tools that are always allowed (local or global).
+func LoadAllowedTools(global bool) (map[string]bool, error) {
 	allowed := make(map[string]bool)
+	path := getFilePath(localAllowedToolsFile, toolsFileName, global)
+	if path == "" {
+		return allowed, nil
+	}
 
-	data, err := os.ReadFile(allowedToolsFile)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return allowed, nil
@@ -278,9 +320,30 @@ func LoadAllowedTools() (map[string]bool, error) {
 	return allowed, nil
 }
 
-// SaveAllowedTool adds a tool name to the project-specific always-allowed list.
-func SaveAllowedTool(name string) error {
-	allowed, err := LoadAllowedTools()
+// LoadAllAllowedTools loads both local and global allowed tools and merges them.
+func LoadAllAllowedTools() (map[string]bool, error) {
+	merged := make(map[string]bool)
+
+	global, err := LoadAllowedTools(true)
+	if err == nil {
+		for t := range global {
+			merged[t] = true
+		}
+	}
+
+	local, err := LoadAllowedTools(false)
+	if err == nil {
+		for t := range local {
+			merged[t] = true
+		}
+	}
+
+	return merged, nil
+}
+
+// SaveAllowedTool adds a tool name to the specified always-allowed list (local or global).
+func SaveAllowedTool(name string, global bool) error {
+	allowed, err := LoadAllowedTools(global)
 	if err != nil {
 		return err
 	}
@@ -297,19 +360,20 @@ func SaveAllowedTool(name string) error {
 		return err
 	}
 
-	dir := filepath.Dir(allowedToolsFile)
+	path := getFilePath(localAllowedToolsFile, toolsFileName, global)
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 
-	return os.WriteFile(allowedToolsFile, data, 0644)
+	return os.WriteFile(path, data, 0644)
 }
 
 // NormalizeCommandForAllowList is now a legacy helper that returns the first command key found.
 func NormalizeCommandForAllowList(command string) string {
 	commands := ParseCommandsForAllowList(command)
 	for key := range commands {
-		return key // Just return the first one found for compatibility
+		return key 
 	}
 	return ""
 }
