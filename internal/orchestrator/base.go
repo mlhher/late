@@ -68,6 +68,10 @@ func (o *BaseOrchestrator) MaxTokens() int {
 	return o.sess.Client().ContextSize()
 }
 
+func (o *BaseOrchestrator) RefreshContextSize(ctx context.Context) {
+	o.sess.Client().RefreshContextSize(ctx)
+}
+
 func (o *BaseOrchestrator) ID() string { return o.id }
 
 func (o *BaseOrchestrator) Submit(text string) error {
@@ -118,6 +122,7 @@ func (o *BaseOrchestrator) Execute(text string) (string, error) {
 	var extraBody map[string]any
 
 	onStartTurn := func() {
+		o.RefreshContextSize(ctx)
 		o.mu.Lock()
 		o.acc.Reset()
 		o.mu.Unlock()
@@ -125,6 +130,7 @@ func (o *BaseOrchestrator) Execute(text string) (string, error) {
 	}
 
 	onEndTurn := func() {
+		o.RefreshContextSize(ctx)
 		o.mu.Lock()
 		usage := o.acc.Usage
 		o.acc.Reset()
@@ -183,6 +189,7 @@ func (o *BaseOrchestrator) run() {
 	ctx = context.WithValue(ctx, common.OrchestratorIDKey, o.id)
 
 	onStartTurn := func() {
+		o.RefreshContextSize(ctx)
 		o.mu.Lock()
 		o.acc.Reset()
 		o.mu.Unlock()
@@ -190,6 +197,7 @@ func (o *BaseOrchestrator) run() {
 	}
 
 	onEndTurn := func() {
+		o.RefreshContextSize(ctx)
 		o.mu.Lock()
 		usage := o.acc.Usage
 		o.acc.Reset()

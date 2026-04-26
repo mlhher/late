@@ -31,6 +31,7 @@ type Orchestrator interface {
 
 	// Configuration
 	SetMaxTurns(int)
+	RefreshContextSize(context.Context)
 	MaxTokens() int
 }
 
