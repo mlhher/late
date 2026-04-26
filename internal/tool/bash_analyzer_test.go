@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"runtime"
 	"testing"
 )
 
@@ -66,6 +67,11 @@ func TestAnalyzeBashCommand(t *testing.T) {
 			}
 			if analysis.NeedsConfirmation != tc.expectConfirm {
 				t.Errorf("confirm mismatch (analyzer): got %v, want %v", analysis.NeedsConfirmation, tc.expectConfirm)
+			}
+
+			if runtime.GOOS == "windows" {
+				// ShellTool uses PowerShellAnalyzer on Windows.
+				return
 			}
 
 			blocked, _, confirm := st.analyzeBashCommand(tc.command, "")
