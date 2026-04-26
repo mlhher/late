@@ -24,6 +24,8 @@ type Orchestrator interface {
 	Context() context.Context
 	Middlewares() []ToolMiddleware
 	Registry() *ToolRegistry
+	SystemPrompt() string
+	ToolDefinitions() []client.ToolDefinition
 
 	// Hierarchy
 	Children() []Orchestrator

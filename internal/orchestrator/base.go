@@ -283,6 +283,14 @@ func (o *BaseOrchestrator) Session() *session.Session {
 	return o.sess
 }
 
+func (o *BaseOrchestrator) SystemPrompt() string {
+	return o.sess.SystemPrompt()
+}
+
+func (o *BaseOrchestrator) ToolDefinitions() []client.ToolDefinition {
+	return o.sess.GetToolDefinitions()
+}
+
 func (o *BaseOrchestrator) Context() context.Context {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
