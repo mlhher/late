@@ -104,6 +104,22 @@ The agent wants to execute list_projects.
 
 This keeps one-off actions safe while reducing repetitive prompts when you trust a tool in a broader scope.
 
+### Permission Decay (TTL)
+
+"Always" approvals are not permanent. Late uses TTL (time-to-live) so trust decays over time:
+
+- **Session scope** (`[s]`) lasts **30 minutes**.
+- **Project scope** (`[p]`) lasts **30 days**.
+- **Global scope** (`[g]`) lasts **30 days**.
+
+When a TTL expires, the approval is automatically ignored and Late will prompt you again. This is intentional: it reduces long-lived stale permissions while keeping day-to-day workflows smooth.
+
+Notes:
+
+- Re-approving a tool/command in the same scope refreshes its TTL.
+- Session approvals are in-memory and expire quickly by design.
+- Project/global approvals are persisted with an expiry timestamp and checked at load time.
+
 ## Configuration
 
 You can set your preferred model selection (orchestrator, subagents) and their respective configuration (host, keys) permanently inside the `config.json`.
