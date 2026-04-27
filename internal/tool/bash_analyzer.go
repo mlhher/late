@@ -47,25 +47,25 @@ var tier2AllowList = map[string]map[string]map[string]bool{
 
 // findAllowedFlags defines flags permitted for the 'find' command.
 var findAllowedFlags = map[string]bool{
-	"-name":      true,
-	"-iname":     true,
-	"-type":      true,
-	"-maxdepth":  true,
-	"-mindepth":  true,
-	"-size":      true,
-	"-mtime":     true,
-	"-atime":     true,
-	"-ctime":     true,
-	"-newer":     true,
-	"-user":      true,
-	"-group":     true,
-	"-path":      true,
-	"-ipath":     true,
-	"-links":     true,
-	"-empty":     true,
-	"-not":       true,
-	"-and":       true,
-	"-or":        true,
+	"-name":     true,
+	"-iname":    true,
+	"-type":     true,
+	"-maxdepth": true,
+	"-mindepth": true,
+	"-size":     true,
+	"-mtime":    true,
+	"-atime":    true,
+	"-ctime":    true,
+	"-newer":    true,
+	"-user":     true,
+	"-group":    true,
+	"-path":     true,
+	"-ipath":    true,
+	"-links":    true,
+	"-empty":    true,
+	"-not":      true,
+	"-and":      true,
+	"-or":       true,
 }
 
 // allowedEnvVars contains environment variables that are safe to set.
@@ -106,8 +106,21 @@ func (b *BashAnalyzer) Analyze(command string) CommandAnalysis {
 				analysis.NeedsConfirmation = true
 			}
 		case *syntax.Redirect:
+			isBlocked := false
 			switch n.Op {
-			case syntax.RdrOut, syntax.AppOut, syntax.RdrAll, syntax.AppAll, syntax.RdrClob, syntax.AppClob, syntax.DplOut:
+			case syntax.RdrOut, syntax.AppOut, syntax.RdrAll, syntax.AppAll, syntax.RdrClob, syntax.AppClob:
+				val, ok := b.resolveWord(n.Word)
+				if !ok || (val != "/dev/null" && val != "/dev/stdout" && val != "/dev/stderr") {
+					isBlocked = true
+				}
+			case syntax.DplOut:
+				val, ok := b.resolveWord(n.Word)
+				if !ok || (!isNumericFd(val) && val != "/dev/null" && val != "/dev/stdout" && val != "/dev/stderr") {
+					isBlocked = true
+				}
+			}
+
+			if isBlocked {
 				analysis.IsBlocked = true
 				analysis.NeedsConfirmation = true
 				analysis.BlockReason = fmt.Errorf("Output redirection (>) is blocked. Use `write_file` or `target_edit` to modify files.")
@@ -179,8 +192,8 @@ func (b *BashAnalyzer) isSafeCall(n *syntax.CallExpr, analysis *CommandAnalysis)
 				// Flag not in the approved set for this command
 				return false
 			}
-			
-			// It's a positional argument. 
+
+			// It's a positional argument.
 			// Special case: if it's in the allowedFlags map (e.g., 'tidy' in 'go mod tidy'), allow it.
 			if allowedFlags[val] {
 				continue
@@ -445,7 +458,7 @@ func ParseCommandsForAllowList(command string) map[string][]string {
 					flags = append(flags, flagKey)
 				}
 			} else {
-				// Positional argument. 
+				// Positional argument.
 				// Check if it's a whitelisted "sub-sub-command" (like 'tidy' in 'go mod tidy')
 				if subCmd != "" {
 					if _, ok := tier2AllowList[cmdName][subCmd][val]; ok {
@@ -463,4 +476,19 @@ func ParseCommandsForAllowList(command string) map[string][]string {
 	})
 
 	return commands
+}
+
+func isNumericFd(s string) bool {
+	if s == "-" {
+		return true
+	}
+	if len(s) == 0 {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }

@@ -56,6 +56,13 @@ func TestAnalyzeBashCommand(t *testing.T) {
 		{"Command name quoting (auto-approve)", "gi\"\"t status", false, false},
 		{"Flag concatenation (auto-approve)", "ls -\"\"la", false, false},
 		{"Mixed quoting (auto-approve)", "echo 'hello '\"world\"", false, false},
+		{"Redirection 2>&1 (auto-approve)", "ls 2>&1", false, false},
+		{"Redirection to /dev/null (auto-approve)", "ls > /dev/null", false, false},
+		{"Redirection 2> /dev/stderr (auto-approve)", "ls 2> /dev/stderr", false, false},
+		{"Redirection 2>&- (auto-approve)", "ls 2>&-", false, false},
+		{"Redirection >& /dev/null (auto-approve)", "ls >& /dev/null", false, false},
+		{"Blocked redirection >& out.txt", "ls >& out.txt", true, true},
+		{"Append to /dev/null (auto-approve)", "echo foo >> /dev/null", false, false},
 	}
 
 	for _, tc := range tests {
