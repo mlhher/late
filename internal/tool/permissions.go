@@ -2,10 +2,13 @@ package tool
 
 import (
 	"encoding/json"
+	"late/internal/common"
 	"late/internal/pathutil"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 )
 
 // canonicalizePath resolves symlinks for the nearest existing ancestor of absPath
@@ -170,9 +173,126 @@ func IsSafePath(path string) bool {
 const (
 	localAllowedCommandsFile = ".late/allowed_commands.json"
 	localAllowedToolsFile    = ".late/allowed_tools.json"
-	commandsFileName        = "allowed_commands.json"
-	toolsFileName           = "allowed_tools.json"
+	commandsFileName         = "allowed_commands.json"
+	toolsFileName            = "allowed_tools.json"
+	projectApprovalTTL       = 30 * 24 * time.Hour
+	globalApprovalTTL        = 30 * 24 * time.Hour
+	sessionApprovalTTL       = 30 * time.Minute
+	sessionBaseMarker        = "__base__"
 )
+
+type persistedCommandEntry struct {
+	Flags     []string `json:"flags"`
+	SavedAt   string   `json:"saved_at,omitempty"`
+	ExpiresAt string   `json:"expires_at,omitempty"`
+	Version   string   `json:"version,omitempty"`
+}
+
+type persistedCommandsFile struct {
+	Version string                           `json:"version,omitempty"`
+	Entries map[string]persistedCommandEntry `json:"entries"`
+}
+
+type persistedToolEntry struct {
+	SavedAt   string `json:"saved_at,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+	Version   string `json:"version,omitempty"`
+}
+
+type persistedToolsFile struct {
+	Version string                        `json:"version,omitempty"`
+	Entries map[string]persistedToolEntry `json:"entries"`
+}
+
+type sessionApproval struct {
+	expiresAt time.Time
+}
+
+var (
+	sessionApprovalsMu       sync.Mutex
+	sessionAllowedTools      = make(map[string]sessionApproval)
+	sessionAllowedCommandMap = make(map[string]map[string]sessionApproval)
+	nowFunc                  = time.Now
+)
+
+func parseRFC3339OrZero(s string) (time.Time, bool) {
+	if strings.TrimSpace(s) == "" {
+		return time.Time{}, true
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
+func isEntryValid(expiresAt time.Time, version string) bool {
+	if !expiresAt.IsZero() && nowFunc().After(expiresAt) {
+		return false
+	}
+	if strings.TrimSpace(version) != "" && version != common.Version {
+		return false
+	}
+	return true
+}
+
+func cleanupSessionAllowListLocked() {
+	now := nowFunc()
+	for toolName, entry := range sessionAllowedTools {
+		if now.After(entry.expiresAt) {
+			delete(sessionAllowedTools, toolName)
+		}
+	}
+
+	for cmd, flags := range sessionAllowedCommandMap {
+		for flag, entry := range flags {
+			if now.After(entry.expiresAt) {
+				delete(flags, flag)
+			}
+		}
+		if len(flags) == 0 {
+			delete(sessionAllowedCommandMap, cmd)
+		}
+	}
+}
+
+// SaveSessionAllowedCommand stores a command in session scope with auto-expiry.
+func SaveSessionAllowedCommand(command string) {
+	commands := ParseCommandsForAllowList(command)
+	if len(commands) == 0 {
+		return
+	}
+
+	sessionApprovalsMu.Lock()
+	defer sessionApprovalsMu.Unlock()
+	cleanupSessionAllowListLocked()
+
+	expiresAt := nowFunc().Add(sessionApprovalTTL)
+	for cmd, flags := range commands {
+		if _, ok := sessionAllowedCommandMap[cmd]; !ok {
+			sessionAllowedCommandMap[cmd] = make(map[string]sessionApproval)
+		}
+		if len(flags) == 0 {
+			sessionAllowedCommandMap[cmd][sessionBaseMarker] = sessionApproval{expiresAt: expiresAt}
+			continue
+		}
+		for _, flag := range flags {
+			sessionAllowedCommandMap[cmd][flag] = sessionApproval{expiresAt: expiresAt}
+		}
+	}
+}
+
+// SaveSessionAllowedTool stores a tool in session scope with auto-expiry.
+func SaveSessionAllowedTool(name string) {
+	if strings.TrimSpace(name) == "" {
+		return
+	}
+
+	sessionApprovalsMu.Lock()
+	defer sessionApprovalsMu.Unlock()
+	cleanupSessionAllowListLocked()
+	sessionAllowedTools[name] = sessionApproval{expiresAt: nowFunc().Add(sessionApprovalTTL)}
+}
 
 func getGlobalConfigPath(fileName string) string {
 	configDir, err := pathutil.LateConfigDir()
@@ -187,6 +307,48 @@ func getFilePath(localPath string, fileName string, global bool) string {
 		return getGlobalConfigPath(fileName)
 	}
 	return localPath
+}
+
+func loadPersistedCommandsFile(path string) (persistedCommandsFile, error) {
+	file := persistedCommandsFile{Entries: make(map[string]persistedCommandEntry)}
+	if path == "" {
+		return file, nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return file, nil
+		}
+		return file, err
+	}
+
+	if err := json.Unmarshal(data, &file); err != nil || file.Entries == nil {
+		return persistedCommandsFile{Entries: make(map[string]persistedCommandEntry)}, nil
+	}
+
+	return file, nil
+}
+
+func loadPersistedToolsFile(path string) (persistedToolsFile, error) {
+	file := persistedToolsFile{Entries: make(map[string]persistedToolEntry)}
+	if path == "" {
+		return file, nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return file, nil
+		}
+		return file, err
+	}
+
+	if err := json.Unmarshal(data, &file); err != nil || file.Entries == nil {
+		return persistedToolsFile{Entries: make(map[string]persistedToolEntry)}, nil
+	}
+
+	return file, nil
 }
 
 // LoadAllowedCommands loads allowed commands from either local or global allow-list.
@@ -205,14 +367,37 @@ func LoadAllowedCommands(global bool) (map[string]map[string]bool, error) {
 		return nil, err
 	}
 
+	// Backward-compatible format: map[string][]string
 	var list map[string][]string
-	if err := json.Unmarshal(data, &list); err != nil {
+	if err := json.Unmarshal(data, &list); err == nil {
+		for cmd, flags := range list {
+			allowed[cmd] = make(map[string]bool)
+			for _, flag := range flags {
+				allowed[cmd][flag] = true
+			}
+		}
+		return allowed, nil
+	}
+
+	// New format with metadata and decay.
+	var file persistedCommandsFile
+	if err := json.Unmarshal(data, &file); err != nil {
 		return nil, err
 	}
 
-	for cmd, flags := range list {
-		allowed[cmd] = make(map[string]bool)
-		for _, flag := range flags {
+	for cmd, entry := range file.Entries {
+		entryVersion := entry.Version
+		if entryVersion == "" {
+			entryVersion = file.Version
+		}
+		expiresAt, ok := parseRFC3339OrZero(entry.ExpiresAt)
+		if !ok || !isEntryValid(expiresAt, entryVersion) {
+			continue
+		}
+		if _, ok := allowed[cmd]; !ok {
+			allowed[cmd] = make(map[string]bool)
+		}
+		for _, flag := range entry.Flags {
 			allowed[cmd][flag] = true
 		}
 	}
@@ -245,6 +430,21 @@ func LoadAllAllowedCommands() (map[string]map[string]bool, error) {
 		}
 	}
 
+	sessionApprovalsMu.Lock()
+	defer sessionApprovalsMu.Unlock()
+	cleanupSessionAllowListLocked()
+	for cmd, flags := range sessionAllowedCommandMap {
+		if _, exists := merged[cmd]; !exists {
+			merged[cmd] = make(map[string]bool)
+		}
+		for flag := range flags {
+			if flag == sessionBaseMarker {
+				continue
+			}
+			merged[cmd][flag] = true
+		}
+	}
+
 	return merged, nil
 }
 
@@ -255,35 +455,66 @@ func SaveAllowedCommand(command string, global bool) error {
 		return nil
 	}
 
-	allowed, err := LoadAllowedCommands(global)
+	path := getFilePath(localAllowedCommandsFile, commandsFileName, global)
+	existingFile, err := loadPersistedCommandsFile(path)
 	if err != nil {
 		return err
 	}
 
+	allowed, err := LoadAllowedCommands(global)
+	if err != nil {
+		return err
+	}
+	touched := make(map[string]bool)
+
 	for key, flags := range commands {
-		if _, exists := allowed[key]; !exists {
+		existingFlags, exists := allowed[key]
+		if !exists {
 			allowed[key] = make(map[string]bool)
+			touched[key] = true
+		} else if len(flags) == 0 && !touched[key] {
+			touched[key] = false
 		}
 		for _, flag := range flags {
+			if !exists || !existingFlags[flag] {
+				touched[key] = true
+			}
 			allowed[key][flag] = true
 		}
 	}
 
-	serializable := make(map[string][]string)
+	file := persistedCommandsFile{
+		Version: common.Version,
+		Entries: make(map[string]persistedCommandEntry),
+	}
+	expiresAt := nowFunc().Add(projectApprovalTTL)
+	if global {
+		expiresAt = nowFunc().Add(globalApprovalTTL)
+	}
 	for cmd, flagMap := range allowed {
 		var flagList []string
 		for flag := range flagMap {
 			flagList = append(flagList, flag)
 		}
-		serializable[cmd] = flagList
+		entry := persistedCommandEntry{
+			Flags:     flagList,
+			SavedAt:   nowFunc().UTC().Format(time.RFC3339),
+			ExpiresAt: expiresAt.UTC().Format(time.RFC3339),
+			Version:   common.Version,
+		}
+		if existingEntry, ok := existingFile.Entries[cmd]; ok && !touched[cmd] {
+			entry.SavedAt = existingEntry.SavedAt
+			entry.ExpiresAt = existingEntry.ExpiresAt
+			entry.Version = existingEntry.Version
+		}
+		file.Entries[cmd] = entry
 	}
 
-	data, err := json.MarshalIndent(serializable, "", "  ")
+	data, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	path := getFilePath(localAllowedCommandsFile, commandsFileName, global)
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
@@ -308,13 +539,31 @@ func LoadAllowedTools(global bool) (map[string]bool, error) {
 		return nil, err
 	}
 
+	// Backward-compatible format: []string
 	var list []string
-	if err := json.Unmarshal(data, &list); err != nil {
+	if err := json.Unmarshal(data, &list); err == nil {
+		for _, tool := range list {
+			allowed[tool] = true
+		}
+		return allowed, nil
+	}
+
+	// New format with metadata and decay.
+	var file persistedToolsFile
+	if err := json.Unmarshal(data, &file); err != nil {
 		return nil, err
 	}
 
-	for _, tool := range list {
-		allowed[tool] = true
+	for toolName, entry := range file.Entries {
+		entryVersion := entry.Version
+		if entryVersion == "" {
+			entryVersion = file.Version
+		}
+		expiresAt, ok := parseRFC3339OrZero(entry.ExpiresAt)
+		if !ok || !isEntryValid(expiresAt, entryVersion) {
+			continue
+		}
+		allowed[toolName] = true
 	}
 
 	return allowed, nil
@@ -338,29 +587,59 @@ func LoadAllAllowedTools() (map[string]bool, error) {
 		}
 	}
 
+	sessionApprovalsMu.Lock()
+	defer sessionApprovalsMu.Unlock()
+	cleanupSessionAllowListLocked()
+	for t := range sessionAllowedTools {
+		merged[t] = true
+	}
+
 	return merged, nil
 }
 
 // SaveAllowedTool adds a tool name to the specified always-allowed list (local or global).
 func SaveAllowedTool(name string, global bool) error {
+	path := getFilePath(localAllowedToolsFile, toolsFileName, global)
+	existingFile, err := loadPersistedToolsFile(path)
+	if err != nil {
+		return err
+	}
+
 	allowed, err := LoadAllowedTools(global)
 	if err != nil {
 		return err
 	}
 
+	_, alreadyAllowed := allowed[name]
 	allowed[name] = true
 
-	var list []string
-	for tool := range allowed {
-		list = append(list, tool)
+	file := persistedToolsFile{
+		Version: common.Version,
+		Entries: make(map[string]persistedToolEntry),
+	}
+	expiresAt := nowFunc().Add(projectApprovalTTL)
+	if global {
+		expiresAt = nowFunc().Add(globalApprovalTTL)
+	}
+	for toolName := range allowed {
+		entry := persistedToolEntry{
+			SavedAt:   nowFunc().UTC().Format(time.RFC3339),
+			ExpiresAt: expiresAt.UTC().Format(time.RFC3339),
+			Version:   common.Version,
+		}
+		if existingEntry, ok := existingFile.Entries[toolName]; ok && (toolName != name || alreadyAllowed) {
+			entry.SavedAt = existingEntry.SavedAt
+			entry.ExpiresAt = existingEntry.ExpiresAt
+			entry.Version = existingEntry.Version
+		}
+		file.Entries[toolName] = entry
 	}
 
-	data, err := json.MarshalIndent(list, "", "  ")
+	data, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	path := getFilePath(localAllowedToolsFile, toolsFileName, global)
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
@@ -373,7 +652,7 @@ func SaveAllowedTool(name string, global bool) error {
 func NormalizeCommandForAllowList(command string) string {
 	commands := ParseCommandsForAllowList(command)
 	for key := range commands {
-		return key 
+		return key
 	}
 	return ""
 }
