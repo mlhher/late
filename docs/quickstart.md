@@ -89,8 +89,8 @@ Late will read your codebase, plan the implementation, and ask you for approval.
 When the agent wants to run a command or edit a file, you'll see a confirmation prompt:
 
 ```
-The agent wants to execute list_projects.
-  {}
+The agent wants to execute a bash command.
+   {"command":"npm run build"}
 > Press [y] Allow once | [s] Allow always (session) | [p] Allow always (project) | [g] Allow always (global) | [n] Deny
 ```
 
