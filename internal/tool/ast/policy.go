@@ -27,9 +27,9 @@ type PolicyEngine struct {
 //  4. Dynamic invocation (Invoke-Expression / iex) → NeedsConfirmation.
 //  5. Subshell / command substitution → NeedsConfirmation.
 //  6. Variable/parameter expansion → NeedsConfirmation.
-//  7. Shell operators (&&, ||, ;, control-flow keywords) beyond a safe plain
-//     pipe between allow-listed commands → NeedsConfirmation.
-//  8. All commands in ir.Commands are allow-listed + no blocking signals
+//  7. Destructive filesystem operation (Remove-Item, Copy-Item, etc.) → NeedsConfirmation.
+//  8. Shell operators (&&, ||, ;, |) with any non-allow-listed command → NeedsConfirmation.
+//  9. All commands in ir.Commands are allow-listed + no blocking signals
 //     → auto-approve (NeedsConfirmation = false).
 func (p *PolicyEngine) Decide(ir ParsedIR) Decision {
 	d := Decision{ReasonCodes: ir.RiskFlags}
@@ -64,26 +64,26 @@ func (p *PolicyEngine) Decide(ir ParsedIR) Decision {
 		return d
 	}
 
-	// 4–6. Soft signals → NeedsConfirmation.
-	for _, soft := range []ReasonCode{ReasonInvokeExpr, ReasonSubshell, ReasonExpansion} {
+	// 4–7. Soft signals → NeedsConfirmation.
+	for _, soft := range []ReasonCode{ReasonInvokeExpr, ReasonSubshell, ReasonExpansion, ReasonDestructive} {
 		if hasRisk(ir, soft) {
 			d.NeedsConfirmation = true
 			return d
 		}
 	}
 
-	// 7. Operator signal (&&, ||, ;, control-flow).
-	// A plain | between all-allowlisted commands is permitted; anything else
-	// requires confirmation.
+	// 8. Operator signal (&&, ||, ;, |).
+	// Any compound/pipe where all commands are allow-listed is permitted;
+	// otherwise require confirmation.
 	if hasRisk(ir, ReasonOperator) {
 		if !p.allCommandsAllowlisted(ir.Commands) {
 			d.NeedsConfirmation = true
 			return d
 		}
-		// Pure pipe between allow-listed commands — fall through to auto-approve.
+		// All commands allowlisted — fall through to auto-approve.
 	}
 
-	// 8. Allow-list check: if every command is explicitly allow-listed, approve.
+	// 9. Allow-list check: if every command is explicitly allow-listed, approve.
 	if len(ir.Commands) > 0 && p.allCommandsAllowlisted(ir.Commands) {
 		return d
 	}

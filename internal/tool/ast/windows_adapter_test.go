@@ -5,17 +5,23 @@ package ast
 import (
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 )
 
-// TestWindowsParser_BridgeContract verifies the JSON schema contract of the
-// PowerShell bridge script. It skips when pwsh is unavailable (CI without PS).
-func TestWindowsParser_BridgeContract(t *testing.T) {
+func skipIfNoPwsh(t *testing.T) {
+	t.Helper()
 	if _, err := exec.LookPath("pwsh.exe"); err != nil {
 		if _, err2 := exec.LookPath("powershell.exe"); err2 != nil {
 			t.Skip("pwsh/powershell not available")
 		}
 	}
+}
+
+// TestWindowsParser_BridgeContract verifies the JSON schema contract of the
+// PowerShell bridge script for a representative set of command patterns.
+func TestWindowsParser_BridgeContract(t *testing.T) {
+	skipIfNoPwsh(t)
 
 	p := &WindowsParser{}
 	tests := []struct {
@@ -27,7 +33,7 @@ func TestWindowsParser_BridgeContract(t *testing.T) {
 		{
 			command:  "Get-ChildItem",
 			wantCmds: []string{"get-childitem"},
-			noRisk:   []ReasonCode{ReasonRedirect, ReasonSubshell, ReasonInvokeExpr},
+			noRisk:   []ReasonCode{ReasonRedirect, ReasonSubshell, ReasonInvokeExpr, ReasonDestructive},
 		},
 		{
 			command:  "Get-ChildItem | Select-String foo",
@@ -41,6 +47,7 @@ func TestWindowsParser_BridgeContract(t *testing.T) {
 		{
 			command:  "Invoke-Expression 'rm -rf /'",
 			wantRisk: []ReasonCode{ReasonInvokeExpr},
+			noRisk:   []ReasonCode{ReasonDestructive},
 		},
 		{
 			command:  "$x = 'foo'; Write-Output $x",
@@ -54,13 +61,23 @@ func TestWindowsParser_BridgeContract(t *testing.T) {
 			command:  "Write-Output $(Get-Date)",
 			wantRisk: []ReasonCode{ReasonSubshell},
 		},
+		// Destructive commands must emit ReasonDestructive, NOT ReasonInvokeExpr.
+		{
+			command:  "Remove-Item foo.txt",
+			wantRisk: []ReasonCode{ReasonDestructive},
+			noRisk:   []ReasonCode{ReasonInvokeExpr},
+		},
+		{
+			command:  "Copy-Item src dst",
+			wantRisk: []ReasonCode{ReasonDestructive},
+			noRisk:   []ReasonCode{ReasonInvokeExpr},
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.command, func(t *testing.T) {
 			ir, err := p.Parse(tc.command)
-			// Bridge errors are allowed for problematic syntax but must produce a valid IR.
-			_ = err
+			_ = err // bridge errors produce valid IR
 
 			if ir.Version != IRVersion {
 				t.Errorf("Version: got %q want %q", ir.Version, IRVersion)
@@ -97,27 +114,154 @@ func TestWindowsParser_BridgeContract(t *testing.T) {
 	}
 }
 
-// TestWindowsParser_FailClosed ensures the adapter fails safely when pwsh is
-// absent or the bridge emits garbage.
-func TestWindowsParser_FailClosed(t *testing.T) {
-	// Simulate unavailable shell by using an empty path override in a test-only way.
-	// We can't easily do this without the sync.Once, so just check the IR contract
-	// on a real parse with a clearly broken input.
-	if _, err := exec.LookPath("pwsh.exe"); err != nil {
-		if _, err2 := exec.LookPath("powershell.exe"); err2 != nil {
-			t.Skip("pwsh/powershell not available")
-		}
+// TestWindowsParser_SanitizeCommand verifies that sanitizeCommand rejects
+// null bytes and over-length commands before touching the bridge.
+func TestWindowsParser_SanitizeCommand(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		wantErr bool
+	}{
+		{"valid", "Get-ChildItem", false},
+		{"null byte", "Get-\x00ChildItem", true},
+		{"empty", "", false},
+		{"exactly at limit", strings.Repeat("a", maxCommandBytes), false},
+		{"one over limit", strings.Repeat("a", maxCommandBytes+1), true},
 	}
 
-	p := &WindowsParser{}
-	// Malformed input — PS parser should still emit something but we verify
-	// the Go layer never panics and returns a usable IR.
-	ir, _ := p.Parse("if (")
-
-	if ir.Version != IRVersion {
-		t.Errorf("Version must be set even on parse error, got %q", ir.Version)
-	}
-	if ir.Platform != PlatformWindows {
-		t.Errorf("Platform must be set even on parse error")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := sanitizeCommand(tc.command)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("sanitizeCommand() error = %v, wantErr %v", err, tc.wantErr)
+			}
+		})
 	}
 }
+
+// TestWindowsParser_SanitizeCommand_IRShape verifies that sanitize failures
+// produce a well-formed IR with ReasonSyntaxError (not a panic).
+func TestWindowsParser_SanitizeCommand_IRShape(t *testing.T) {
+	p := &WindowsParser{}
+
+	ir, err := p.Parse("bad\x00command")
+	if err == nil {
+		t.Fatal("expected error for null-byte command")
+	}
+	if ir.Version != IRVersion {
+		t.Errorf("Version must be set on sanitize failure, got %q", ir.Version)
+	}
+	if ir.Platform != PlatformWindows {
+		t.Errorf("Platform must be set on sanitize failure")
+	}
+	if !hasRisk(ir, ReasonSyntaxError) {
+		t.Errorf("expected ReasonSyntaxError in risk flags, got %v", ir.RiskFlags)
+	}
+}
+
+// TestWindowsParser_ParseErrorShape verifies that a syntactically invalid
+// command still produces a valid IR with ReasonSyntaxError and correct
+// version/platform — the bridge never panics and the Go layer never panics.
+func TestWindowsParser_ParseErrorShape(t *testing.T) {
+	skipIfNoPwsh(t)
+
+	p := &WindowsParser{}
+	ir, _ := p.Parse("if (") // incomplete — PS parser emits a soft error
+
+	if ir.Version != IRVersion {
+		t.Errorf("Version must be set on parse error, got %q", ir.Version)
+	}
+	if ir.Platform != PlatformWindows {
+		t.Errorf("Platform must be set on parse error")
+	}
+}
+
+// TestWindowsParser_Concurrent verifies that multiple goroutines can call
+// Parse simultaneously without corrupting the pipe protocol.  All calls
+// must return valid IRs.
+func TestWindowsParser_Concurrent(t *testing.T) {
+	skipIfNoPwsh(t)
+
+	p := &WindowsParser{}
+	const n = 12
+	type result struct {
+		ir  ParsedIR
+		err error
+	}
+	results := make(chan result, n)
+
+	for i := 0; i < n; i++ {
+		go func() {
+			ir, err := p.Parse("Get-ChildItem")
+			results <- result{ir, err}
+		}()
+	}
+
+	for i := 0; i < n; i++ {
+		r := <-results
+		if r.err != nil {
+			t.Errorf("concurrent Parse error: %v", r.err)
+			continue
+		}
+		if r.ir.Version != IRVersion {
+			t.Errorf("concurrent Parse: bad version %q", r.ir.Version)
+		}
+		if r.ir.Platform != PlatformWindows {
+			t.Errorf("concurrent Parse: bad platform %q", r.ir.Platform)
+		}
+	}
+}
+
+// TestWindowsParser_BridgeRestart verifies that Parse automatically recovers
+// when the bridge process is externally killed between calls.
+func TestWindowsParser_BridgeRestart(t *testing.T) {
+	skipIfNoPwsh(t)
+
+	// Ensure a clean bridge for this test.
+	CloseBridge()
+	t.Cleanup(CloseBridge)
+
+	p := &WindowsParser{}
+
+	// First call — starts the bridge.
+	ir1, err := p.Parse("Get-ChildItem")
+	if err != nil {
+		t.Fatalf("first Parse failed: %v", err)
+	}
+	if ir1.Platform != PlatformWindows {
+		t.Fatalf("first Parse: bad platform")
+	}
+
+	// Kill the bridge externally to simulate a crash.
+	globalBridgeMu.Lock()
+	bp := globalBridge
+	globalBridgeMu.Unlock()
+
+	if bp == nil {
+		t.Fatal("expected a running bridge after first Parse")
+	}
+	bp.mu.Lock()
+	bp.dead = true
+	bp.mu.Unlock()
+	_ = bp.cmd.Process.Kill()
+	invalidateBridge(bp)
+
+	// Second call — must restart the bridge and succeed.
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var ir2 ParsedIR
+	var err2 error
+	go func() {
+		defer wg.Done()
+		ir2, err2 = p.Parse("Get-Date")
+	}()
+	wg.Wait()
+
+	if err2 != nil {
+		t.Fatalf("Parse after bridge restart failed: %v", err2)
+	}
+	if ir2.Platform != PlatformWindows {
+		t.Errorf("restarted bridge: bad platform %q", ir2.Platform)
+	}
+}
+

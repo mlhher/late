@@ -35,12 +35,19 @@ function Add-Unique {
     if (-not $List.Contains($Value)) { $List.Add($Value) | Out-Null }
 }
 
-# --- Risky cmdlet names (lower-case) ---
-$riskyCmdlets = @(
+# Dynamic-evaluation cmdlets — emit "invoke_expression".
+# These can hide execution intent or run arbitrary code.
+$invokeRiskCmdlets = @(
     'invoke-expression', 'iex',
     'start-process',     'saps',
     'invoke-command',    'icm',
-    'new-object',
+    'new-object'
+)
+
+# Destructive filesystem cmdlets — emit "destructive".
+# These modify or remove files and require user confirmation, but are
+# semantically distinct from dynamic-evaluation risks.
+$destructiveCmdlets = @(
     'remove-item',       'ri', 'del', 'erase', 'rd', 'rmdir', 'rm',
     'rename-item',       'rni', 'ren',
     'move-item',         'mi', 'move', 'mv',
@@ -102,8 +109,11 @@ function Invoke-Parse {
                 $cmdName = $elems[0].ToString().Trim().ToLower()
                 if ($cmdName -ne '') {
                     Add-Unique $ir.commands $cmdName
-                    if ($riskyCmdlets -contains $cmdName) {
+                    if ($invokeRiskCmdlets -contains $cmdName) {
                         Add-Unique $ir.risk_flags "invoke_expression"
+                    }
+                    if ($destructiveCmdlets -contains $cmdName) {
+                        Add-Unique $ir.risk_flags "destructive"
                     }
                     if ($cdCmdlets -contains $cmdName) {
                         Add-Unique $ir.risk_flags "cd"

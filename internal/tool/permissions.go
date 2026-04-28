@@ -97,6 +97,11 @@ func isNewPath(path string, cwd string) bool {
 		return false
 	}
 
+	// Safety check uses the symlink-resolved canonical path to prevent
+	// symlink-escape attacks.  Existence check intentionally uses the
+	// pre-resolved absPath: os.Stat follows symlinks, so if absPath IS a
+	// symlink, Stat reflects the link target's existence—which is correct for
+	// "does this path already exist" semantics.
 	_, err = os.Stat(absPath)
 	return os.IsNotExist(err)
 }

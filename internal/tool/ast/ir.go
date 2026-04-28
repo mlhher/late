@@ -60,6 +60,12 @@ const (
 	// root. The policy engine treats this as NeedsConfirmation; callers with
 	// cwd context may downgrade to auto-approve when the target is within scope.
 	ReasonNewPath ReasonCode = "new_path"
+
+	// ReasonDestructive indicates a command that modifies or removes filesystem
+	// objects (e.g. Remove-Item, Copy-Item, Move-Item, Set-Content on Windows).
+	// These require user confirmation but are distinct from dynamic-evaluation
+	// risks (ReasonInvokeExpr).
+	ReasonDestructive ReasonCode = "destructive"
 )
 
 // ParsedIR is the compact, JSON-safe intermediate representation emitted by

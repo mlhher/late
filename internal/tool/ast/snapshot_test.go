@@ -72,6 +72,8 @@ var windowsCorpus = []snapshotEntry{
 	{"Get-ChildItem | Select-String foo", false, false},
 	// Operator separating unknown cmdlet → confirm.
 	{"Get-ChildItem; Invoke-Expression 'x'", false, true},
+	// Destructive: Remove-Item — requires confirmation, not blocked.
+	{"Remove-Item foo.txt", false, true},
 	// Dangerous Windows-specific flags.
 	{"powershell -EncodedCommand abc", false, true},
 }
@@ -117,7 +119,7 @@ func windowsBuiltinPE() *PolicyEngine {
 		"cat", "date", "dir", "echo",
 		"gc", "gci", "get-childitem", "get-content", "get-date", "get-location",
 		"ls", "measure-object", "pwd",
-		"select-string", "sls", "type", "whoami", "write-output", "write-host",
+		"select-string", "sls", "type", "whoami", "write-host", "write-output",
 	}
 	m := make(map[string]map[string]bool, len(builtins))
 	for _, cmd := range builtins {

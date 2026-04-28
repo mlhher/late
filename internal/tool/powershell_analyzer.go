@@ -23,6 +23,7 @@ var whitelistedWindowsCommands = map[string]bool{
 	"sls":            true,
 	"type":           true,
 	"whoami":         true,
+	"write-host":     true,
 	"write-output":   true,
 }
 
@@ -191,10 +192,23 @@ func extractPowerShellTargetPath(command string) string {
 	case "mkdir", "md":
 		target = tokens[1]
 	case "new-item", "ni":
-		if len(tokens) == 2 {
-			target = tokens[1]
-		} else if len(tokens) >= 3 && strings.EqualFold(tokens[1], "-Path") {
-			target = tokens[2]
+		// Scan for explicit -Path flag first, then fall back to the first
+		// positional (non-flag) argument.  This handles argument orders like:
+		//   New-Item foo
+		//   New-Item -Path foo
+		//   New-Item -ItemType Directory -Path foo
+		//   New-Item -Path foo -ItemType Directory
+		for i := 1; i < len(tokens); i++ {
+			if strings.EqualFold(tokens[i], "-Path") || strings.EqualFold(tokens[i], "-p") {
+				if i+1 < len(tokens) && !strings.HasPrefix(tokens[i+1], "-") {
+					target = tokens[i+1]
+				}
+				break
+			}
+			if !strings.HasPrefix(tokens[i], "-") {
+				target = tokens[i]
+				break
+			}
 		}
 	default:
 		return ""
