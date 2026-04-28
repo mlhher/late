@@ -21,7 +21,9 @@ var windowsCorpus = []snapshotEntry{
 	// Risky: Invoke-Expression.
 	{"Invoke-Expression 'rm -rf /'", false, true},
 	{"iex 'bad'", false, true},
-	// Risky: variable expansion.
+	// $true/$false/$null — language constants, must not trigger expansion risk.
+	{"Write-Output $true", false, false},
+	// $env:VAR IS a dynamic expansion — must require confirmation.
 	{"Write-Output $env:USERNAME", false, true},
 	// Risky: subshell (sub-expression).
 	{"Write-Output $(Get-Date)", false, true},

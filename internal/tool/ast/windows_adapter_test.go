@@ -74,15 +74,34 @@ func TestWindowsParser_BridgeContract(t *testing.T) {
 		},
 		// Script-block arguments must NOT emit ReasonSubshell.  { } blocks are
 		// idiomatic PowerShell parameter syntax, not subshell execution.
+		// $_ is a pipeline iteration variable — also filtered, no ReasonExpansion.
 		{
-			command:  "Get-ChildItem | Where-Object { $_.Name -eq 'foo' }",
-			noRisk:   []ReasonCode{ReasonSubshell},
-			wantRisk: []ReasonCode{ReasonOperator, ReasonExpansion},
+			command: "Get-ChildItem | Where-Object { $_.Name -eq 'foo' }",
+			noRisk:  []ReasonCode{ReasonSubshell, ReasonExpansion},
+			wantRisk: []ReasonCode{ReasonOperator},
 		},
 		{
 			command:  "Get-ChildItem | ForEach-Object { Write-Output 'done' }",
 			noRisk:   []ReasonCode{ReasonSubshell},
 			wantRisk: []ReasonCode{ReasonOperator},
+		},
+		// $true/$false/$null/$_ are language constants — must NOT emit ReasonExpansion.
+		{
+			command: "Write-Output $true",
+			noRisk:  []ReasonCode{ReasonExpansion, ReasonSubshell},
+		},
+		{
+			command: "Write-Output $false",
+			noRisk:  []ReasonCode{ReasonExpansion, ReasonSubshell},
+		},
+		{
+			command: "Write-Output $null",
+			noRisk:  []ReasonCode{ReasonExpansion, ReasonSubshell},
+		},
+		// $env:VAR IS a dynamic expansion and must still emit ReasonExpansion.
+		{
+			command:  "Write-Output $env:USERNAME",
+			wantRisk: []ReasonCode{ReasonExpansion},
 		},
 	}
 

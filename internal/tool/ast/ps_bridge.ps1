@@ -166,11 +166,18 @@ function Invoke-Parse {
             continue
         }
 
-        # Variable: $var — only count top-level variable references, not those
-        # that are children of SubExpressionAst (already counted as subshell).
+        # Variable: $var — flag genuine dynamic expansions only.
+        # Exclude PowerShell language constants ($true, $false, $null) and the
+        # pipeline iteration variable ($_ / $PSItem): they are not user-controlled
+        # and trigger false-positive confirmations on normal filter expressions
+        # such as  Where-Object { $_.Name -eq 'foo' }.
         if ($node -is [System.Management.Automation.Language.VariableExpressionAst]) {
-            Add-Unique $ir.expansions "var"
-            Add-Unique $ir.risk_flags "expansion"
+            $varName = $node.VariablePath.UserPath.ToLower()
+            $constants = @('true', 'false', 'null', '_', 'psitem')
+            if ($constants -notcontains $varName) {
+                Add-Unique $ir.expansions "var"
+                Add-Unique $ir.risk_flags "expansion"
+            }
             continue
         }
 
