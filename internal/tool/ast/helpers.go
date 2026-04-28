@@ -36,6 +36,16 @@ func hasRisk(ir ParsedIR, rc ReasonCode) bool {
 	return false
 }
 
+// HasRiskOnly reports whether the ONLY risk flag in ir is rc.
+// Exported so ast_bridge.go (in the tool package) can call it without
+// re-importing the full policy engine.
+func HasRiskOnly(ir ParsedIR, rc ReasonCode) bool {
+	if len(ir.RiskFlags) != 1 {
+		return false
+	}
+	return ir.RiskFlags[0] == rc
+}
+
 // emptyIR returns a correctly initialised ParsedIR with all slices non-nil.
 func emptyIR(platform Platform) ParsedIR {
 	return ParsedIR{

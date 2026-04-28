@@ -43,24 +43,33 @@ try {
     exit 0
 }
 
+# Input sanitization: reject null bytes or absurdly long input.
+if ($command -match '\x00') {
+    $ir = New-IR
+    Add-Unique $ir.risk_flags "syntax_error"
+    $ir.parse_errors.Add("command contains null byte") | Out-Null
+    Write-Output ($ir | ConvertTo-Json -Compress -Depth 3)
+    exit 0
+}
+if ($command.Length -gt 65536) {
+    $ir = New-IR
+    Add-Unique $ir.risk_flags "syntax_error"
+    $ir.parse_errors.Add("command exceeds maximum length") | Out-Null
+    Write-Output ($ir | ConvertTo-Json -Compress -Depth 3)
+    exit 0
+}
+
 $ir = New-IR
 
 # --- Parse ---
-$parseErrors = $null
-$tokens      = $null
+$tokens = $null
 try {
-    $ast = [System.Management.Automation.Language.Parser]::ParseInput(
-        $command,
-        [ref][System.Management.Automation.Language.Token[]]@(),
-        [ref][System.Management.Automation.Language.ParseError[]]@()
-    )
-    # Re-parse with proper out params to capture errors and tokens
     $tokenArr = [System.Management.Automation.Language.Token[]]@()
     $errorArr = [System.Management.Automation.Language.ParseError[]]@()
     $ast = [System.Management.Automation.Language.Parser]::ParseInput(
         $command, [ref]$tokenArr, [ref]$errorArr
     )
-    $tokens     = $tokenArr
+    $tokens      = $tokenArr
     $parseErrors = $errorArr
 } catch {
     Add-Unique $ir.risk_flags "syntax_error"
@@ -93,6 +102,16 @@ $riskyCmdlets = @(
     'set-acl'
 )
 
+# cd / Set-Location aliases — policy engine blocks these.
+$cdCmdlets = @(
+    'set-location', 'sl', 'cd', 'chdir',
+    'push-location', 'pushd',
+    'pop-location',  'popd'
+)
+
+# Path-creation cmdlets (used for the new-path carveout signal).
+$newPathCmdlets = @('mkdir', 'md', 'new-item', 'ni')
+
 # --- Walk every AST node ---
 $allNodes = $ast.FindAll({ $true }, $true)
 foreach ($node in $allNodes) {
@@ -105,6 +124,12 @@ foreach ($node in $allNodes) {
                 Add-Unique $ir.commands $cmdName
                 if ($riskyCmdlets -contains $cmdName) {
                     Add-Unique $ir.risk_flags "invoke_expression"
+                }
+                if ($cdCmdlets -contains $cmdName) {
+                    Add-Unique $ir.risk_flags "cd"
+                }
+                if ($newPathCmdlets -contains $cmdName) {
+                    Add-Unique $ir.risk_flags "new_path"
                 }
             }
         }
@@ -177,14 +202,22 @@ try {
     }
 } catch {}
 
-# Scan tokens for -EncodedCommand / -enc flags and raw > / >> that the AST
-# may not surface (e.g. inside strings).
+# Scan tokens for -EncodedCommand / -enc flags and &&/|| (PS5.1 fallback
+# since PipelineChainAst only exists in PS7+).
 foreach ($tok in $tokens) {
     $tv = $tok.Text.ToLower()
     switch ($tv) {
         '-encodedcommand' { Add-Unique $ir.risk_flags "invoke_expression" }
         '-enc'            { Add-Unique $ir.risk_flags "invoke_expression" }
         '-en'             { Add-Unique $ir.risk_flags "invoke_expression" }
+        '&&' {
+            Add-Unique $ir.operators "&&"
+            Add-Unique $ir.risk_flags "operator"
+        }
+        '||' {
+            Add-Unique $ir.operators "||"
+            Add-Unique $ir.risk_flags "operator"
+        }
     }
 }
 

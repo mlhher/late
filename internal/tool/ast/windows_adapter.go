@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -11,7 +12,6 @@ import (
 	"sync"
 	"time"
 	"unicode/utf16"
-	"encoding/base64"
 )
 
 //go:embed ps_bridge.ps1
@@ -32,6 +32,9 @@ type WindowsParser struct {
 var (
 	winPSPath     string
 	winPSPathOnce sync.Once
+
+	winEncodedBridge     string
+	winEncodedBridgeOnce sync.Once
 )
 
 func getWindowsShellPath() string {
@@ -60,6 +63,31 @@ func encodePSScript(script []byte) string {
 	return base64.StdEncoding.EncodeToString(b)
 }
 
+// getBridgeEncoded returns the cached base64-encoded bridge script.
+func getBridgeEncoded() string {
+	winEncodedBridgeOnce.Do(func() {
+		winEncodedBridge = encodePSScript(psBridgeScript)
+	})
+	return winEncodedBridge
+}
+
+const maxCommandBytes = 65536
+
+// sanitizeCommand rejects inputs that could corrupt the bridge transport:
+// null bytes, carriage-return-only line endings that survive the PS stdin
+// reader, or commands exceeding the size guard.
+func sanitizeCommand(command string) error {
+	if len(command) > maxCommandBytes {
+		return fmt.Errorf("command exceeds %d byte limit", maxCommandBytes)
+	}
+	for _, r := range command {
+		if r == '\x00' {
+			return fmt.Errorf("command contains null byte")
+		}
+	}
+	return nil
+}
+
 // Parse invokes the embedded PowerShell bridge out-of-process, feeds it the
 // command string via stdin, and unmarshals the resulting JSON into a ParsedIR.
 //
@@ -76,14 +104,19 @@ func (w *WindowsParser) Parse(command string) (ParsedIR, error) {
 		return ir, fmt.Errorf("ast/windows: pwsh not available")
 	}
 
+	if err := sanitizeCommand(command); err != nil {
+		ir.ParseErrors = append(ir.ParseErrors, err.Error())
+		ir.RiskFlags = appendUniqueRC(ir.RiskFlags, ReasonSyntaxError)
+		return ir, fmt.Errorf("ast/windows: %w", err)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	encoded := encodePSScript(psBridgeScript)
 	cmd := exec.CommandContext(
 		ctx, shell,
 		"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-		"-EncodedCommand", encoded,
+		"-EncodedCommand", getBridgeEncoded(),
 	)
 	cmd.Stdin = strings.NewReader(command)
 
@@ -110,14 +143,14 @@ func (w *WindowsParser) Parse(command string) (ParsedIR, error) {
 
 	// Unmarshal into a loose shape first to validate the version field.
 	var payload struct {
-		Version     string       `json:"version"`
-		Platform    string       `json:"platform"`
-		Commands    []string     `json:"commands"`
-		Operators   []string     `json:"operators"`
-		Redirects   []string     `json:"redirects"`
-		Expansions  []string     `json:"expansions"`
-		RiskFlags   []string     `json:"risk_flags"`
-		ParseErrors []string     `json:"parse_errors"`
+		Version     string   `json:"version"`
+		Platform    string   `json:"platform"`
+		Commands    []string `json:"commands"`
+		Operators   []string `json:"operators"`
+		Redirects   []string `json:"redirects"`
+		Expansions  []string `json:"expansions"`
+		RiskFlags   []string `json:"risk_flags"`
+		ParseErrors []string `json:"parse_errors"`
 	}
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		ir.ParseErrors = append(ir.ParseErrors, fmt.Sprintf("bridge JSON decode error: %v", err))

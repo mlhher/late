@@ -19,10 +19,10 @@ func TestWindowsParser_BridgeContract(t *testing.T) {
 
 	p := &WindowsParser{}
 	tests := []struct {
-		command     string
-		wantCmds    []string
-		wantRisk    []ReasonCode
-		noRisk      []ReasonCode
+		command  string
+		wantCmds []string
+		wantRisk []ReasonCode
+		noRisk   []ReasonCode
 	}{
 		{
 			command:  "Get-ChildItem",
