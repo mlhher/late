@@ -186,10 +186,12 @@ func startBridgeProcess() (*bridgeProcess, error) {
 	}
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
+		_ = stdinPipe.Close()
 		return nil, fmt.Errorf("ast/windows: stdout pipe: %w", err)
 	}
 	cmd.Stderr = io.Discard
 	if err := cmd.Start(); err != nil {
+		_ = stdinPipe.Close()
 		return nil, fmt.Errorf("ast/windows: start bridge: %w", err)
 	}
 	return &bridgeProcess{
@@ -230,9 +232,10 @@ func (bp *bridgeProcess) roundTrip(command string) ([]byte, error) {
 	case r := <-ch:
 		return r.data, r.err
 	case <-time.After(bridgeCallTimeout):
-		// Close stdin to unblock the I/O goroutine immediately: the Write will
-		// fail and the bridge loop will see EOF.  The goroutine always sends to
-		// the buffered channel and exits; no goroutine leak.
+		// Close stdin so the bridge loop sees EOF and exits.  The I/O goroutine
+		// unblocks once the bridge process terminates (or when the subsequent
+		// shutdown() call force-kills it).  The goroutine always sends to the
+		// buffered channel and exits cleanly; no goroutine leak.
 		_ = bp.stdin.Close()
 		return nil, fmt.Errorf("bridge call timed out after %s", bridgeCallTimeout)
 	}

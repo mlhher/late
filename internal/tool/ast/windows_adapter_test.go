@@ -72,6 +72,18 @@ func TestWindowsParser_BridgeContract(t *testing.T) {
 			wantRisk: []ReasonCode{ReasonDestructive},
 			noRisk:   []ReasonCode{ReasonInvokeExpr},
 		},
+		// Script-block arguments must NOT emit ReasonSubshell.  { } blocks are
+		// idiomatic PowerShell parameter syntax, not subshell execution.
+		{
+			command:  "Get-ChildItem | Where-Object { $_.Name -eq 'foo' }",
+			noRisk:   []ReasonCode{ReasonSubshell},
+			wantRisk: []ReasonCode{ReasonOperator, ReasonExpansion},
+		},
+		{
+			command:  "Get-ChildItem | ForEach-Object { Write-Output 'done' }",
+			noRisk:   []ReasonCode{ReasonSubshell},
+			wantRisk: []ReasonCode{ReasonOperator},
+		},
 	}
 
 	for _, tc := range tests {
@@ -244,6 +256,7 @@ func TestWindowsParser_BridgeRestart(t *testing.T) {
 	bp.dead = true
 	bp.mu.Unlock()
 	_ = bp.cmd.Process.Kill()
+	go func() { _ = bp.cmd.Wait() }()
 	invalidateBridge(bp)
 
 	// Second call — must restart the bridge and succeed.

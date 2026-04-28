@@ -52,7 +52,7 @@ $destructiveCmdlets = @(
     'rename-item',       'rni', 'ren',
     'move-item',         'mi', 'move', 'mv',
     'copy-item',         'ci', 'copy', 'cp',
-    'set-content',       'sc',
+    'set-content',       'sc',        # NOTE: 'sc' also matches sc.exe (Service Control Manager); accepted false-positive.
     'add-content',       'ac',
     'out-file',
     'clear-content',     'clc',
@@ -174,12 +174,6 @@ function Invoke-Parse {
             continue
         }
 
-        # Script-block expression: { ... }
-        if ($node -is [System.Management.Automation.Language.ScriptBlockExpressionAst]) {
-            Add-Unique $ir.expansions "script_block"
-            Add-Unique $ir.risk_flags "subshell"
-            continue
-        }
     }
 
     # Detect ';' statement separator from top-level statement count.

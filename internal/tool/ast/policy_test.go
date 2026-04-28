@@ -43,7 +43,7 @@ func TestPolicyEngine_Decide_Blocked(t *testing.T) {
 
 func TestPolicyEngine_Decide_SoftSignals(t *testing.T) {
 	pe := &PolicyEngine{}
-	for _, rc := range []ReasonCode{ReasonSubshell, ReasonExpansion, ReasonInvokeExpr} {
+	for _, rc := range []ReasonCode{ReasonSubshell, ReasonExpansion, ReasonInvokeExpr, ReasonDestructive} {
 		t.Run(string(rc), func(t *testing.T) {
 			ir := emptyIR(PlatformUnix)
 			ir.RiskFlags = []ReasonCode{rc}
