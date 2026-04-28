@@ -21,15 +21,18 @@ type PolicyEngine struct {
 // Decide converts a ParsedIR into a Decision.
 //
 // Blocking rules (checked in order):
-//  1. Fail-closed: syntax errors or empty IR → NeedsConfirmation.
-//  2. cd command → IsBlocked (users must use the cwd parameter).
-//  3. Dangerous output redirect → IsBlocked.
-//  4. Dynamic invocation (Invoke-Expression / iex) → NeedsConfirmation.
-//  5. Subshell / command substitution → NeedsConfirmation.
-//  6. Variable/parameter expansion → NeedsConfirmation.
-//  7. Destructive filesystem operation (Remove-Item, Copy-Item, etc.) → NeedsConfirmation.
-//  8. Shell operators (&&, ||, ;, |) with any non-allow-listed command → NeedsConfirmation.
-//  9. All commands in ir.Commands are allow-listed + no blocking signals
+//  1. Schema version mismatch → NeedsConfirmation (fail-closed).
+//  2. Syntax/parse errors → NeedsConfirmation (fail-closed).
+//     Note: an empty IR with no risk flags and no parse errors is valid and
+//     auto-approves (rule 9 below). Only explicit parse errors trigger this.
+//  3. cd command → IsBlocked (users must use the cwd parameter).
+//  4. Dangerous output redirect → IsBlocked.
+//  5. Dynamic invocation (Invoke-Expression / iex) → NeedsConfirmation.
+//  6. Subshell / command substitution → NeedsConfirmation.
+//  7. Variable/parameter expansion → NeedsConfirmation.
+//  8. Destructive filesystem operation (Remove-Item, Copy-Item, etc.) → NeedsConfirmation.
+//  9. Shell operators (&&, ||, ;, |) with any non-allow-listed command → NeedsConfirmation.
+// 10. All commands in ir.Commands are allow-listed + no blocking signals
 //     → auto-approve (NeedsConfirmation = false).
 func (p *PolicyEngine) Decide(ir ParsedIR) Decision {
 	d := Decision{ReasonCodes: ir.RiskFlags}

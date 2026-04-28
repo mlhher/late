@@ -1,8 +1,6 @@
 package tool
 
 import (
-	"runtime"
-
 	"late/internal/tool/ast"
 )
 
@@ -18,7 +16,9 @@ func newASTAnalyzer(platform ast.Platform, cwd string, allowed map[string]map[st
 	// On Windows, seed the policy engine with the built-in safe cmdlets so
 	// that Get-ChildItem, ls, pwd etc. auto-approve without user allowlisting.
 	// Source of truth is whitelistedWindowsCommands in powershell_analyzer.go.
-	if runtime.GOOS == "windows" {
+	// Check the platform parameter (not runtime.GOOS) so behaviour is consistent
+	// when platform is overridden, e.g. in cross-platform tests.
+	if platform == ast.PlatformWindows {
 		for cmd := range whitelistedWindowsCommands {
 			if _, ok := allowed[cmd]; !ok {
 				allowed[cmd] = map[string]bool{}

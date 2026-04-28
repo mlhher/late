@@ -1,6 +1,20 @@
 package ast
 
-import "log"
+import (
+	"log"
+	"regexp"
+)
+
+// quotedStringRE matches single- and double-quoted string literals in shell
+// commands. Used to redact potential secrets before logging.
+var quotedStringRE = regexp.MustCompile(`"[^"]*"|'[^']*'`)
+
+// redactForLog replaces quoted literals with a placeholder and truncates.
+// This prevents credentials/tokens embedded in quoted arguments from
+// appearing in shadow-mode log output.
+func redactForLog(s string) string {
+	return truncate(quotedStringRE.ReplaceAllString(s, `"…"`), 80)
+}
 
 // ShadowAnalyzer wraps a legacy CommandAnalyzer and runs the AST pipeline in
 // parallel (shadow mode). It always returns the legacy decision so there is
@@ -50,7 +64,7 @@ func (s *ShadowAnalyzer) Analyze(command string) LegacyAnalysis {
 
 	ir, err := s.astParser.Parse(command)
 	if err != nil {
-		log.Printf("[ast/shadow] parse error for %q: %v", truncate(command, 80), err)
+		log.Printf("[ast/shadow] parse error for %s: %v", redactForLog(command), err)
 		return legacyResult
 	}
 
@@ -59,8 +73,8 @@ func (s *ShadowAnalyzer) Analyze(command string) LegacyAnalysis {
 	if legacyResult.IsBlocked != astDecision.IsBlocked ||
 		legacyResult.NeedsConfirmation != astDecision.NeedsConfirmation {
 		log.Printf(
-			"[ast/shadow] DELTA command=%q legacy={blocked:%v confirm:%v} ast={blocked:%v confirm:%v} risk_flags=%v",
-			truncate(command, 80),
+			"[ast/shadow] DELTA command=%s legacy={blocked:%v confirm:%v} ast={blocked:%v confirm:%v} risk_flags=%v",
+			redactForLog(command),
 			legacyResult.IsBlocked, legacyResult.NeedsConfirmation,
 			astDecision.IsBlocked, astDecision.NeedsConfirmation,
 			astDecision.ReasonCodes,

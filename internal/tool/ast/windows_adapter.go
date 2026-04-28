@@ -192,6 +192,7 @@ func startBridgeProcess() (*bridgeProcess, error) {
 	cmd.Stderr = io.Discard
 	if err := cmd.Start(); err != nil {
 		_ = stdinPipe.Close()
+		_ = stdoutPipe.Close()
 		return nil, fmt.Errorf("ast/windows: start bridge: %w", err)
 	}
 	return &bridgeProcess{
@@ -269,6 +270,10 @@ func (w *WindowsParser) Parse(command string) (ParsedIR, error) {
 		bp.mu.Lock()
 		if bp.dead {
 			bp.mu.Unlock()
+			// Ensure the global pointer is cleared so the next getOrStartBridge()
+			// starts a fresh process rather than handing out the dead bridge again.
+			invalidateBridge(bp)
+			go bp.shutdown()
 			continue
 		}
 		raw, callErr := bp.roundTrip(command)
@@ -326,6 +331,14 @@ func unmarshalBridgeResponse(raw []byte) (ParsedIR, error) {
 	// Strict schema version check — reject unknown/malformed payloads.
 	if payload.Version != IRVersion {
 		msg := fmt.Sprintf("bridge IR version mismatch: got %q, want %q", payload.Version, IRVersion)
+		ir.ParseErrors = append(ir.ParseErrors, msg)
+		ir.RiskFlags = appendUniqueRC(ir.RiskFlags, ReasonSyntaxError)
+		return ir, fmt.Errorf("ast/windows: %s", msg)
+	}
+
+	// Strict platform check — reject payloads not intended for the Windows adapter.
+	if payload.Platform != string(PlatformWindows) {
+		msg := fmt.Sprintf("bridge platform mismatch: got %q, want %q", payload.Platform, string(PlatformWindows))
 		ir.ParseErrors = append(ir.ParseErrors, msg)
 		ir.RiskFlags = appendUniqueRC(ir.RiskFlags, ReasonSyntaxError)
 		return ir, fmt.Errorf("ast/windows: %s", msg)

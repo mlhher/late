@@ -33,7 +33,7 @@ func TestGetAnalyzer_NoFlags(t *testing.T) {
 }
 
 // TestGetAnalyzer_ShadowMode verifies that LATE_AST_SHADOW=1 wraps the legacy
-// analyzer in a shadowWrapper without changing the returned type.
+// analyzer in a shadowWrapper without changing behavior/decision flow.
 func TestGetAnalyzer_ShadowMode(t *testing.T) {
 	t.Setenv(ast.EnvASTShadow, "1")
 	t.Setenv(ast.EnvASTEnforcement, "")

@@ -192,8 +192,9 @@ func extractPowerShellTargetPath(command string) string {
 	case "mkdir", "md":
 		target = tokens[1]
 	case "new-item", "ni":
-		// Scan for explicit -Path flag first, then fall back to the first
-		// positional (non-flag) argument.  This handles argument orders like:
+		// Two-pass scan: first look for an explicit -Path flag anywhere in the
+		// argument list; then fall back to the first positional (non-flag)
+		// argument.  The two-pass approach handles all argument orders:
 		//   New-Item foo
 		//   New-Item -Path foo
 		//   New-Item -ItemType Directory -Path foo
@@ -205,9 +206,13 @@ func extractPowerShellTargetPath(command string) string {
 				}
 				break
 			}
-			if !strings.HasPrefix(tokens[i], "-") {
-				target = tokens[i]
-				break
+		}
+		if target == "" {
+			for i := 1; i < len(tokens); i++ {
+				if !strings.HasPrefix(tokens[i], "-") {
+					target = tokens[i]
+					break
+				}
 			}
 		}
 	default:
