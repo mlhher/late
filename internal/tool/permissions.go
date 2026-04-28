@@ -468,17 +468,14 @@ func SaveAllowedCommand(command string, global bool) error {
 	touched := make(map[string]bool)
 
 	for key, flags := range commands {
-		existingFlags, exists := allowed[key]
+		_, exists := allowed[key]
 		if !exists {
 			allowed[key] = make(map[string]bool)
-			touched[key] = true
-		} else if len(flags) == 0 && !touched[key] {
-			touched[key] = false
 		}
+		// Always mark as touched so the TTL is refreshed on any explicit approval,
+		// including re-approving a command that was already in the allow-list.
+		touched[key] = true
 		for _, flag := range flags {
-			if !exists || !existingFlags[flag] {
-				touched[key] = true
-			}
 			allowed[key][flag] = true
 		}
 	}
@@ -610,7 +607,6 @@ func SaveAllowedTool(name string, global bool) error {
 		return err
 	}
 
-	_, alreadyAllowed := allowed[name]
 	allowed[name] = true
 
 	file := persistedToolsFile{
@@ -627,10 +623,14 @@ func SaveAllowedTool(name string, global bool) error {
 			ExpiresAt: expiresAt.UTC().Format(time.RFC3339),
 			Version:   common.Version,
 		}
-		if existingEntry, ok := existingFile.Entries[toolName]; ok && (toolName != name || alreadyAllowed) {
-			entry.SavedAt = existingEntry.SavedAt
-			entry.ExpiresAt = existingEntry.ExpiresAt
-			entry.Version = existingEntry.Version
+		// For tools other than the one being newly approved, preserve existing
+		// timestamps so their TTL is not accidentally reset by an unrelated save.
+		if toolName != name {
+			if existingEntry, ok := existingFile.Entries[toolName]; ok {
+				entry.SavedAt = existingEntry.SavedAt
+				entry.ExpiresAt = existingEntry.ExpiresAt
+				entry.Version = existingEntry.Version
+			}
 		}
 		file.Entries[toolName] = entry
 	}

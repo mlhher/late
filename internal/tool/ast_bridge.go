@@ -67,14 +67,16 @@ func (a *astAnalyzer) Analyze(command string) CommandAnalysis {
 	}
 	d := a.policy.Decide(ir)
 
-	// New-path carveout: if the only signal is ReasonNewPath (mkdir/New-Item
-	// creating a net-new path within the cwd), apply the same auto-approval
-	// the legacy PowerShellAnalyzer uses. This check runs in Go so we can
-	// call isNewPath with the session cwd without touching the bridge.
-	if d.NeedsConfirmation && !d.IsBlocked && ir.Platform == ast.PlatformWindows {
+	// New-path boundary guard: PolicyEngine rule 8 auto-approves ReasonNewPath
+	// without knowing the session cwd. On Windows, verify the mkdir/New-Item
+	// target is actually within cwd before accepting that auto-approval.
+	// If we can't confirm the target is within cwd, upgrade to confirm.
+	if !d.NeedsConfirmation && !d.IsBlocked && ir.Platform == ast.PlatformWindows {
 		if ast.HasRiskOnly(ir, ast.ReasonNewPath) {
-			if target := extractPowerShellTargetPath(command); target != "" && isNewPath(target, a.cwd) {
-				return CommandAnalysis{NeedsConfirmation: false}
+			target := extractPowerShellTargetPath(command)
+			if target == "" || !isNewPath(target, a.cwd) {
+				// Target outside cwd or path can't be determined — require confirmation.
+				return CommandAnalysis{NeedsConfirmation: true}
 			}
 		}
 	}
