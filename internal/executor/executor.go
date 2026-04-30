@@ -20,8 +20,9 @@ import (
 type StreamAccumulator struct {
 	Content   string
 	Reasoning string
-	ToolCalls []client.ToolCall
-	Usage     client.Usage
+	ToolCalls    []client.ToolCall
+	Usage        client.Usage
+	FinishReason string
 }
 
 // Append merges a single streaming delta into the accumulated state.
@@ -31,6 +32,10 @@ func (a *StreamAccumulator) Append(res common.StreamResult) {
 
 	if res.Usage.TotalTokens > 0 {
 		a.Usage = res.Usage
+	}
+
+	if res.FinishReason != "" {
+		a.FinishReason = res.FinishReason
 	}
 
 	for _, delta := range res.ToolCalls {
@@ -54,6 +59,7 @@ func (a *StreamAccumulator) Reset() {
 	a.Content = ""
 	a.Reasoning = ""
 	a.ToolCalls = nil
+	a.FinishReason = ""
 }
 
 // --- Tool Execution ---
@@ -223,6 +229,10 @@ func RunLoop(
 		acc, err := ConsumeStream(ctx, streamCh, errCh, onStreamChunk)
 		if err != nil {
 			return "", err
+		}
+
+		if acc.FinishReason == "length" {
+			return "", fmt.Errorf("exceeds the available context size")
 		}
 
 		// If stopped, the last tool call might be partially streamed and thus invalid JSON.

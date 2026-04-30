@@ -147,12 +147,13 @@ func (s *Session) StartStream(ctx context.Context, extraBody map[string]any) (<-
 				if !ok {
 					return
 				}
-				var content, reasoning string
+				var content, reasoning, finishReason string
 				var toolCalls []client.ToolCall
 				if len(chunk.Choices) > 0 {
 					content = chunk.Choices[0].Delta.Content
 					reasoning = chunk.Choices[0].Delta.ReasoningContent
 					toolCalls = chunk.Choices[0].Delta.ToolCalls
+					finishReason = chunk.Choices[0].FinishReason
 				}
 
 				res := common.StreamResult{
@@ -160,6 +161,7 @@ func (s *Session) StartStream(ctx context.Context, extraBody map[string]any) (<-
 					ReasoningContent: reasoning,
 					ToolCalls:        toolCalls,
 					Usage:            chunk.Usage,
+					FinishReason:     finishReason,
 				}
 
 				select {
