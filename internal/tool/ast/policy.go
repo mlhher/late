@@ -79,7 +79,7 @@ func (p *PolicyEngine) Decide(ir ParsedIR) Decision {
 	// Any compound/pipe where all commands are allow-listed is permitted;
 	// otherwise require confirmation.
 	if hasRisk(ir, ReasonOperator) {
-		if !p.allCommandsAllowlisted(ir.Commands) {
+		if !p.allCommandsAllowlisted(ir) {
 			d.NeedsConfirmation = true
 			return d
 		}
@@ -87,7 +87,7 @@ func (p *PolicyEngine) Decide(ir ParsedIR) Decision {
 	}
 
 	// 9. Allow-list check: if every command is explicitly allow-listed, approve.
-	if len(ir.Commands) > 0 && p.allCommandsAllowlisted(ir.Commands) {
+	if len(ir.Commands) > 0 && p.allCommandsAllowlisted(ir) {
 		return d
 	}
 
@@ -98,15 +98,29 @@ func (p *PolicyEngine) Decide(ir ParsedIR) Decision {
 	return d
 }
 
-// allCommandsAllowlisted returns true when every command string in cmds has an
-// entry in p.AllowedCommands. An empty allow-list always returns false.
-func (p *PolicyEngine) allCommandsAllowlisted(cmds []string) bool {
-	if len(p.AllowedCommands) == 0 || len(cmds) == 0 {
+// allCommandsAllowlisted returns true when every command in ir.Commands has an
+// entry in p.AllowedCommands AND every flag used in the invocation is present
+// in the stored allowed-flag set for that command.
+//
+// Flag validation mirrors the legacy BashAnalyzer: if a flag appears in the
+// command but was not stored when the command was originally approved, the
+// allow-list check fails and the policy engine falls through to
+// NeedsConfirmation. This prevents a previously-approved "find ." from
+// silently permitting "find . -exec rm -rf {} \;".
+func (p *PolicyEngine) allCommandsAllowlisted(ir ParsedIR) bool {
+	if len(p.AllowedCommands) == 0 || len(ir.Commands) == 0 {
 		return false
 	}
-	for _, cmd := range cmds {
-		if _, ok := p.AllowedCommands[cmd]; !ok {
+	for _, cmd := range ir.Commands {
+		allowedFlags, ok := p.AllowedCommands[cmd]
+		if !ok {
 			return false
+		}
+		// Every flag actually used must appear in the stored allow-list.
+		for _, flag := range ir.CommandArgs[cmd] {
+			if !allowedFlags[flag] {
+				return false
+			}
 		}
 	}
 	return true

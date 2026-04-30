@@ -57,5 +57,6 @@ func emptyIR(platform Platform) ParsedIR {
 		Expansions:  []string{},
 		RiskFlags:   []ReasonCode{},
 		ParseErrors: []string{},
+		CommandArgs: map[string][]string{},
 	}
 }

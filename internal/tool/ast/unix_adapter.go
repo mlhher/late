@@ -29,6 +29,7 @@ func (u *UnixParser) Parse(command string) (ParsedIR, error) {
 	seenRedirects := map[string]bool{}
 	seenExpansions := map[string]bool{}
 	seenRisk := map[ReasonCode]bool{}
+	seenCmdFlags := map[string]map[string]bool{} // command → flag → seen
 
 	// Multiple top-level statements imply ';' as a separator.
 	if len(f.Stmts) > 1 {
@@ -48,6 +49,28 @@ func (u *UnixParser) Parse(command string) (ParsedIR, error) {
 					addStringUnique(&ir.Commands, seenCmds, name)
 					if name == "cd" {
 						addRiskFlag(&ir, seenRisk, ReasonCd)
+					}
+					// Collect flags for policy engine allow-list matching.
+					if _, ok := seenCmdFlags[name]; !ok {
+						seenCmdFlags[name] = map[string]bool{}
+					}
+					for _, arg := range n.Args[1:] {
+						val := unixResolveWord(arg)
+						if !strings.HasPrefix(val, "-") {
+							continue
+						}
+						// Normalize --flag=value → --flag; -N (numeric) → -*.
+						flagKey := val
+						if idx := strings.Index(val, "="); idx != -1 {
+							flagKey = val[:idx]
+						}
+						if unixIsNumericFlag(val) {
+							flagKey = "-*"
+						}
+						if !seenCmdFlags[name][flagKey] {
+							seenCmdFlags[name][flagKey] = true
+							ir.CommandArgs[name] = append(ir.CommandArgs[name], flagKey)
+						}
 					}
 				}
 			}
@@ -134,6 +157,19 @@ func unixResolveWord(w *syntax.Word) string {
 
 func unixIsSafeRedirectTarget(word string) bool {
 	return word == "/dev/null" || word == "/dev/stdout" || word == "/dev/stderr"
+}
+
+// unixIsNumericFlag returns true for flags like -5, -100 (only digits after the dash).
+func unixIsNumericFlag(s string) bool {
+	if len(s) < 2 || s[0] != '-' {
+		return false
+	}
+	for _, c := range s[1:] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func unixIsNumericFd(s string) bool {

@@ -313,14 +313,15 @@ func unmarshalBridgeResponse(raw []byte) (ParsedIR, error) {
 	}
 
 	var payload struct {
-		Version     string   `json:"version"`
-		Platform    string   `json:"platform"`
-		Commands    []string `json:"commands"`
-		Operators   []string `json:"operators"`
-		Redirects   []string `json:"redirects"`
-		Expansions  []string `json:"expansions"`
-		RiskFlags   []string `json:"risk_flags"`
-		ParseErrors []string `json:"parse_errors"`
+		Version     string              `json:"version"`
+		Platform    string              `json:"platform"`
+		Commands    []string            `json:"commands"`
+		Operators   []string            `json:"operators"`
+		Redirects   []string            `json:"redirects"`
+		Expansions  []string            `json:"expansions"`
+		RiskFlags   []string            `json:"risk_flags"`
+		ParseErrors []string            `json:"parse_errors"`
+		CommandArgs map[string][]string `json:"command_args"`
 	}
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		ir.ParseErrors = append(ir.ParseErrors, fmt.Sprintf("bridge JSON decode error: %v", err))
@@ -362,6 +363,7 @@ func unmarshalBridgeResponse(raw []byte) (ParsedIR, error) {
 	ir.Expansions = nilToEmpty(payload.Expansions)
 	ir.RiskFlags = riskCodes
 	ir.ParseErrors = nilToEmpty(payload.ParseErrors)
+	ir.CommandArgs = nilToEmptyMap(payload.CommandArgs)
 
 	return ir, nil
 }
@@ -371,6 +373,13 @@ func nilToEmpty(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+func nilToEmptyMap(m map[string][]string) map[string][]string {
+	if m == nil {
+		return map[string][]string{}
+	}
+	return m
 }
 
 // isKnownReasonCode validates that rc is one of the defined ReasonCode constants.

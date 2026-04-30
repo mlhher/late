@@ -27,6 +27,7 @@ function New-IR {
         expansions   = [System.Collections.Generic.List[string]]::new()
         risk_flags   = [System.Collections.Generic.List[string]]::new()
         parse_errors = [System.Collections.Generic.List[string]]::new()
+        command_args = @{}  # hashtable: cmdName -> List[string] of flags
     }
 }
 
@@ -120,6 +121,21 @@ function Invoke-Parse {
                     }
                     if ($newPathCmdlets -contains $cmdName) {
                         Add-Unique $ir.risk_flags "new_path"
+                    }
+                    # Collect flags for policy engine allow-list matching.
+                    if (-not $ir.command_args.ContainsKey($cmdName)) {
+                        $ir.command_args[$cmdName] = [System.Collections.Generic.List[string]]::new()
+                    }
+                    for ($i = 1; $i -lt $elems.Count; $i++) {
+                        $argText = $elems[$i].ToString().Trim()
+                        if ($argText.StartsWith('-')) {
+                            # Normalize -Param:value → -Param (PowerShell colon syntax)
+                            $colonIdx = $argText.IndexOf(':')
+                            if ($colonIdx -gt 0) { $argText = $argText.Substring(0, $colonIdx) }
+                            if (-not $ir.command_args[$cmdName].Contains($argText)) {
+                                $ir.command_args[$cmdName].Add($argText) | Out-Null
+                            }
+                        }
                     }
                 }
             }
@@ -218,6 +234,11 @@ function Invoke-Parse {
 # immediately so the Go reader is not left waiting for a buffer to fill.
 function Emit-IR {
     param($ir)
+    # Convert command_args hashtable → plain hashtable of arrays for JSON.
+    $cmdArgsOut = @{}
+    foreach ($k in $ir.command_args.Keys) {
+        $cmdArgsOut[$k] = @($ir.command_args[$k])
+    }
     $out = [ordered]@{
         version      = $ir.version
         platform     = $ir.platform
@@ -227,6 +248,7 @@ function Emit-IR {
         expansions   = @($ir.expansions)
         risk_flags   = @($ir.risk_flags)
         parse_errors = @($ir.parse_errors)
+        command_args = $cmdArgsOut
     }
     [Console]::Out.WriteLine(($out | ConvertTo-Json -Compress -Depth 3))
     [Console]::Out.Flush()

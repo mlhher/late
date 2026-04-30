@@ -97,6 +97,18 @@ type ParsedIR struct {
 	// (e.g. ["var", "subshell", "arith", "proc_subst"]).
 	Expansions []string `json:"expansions"`
 
+	// CommandArgs maps each base command name to the flags (args starting with
+	// '-') detected in its invocation, normalized the same way the allow-list
+	// stores them (--flag=value → --flag; numeric -N → -*). The policy engine
+	// uses this to verify that no flag absent from the stored allow-list
+	// appears in the command being evaluated, preventing a previously-approved
+	// "find ." from silently allowing "find . -exec rm -rf {} \;".
+	//
+	// Keys match the entries in Commands. An absent or empty slice means no
+	// flags were found for that command (equivalent to the bare command
+	// having been approved).
+	CommandArgs map[string][]string `json:"command_args,omitempty"`
+
 	// RiskFlags is the ordered set of normalized policy signals. The policy
 	// engine makes decisions based primarily on this field.
 	RiskFlags []ReasonCode `json:"risk_flags"`
