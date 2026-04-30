@@ -50,6 +50,10 @@ var (
 			BorderBackground(userMsgBg).
 			PaddingLeft(2)
 
+	queuedMsgStyle = userMsgStyle.Copy().
+			Foreground(subtextColor).
+			BorderLeftForeground(subtextColor)
+
 	// AI Bubble
 	aiMsgStyle = baseStyle.Copy().
 			Padding(0, 2).

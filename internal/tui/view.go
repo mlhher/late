@@ -335,6 +335,11 @@ func (m *Model) updateViewport() {
 		blocks = append(blocks, thinkingStyle.Foreground(lipgloss.Color("#FF0000")).Render(fmt.Sprintf("Error: %v", m.Err)))
 	}
 
+	// Render Queued Messages
+	for _, msg := range s.QueuedMessages {
+		blocks = append(blocks, queuedMsgStyle.Width(msgWidth+1).Render(msg))
+	}
+
 	fullContent := strings.Join(blocks, "\n")
 	if fullContent == s.LastTotalContent && m.LastFocusedID == m.Focused.ID() {
 		return
