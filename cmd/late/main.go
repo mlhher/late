@@ -197,7 +197,9 @@ func main() {
 	resolvedSubagentConfig := appconfig.ResolveSubagentSettings(appConfig, resolvedOpenAIConfig)
 
 	subagentClient := c
-	if resolvedSubagentConfig.Model != "" {
+	if resolvedSubagentConfig.BaseURL != resolvedOpenAIConfig.BaseURL ||
+		resolvedSubagentConfig.APIKey != resolvedOpenAIConfig.APIKey ||
+		resolvedSubagentConfig.Model != resolvedOpenAIConfig.Model {
 		subagentClient = client.NewClient(client.Config{
 			BaseURL: resolvedSubagentConfig.BaseURL,
 			APIKey:  resolvedSubagentConfig.APIKey,

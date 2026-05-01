@@ -125,7 +125,8 @@ Notes:
 You can set your preferred model selection (orchestrator, subagents) and their respective configuration (host, keys) permanently inside the `config.json`.
 
 **File Locations:**
-* **Linux/macOS:** `~/.config/late/config.json`
+* **Linux:** `~/.config/late/config.json`
+* **macOS:** `~/Library/Application Support/late/config.json`
 * **Windows:** `%APPDATA%\late\config.json`
 
 **Setting Precedence:**
@@ -139,9 +140,9 @@ You can set your preferred model selection (orchestrator, subagents) and their r
   "openai_base_url": "http://localhost:8080",
   "openai_api_key": "your-api-key",
   "openai_model": "qwen3.6-35b-a3b",
-  "subagent_base_url": "http://10.8.0.2:8080",
-  "subagent_api_key": "your-other-api-key",
-  "subagent_model": "gemma-4-e4b"
+  "late_subagent_base_url": "http://10.8.0.2:8080",
+  "late_subagent_api_key": "your-other-api-key",
+  "late_subagent_model": "gemma-4-e4b"
 }
 ```
 

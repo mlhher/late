@@ -36,10 +36,16 @@ type Config struct {
 	OpenAIBaseURL   string          `json:"openai_base_url,omitempty"`
 	OpenAIAPIKey    string          `json:"openai_api_key,omitempty"`
 	OpenAIModel     string          `json:"openai_model,omitempty"`
-	SubagentBaseURL string          `json:"subagent_base_url,omitempty"`
-	SubagentAPIKey  string          `json:"subagent_api_key,omitempty"`
-	SubagentModel   string          `json:"subagent_model,omitempty"`
-	SkillsDir       string          `json:"skills_dir,omitempty"`
+	LateSubagentBaseURL string          `json:"late_subagent_base_url,omitempty"`
+	LateSubagentAPIKey  string          `json:"late_subagent_api_key,omitempty"`
+	LateSubagentModel   string          `json:"late_subagent_model,omitempty"`
+
+	// Legacy subagent fields for backward compatibility
+	SubagentBaseURL string `json:"subagent_base_url,omitempty"`
+	SubagentAPIKey  string `json:"subagent_api_key,omitempty"`
+	SubagentModel   string `json:"subagent_model,omitempty"`
+
+	SkillsDir string `json:"skills_dir,omitempty"`
 }
 
 func defaultConfig() Config {
@@ -143,16 +149,31 @@ func ResolveSubagentSettingsWithEnv(cfg *Config, openAI OpenAISettings, lookup E
 	resolved := SubagentSettings{
 		BaseURL: openAI.BaseURL,
 		APIKey:  openAI.APIKey,
+		Model:   openAI.Model,
 	}
 
 	if cfg != nil {
+		// Check legacy fields first
 		if cfg.SubagentBaseURL != "" {
 			resolved.BaseURL = cfg.SubagentBaseURL
 		}
 		if cfg.SubagentAPIKey != "" {
 			resolved.APIKey = cfg.SubagentAPIKey
 		}
-		resolved.Model = cfg.SubagentModel
+		if cfg.SubagentModel != "" {
+			resolved.Model = cfg.SubagentModel
+		}
+
+		// New fields override legacy fields
+		if cfg.LateSubagentBaseURL != "" {
+			resolved.BaseURL = cfg.LateSubagentBaseURL
+		}
+		if cfg.LateSubagentAPIKey != "" {
+			resolved.APIKey = cfg.LateSubagentAPIKey
+		}
+		if cfg.LateSubagentModel != "" {
+			resolved.Model = cfg.LateSubagentModel
+		}
 	}
 
 	if value, ok := nonEmptyEnv(lookup, "LATE_SUBAGENT_BASE_URL"); ok {
