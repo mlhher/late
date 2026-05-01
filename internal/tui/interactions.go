@@ -7,10 +7,57 @@ import (
 	"late/internal/client"
 	"late/internal/common"
 	"late/internal/tool"
+	"os"
+	"runtime"
 )
 
-var unsupervisedReadOnlyTools = map[string]bool{
-	"read_file": true,
+func canBypassInUnsupervised(tc client.ToolCall) bool {
+	switch tc.Function.Name {
+	case "read_file":
+		var params struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal([]byte(tc.Function.Arguments), &params); err != nil {
+			return false
+		}
+		return tool.IsSafePath(params.Path)
+	case "write_file":
+		var params struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal([]byte(tc.Function.Arguments), &params); err != nil {
+			return false
+		}
+		return tool.IsSafePath(params.Path)
+	case "target_edit":
+		var params struct {
+			File string `json:"file"`
+		}
+		if err := json.Unmarshal([]byte(tc.Function.Arguments), &params); err != nil {
+			return false
+		}
+		return tool.IsSafePath(params.File)
+	case "bash":
+		if runtime.GOOS == "windows" {
+			return false
+		}
+		var params struct {
+			Cwd string `json:"cwd"`
+		}
+		if err := json.Unmarshal([]byte(tc.Function.Arguments), &params); err != nil {
+			return false
+		}
+		if params.Cwd != "" {
+			return tool.IsSafePath(params.Cwd)
+		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			return false
+		}
+		return tool.IsSafePath(cwd)
+	default:
+		return false
+	}
 }
 
 // TUIInputProvider implements common.InputProvider by sending messages to the TUI.
@@ -64,25 +111,24 @@ func TUIConfirmMiddleware(messenger Messenger, reg *common.ToolRegistry) common.
 			}
 
 			// Check for unsupervised execution flag in context
-			skipConfirm, _ := ctx.Value(common.SkipConfirmationKey).(bool)
-			if skipConfirm && unsupervisedReadOnlyTools[tc.Function.Name] {
-				approvedCtx := context.WithValue(ctx, common.ToolApprovalKey, true)
-				return next(approvedCtx, tc)
+			if skip, ok := ctx.Value(common.SkipConfirmationKey).(bool); ok && skip {
+				if canBypassInUnsupervised(tc) {
+					approvedCtx := context.WithValue(ctx, common.ToolApprovalKey, true)
+					return next(approvedCtx, tc)
+				}
 			}
 
 			// Check if the tool requires confirmation
 			if reg != nil {
 				if t := reg.Get(tc.Function.Name); t != nil {
 					// Check project-allowed tools (local or global)
-					if !skipConfirm {
-						if allowed, _ := tool.LoadAllAllowedTools(); allowed[tc.Function.Name] {
-							approvedCtx := context.WithValue(ctx, common.ToolApprovalKey, true)
-							return next(approvedCtx, tc)
-						}
+					if allowed, _ := tool.LoadAllAllowedTools(); allowed[tc.Function.Name] {
+						approvedCtx := context.WithValue(ctx, common.ToolApprovalKey, true)
+						return next(approvedCtx, tc)
 					}
 
-					// In unsupervised mode, only read-only tools can bypass confirmation.
-					if !t.RequiresConfirmation(json.RawMessage(tc.Function.Arguments)) && (!skipConfirm || unsupervisedReadOnlyTools[tc.Function.Name]) {
+					// Skip confirmation if the tool doesn't require it based on its own logic
+					if !t.RequiresConfirmation(json.RawMessage(tc.Function.Arguments)) {
 						approvedCtx := context.WithValue(ctx, common.ToolApprovalKey, true)
 						return next(approvedCtx, tc)
 					}
