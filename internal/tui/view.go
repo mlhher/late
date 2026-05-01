@@ -316,8 +316,28 @@ func (m *Model) updateViewport() {
 		blocks = append(blocks, aiMsgStyle.Width(msgWidth+1).Border(lipgloss.DoubleBorder()).BorderForeground(lipgloss.Color("#FFD700")).Render(md))
 	}
 
-	if m.Err != nil {
+	if s.State == StateContextWarning {
+		prompt := "⚠️ **Context Limit Warning**\n\nYou are approaching the maximum context size for this session (over 90% used). It is highly recommended to **start a new session** to ensure the agent maintains full context and accuracy.\n\n> Press **[Enter]** again to proceed anyway, or start a new session."
+		md, _ := m.Renderer.Render(prompt)
+		blocks = append(blocks, aiMsgStyle.Width(msgWidth+1).Border(lipgloss.DoubleBorder()).BorderForeground(warningColor).Render(md))
+	}
+
+	if s.Error != nil {
+		errStr := s.Error.Error()
+		if strings.Contains(errStr, "exceeds the available context size") || strings.Contains(errStr, "context_length_exceeded") {
+			prompt := "🛑 **Context Limit Exceeded**\n\nThis session has hit the model's absolute context limit. The agent cannot proceed further in this session.\n\n**Action Required:** Please **start a new session** to continue your work."
+			md, _ := m.Renderer.Render(prompt)
+			blocks = append(blocks, aiMsgStyle.Width(msgWidth+1).Border(lipgloss.DoubleBorder()).BorderForeground(lipgloss.Color("#FF0000")).Render(md))
+		} else {
+			blocks = append(blocks, thinkingStyle.Foreground(lipgloss.Color("#FF0000")).Render(fmt.Sprintf("Error: %v", s.Error)))
+		}
+	} else if m.Err != nil {
 		blocks = append(blocks, thinkingStyle.Foreground(lipgloss.Color("#FF0000")).Render(fmt.Sprintf("Error: %v", m.Err)))
+	}
+
+	// Render Queued Messages
+	for _, msg := range s.QueuedMessages {
+		blocks = append(blocks, queuedMsgStyle.Width(msgWidth+1).Render(msg))
 	}
 
 	fullContent := strings.Join(blocks, "\n")

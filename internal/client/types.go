@@ -115,3 +115,11 @@ type GenerationParams struct {
 	TopK        int     `json:"top_k"`
 	TopP        float64 `json:"top_p"`
 }
+
+type APIErrorResponse struct {
+	Error struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+		Code    any    `json:"code"`
+	} `json:"error"`
+}

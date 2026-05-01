@@ -33,9 +33,10 @@ Standard agents use fragile diff formats that frequently hallucinate and corrupt
 
 ### 4. Zero-Surprise Execution (Human-in-the-Loop)
 
-You shouldn't have to blindly trust a generative model with your terminal. Late surfaces every proposed command for your review — **you approve or reject each action before it runs.**
+You shouldn't have to blindly trust a generative model with your terminal, but you also shouldn't have to babysit it. Late knows the difference between gathering context and changing state — **it stays out of your way for the safe stuff, and hard-stops for your approval on the rest.**
+
 * **Speed Heuristic:** Simple read-only commands (`ls`, `cat`, `grep`) are auto-approved to maintain agent velocity. Compound, mutating, or unrecognized commands require your explicit `[y/N]` confirmation before execution. This is a convenience heuristic, not a security sandbox — you are always the final authority.
-* **Project-Scoped:** The agent operates within your project directory by default (`cd` is blocked), keeping it focused on the codebase.
+* **Project-Scoped:** The agent operates within your project directory (`cd` is blocked), keeping it focused on the codebase. To maintain momentum, standard file edits inside the current working directory are auto-approved.
 * **Turn Limits:** Hard configurable caps cleanly cut off infinite hallucinations and prevent runaway token burning.
 
 ### 5. Pure Go & No Dependencies

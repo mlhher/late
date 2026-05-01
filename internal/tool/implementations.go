@@ -192,6 +192,7 @@ func (t *ShellTool) getAnalyzer(cwd string) CommandAnalyzer {
 
 	// Unix: Phase 4: AST shadow mode — run AST in parallel, log deltas, return legacy.
 	if ast.FeatureASTShadow() {
+		allowed, _ := LoadAllAllowedCommands()
 		shadow := ast.NewShadowAnalyzer(&shadowAnalyzerShim{inner: legacy}, platform, cwd, allowed)
 		return &shadowWrapper{shadow: shadow}
 	}
@@ -251,6 +252,9 @@ const maxBashOutputLines = 1024
 
 // Roughly 8192 tokens (assuming ~4 chars per token)
 const maxReadFileChars = 32768
+
+// Maximum number of characters for shell output to prevent session poisoning
+const maxBashOutputChars = 32768
 
 // ShellTool executes host-native shell commands with security restrictions.
 type ShellTool struct{}
@@ -318,21 +322,41 @@ func (t ShellTool) Execute(ctx context.Context, args json.RawMessage) (string, e
 	cmd.Dir = params.Cwd
 
 	output, err := cmd.CombinedOutput()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return fmt.Sprintf("Command failed with exit code %d\n%s", exitErr.ExitCode(), string(output)), nil
-		}
-		return fmt.Sprintf("Error executing command: %v\n%s", err, string(output)), nil
+
+	// Check for binary output
+	if IsBinary(output) {
+		return "(binary output detected)", nil
+	}
+
+	outputStr := string(output)
+	truncated := false
+
+	// Limit by characters first
+	if len(outputStr) > maxBashOutputChars {
+		outputStr = outputStr[:maxBashOutputChars]
+		truncated = true
 	}
 
 	// Limit output to prevent memory exhaustion
-	lines := strings.Split(string(output), "\n")
+	lines := strings.Split(outputStr, "\n")
 	if len(lines) > maxBashOutputLines {
 		lines = lines[:maxBashOutputLines]
-		lines = append(lines, "... (output truncated)")
+		truncated = true
 	}
 
-	return strings.Join(lines, "\n"), nil
+	finalOutput := strings.Join(lines, "\n")
+	if truncated {
+		finalOutput += "\n... (output truncated)"
+	}
+
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return fmt.Sprintf("Command failed with exit code %d\n%s", exitErr.ExitCode(), finalOutput), nil
+		}
+		return fmt.Sprintf("Error executing command: %v\n%s", err, finalOutput), nil
+	}
+
+	return finalOutput, nil
 }
 func (t ShellTool) RequiresConfirmation(args json.RawMessage) bool {
 	var params struct {

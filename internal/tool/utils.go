@@ -61,3 +61,22 @@ func restoreLineEnding(content, lineEnding string) string {
 	}
 	return content
 }
+
+// IsBinary detects if the given data is likely binary.
+// It checks for the presence of null bytes in the first 8KB of data.
+func IsBinary(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	// Check first 8KB for null bytes
+	limit := len(data)
+	if limit > 8192 {
+		limit = 8192
+	}
+	for i := 0; i < limit; i++ {
+		if data[i] == 0 {
+			return true
+		}
+	}
+	return false
+}

@@ -61,7 +61,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		switch keyMsg.String() {
 		case "y", "Y", "n", "N", "s", "S", "p", "P", "g", "G":
-			if stateBefore == StateConfirmTool {
+			if stateBefore == StateConfirmTool && strings.TrimPrefix(m.Input.Value(), "> ") == "" {
 				forwardToInput = false
 			}
 		}
@@ -136,10 +136,23 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "enter":
-			if focusedState.State == StateIdle {
-				input := strings.TrimPrefix(m.Input.Value(), "> ")
-				if strings.TrimSpace(input) == "" {
-					return m, nil
+			input := strings.TrimPrefix(m.Input.Value(), "> ")
+			if strings.TrimSpace(input) == "" {
+				return m, nil
+			}
+
+			if focusedState.State == StateIdle || focusedState.State == StateContextWarning {
+				// Preflight context check
+				maxTokens := m.Focused.MaxTokens()
+				if focusedState.State == StateIdle && maxTokens > 0 && !focusedState.ContextWarningShown {
+					// Use 10% safety margin (90% threshold)
+					threshold := 0.9
+					if float64(focusedState.CumulativeTokenCount) >= float64(maxTokens)*threshold {
+						focusedState.State = StateContextWarning
+						focusedState.ContextWarningShown = true
+						m.updateViewport()
+						return m, nil
+					}
 				}
 
 				if err := m.Focused.Submit(input); err != nil {
@@ -149,7 +162,15 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 				m.Input.Reset()
 				m.Input.SetValue("> ")
 				focusedState.State = StateThinking
+				focusedState.ContextWarningShown = false // Reset after successful submission
 				// Token count will be calculated in ContentEvent handler
+				m.updateViewport()
+				return m, nil
+			} else {
+				// Queue message if agent is busy
+				focusedState.QueuedMessages = append(focusedState.QueuedMessages, input)
+				m.Input.Reset()
+				m.Input.SetValue("> ")
 				m.updateViewport()
 				return m, nil
 			}
@@ -179,7 +200,7 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 			return m, nil
 
 		case "y", "Y":
-			if focusedState.State == StateConfirmTool && focusedState.PendingConfirm != nil {
+			if focusedState.State == StateConfirmTool && focusedState.PendingConfirm != nil && strings.TrimPrefix(m.Input.Value(), "> ") == "" {
 				focusedState.PendingConfirm.ResultCh <- "y"
 				focusedState.PendingConfirm = nil
 				focusedState.State = StateThinking
@@ -188,7 +209,7 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 			}
 
 		case "n", "N":
-			if focusedState.State == StateConfirmTool && focusedState.PendingConfirm != nil {
+			if focusedState.State == StateConfirmTool && focusedState.PendingConfirm != nil && strings.TrimPrefix(m.Input.Value(), "> ") == "" {
 				focusedState.PendingConfirm.ResultCh <- "n"
 				focusedState.PendingConfirm = nil
 				focusedState.State = StateThinking
@@ -197,7 +218,7 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 			}
 
 		case "s", "S", "p", "P", "g", "G":
-			if focusedState.State == StateConfirmTool && focusedState.PendingConfirm != nil {
+			if focusedState.State == StateConfirmTool && focusedState.PendingConfirm != nil && strings.TrimPrefix(m.Input.Value(), "> ") == "" {
 				focusedState.PendingConfirm.ResultCh <- msg.String()
 				focusedState.PendingConfirm = nil
 				focusedState.State = StateThinking
@@ -278,8 +299,22 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 				s.State = StateIdle
 				s.StatusText = "Closed"
 				s.Closed = true
+				// Process next queued message if any
+				if len(s.QueuedMessages) > 0 {
+					next := s.QueuedMessages[0]
+					s.QueuedMessages = s.QueuedMessages[1:]
+					orch := m.FindOrchestrator(event.ID)
+					if orch != nil {
+						if err := orch.Submit(next); err != nil {
+							m.Err = err
+						} else {
+							s.State = StateThinking
+							s.Closed = false // Re-open if we submit
+						}
+					}
+				}
 				// If the focused agent closed, switch back to parent (if any) or root
-				if event.ID == m.Focused.ID() {
+				if event.ID == m.Focused.ID() && s.State == StateIdle {
 					if m.Focused.Parent() != nil {
 						m.Focused = m.Focused.Parent()
 					} else {
@@ -290,6 +325,7 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 			case "error":
 				s.State = StateIdle
 				s.StatusText = fmt.Sprintf("Error: %v", event.Error)
+				s.Error = event.Error
 				// We don't clear rendered history so user can see what happened
 			default:
 				s.State = StateIdle
@@ -297,6 +333,20 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 				s.RenderedHistory = nil
 				s.StreamingStyledCache = ""
 				s.StreamingChunkCount = 0
+
+				// Process next queued message if any
+				if len(s.QueuedMessages) > 0 {
+					next := s.QueuedMessages[0]
+					s.QueuedMessages = s.QueuedMessages[1:]
+					orch := m.FindOrchestrator(event.ID)
+					if orch != nil {
+						if err := orch.Submit(next); err != nil {
+							m.Err = err
+						} else {
+							s.State = StateThinking
+						}
+					}
+				}
 			}
 			if event.ID == m.Focused.ID() {
 				m.updateViewport()

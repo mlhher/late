@@ -82,7 +82,7 @@ func (c *Client) ChatCompletion(ctx context.Context, req ChatCompletionRequest) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("status: %d", resp.StatusCode)
+		return nil, c.formatError(resp)
 	}
 
 	var chatResp ChatCompletionResponse
@@ -137,7 +137,7 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			errCh <- fmt.Errorf("status: %d", resp.StatusCode)
+			errCh <- c.formatError(resp)
 			return
 		}
 
@@ -190,6 +190,10 @@ func (c *Client) Completion(ctx context.Context, req CompletionRequest) (*Comple
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, c.formatError(resp)
+	}
 
 	var completionResp CompletionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&completionResp); err != nil {
@@ -345,4 +349,11 @@ func (c *Client) marshalFlattened(req ChatCompletionRequest) ([]byte, error) {
 	}
 
 	return json.Marshal(m)
+}
+func (c *Client) formatError(resp *http.Response) error {
+	var apiErr APIErrorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiErr); err == nil && apiErr.Error.Message != "" {
+		return fmt.Errorf("API error (%d): %s", resp.StatusCode, apiErr.Error.Message)
+	}
+	return fmt.Errorf("status: %d", resp.StatusCode)
 }

@@ -131,9 +131,9 @@ func TestLoadConfig_ParsesOpenAIFields(t *testing.T) {
 		"openai_base_url": "https://example.test/v1",
 		"openai_api_key": "secret",
 		"openai_model": "gpt-test",
-		"subagent_base_url": "https://subagent.example/v1",
-		"subagent_api_key": "sub-secret",
-		"subagent_model": "qwen-sub"
+		"late_subagent_base_url": "https://subagent.example/v1",
+		"late_subagent_api_key": "sub-secret",
+		"late_subagent_model": "qwen-sub"
 	}`
 	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
@@ -152,14 +152,14 @@ func TestLoadConfig_ParsesOpenAIFields(t *testing.T) {
 	if cfg.OpenAIModel != "gpt-test" {
 		t.Fatalf("OpenAIModel = %q", cfg.OpenAIModel)
 	}
-	if cfg.SubagentBaseURL != "https://subagent.example/v1" {
-		t.Fatalf("SubagentBaseURL = %q", cfg.SubagentBaseURL)
+	if cfg.LateSubagentBaseURL != "https://subagent.example/v1" {
+		t.Fatalf("LateSubagentBaseURL = %q", cfg.LateSubagentBaseURL)
 	}
-	if cfg.SubagentAPIKey != "sub-secret" {
-		t.Fatalf("SubagentAPIKey = %q", cfg.SubagentAPIKey)
+	if cfg.LateSubagentAPIKey != "sub-secret" {
+		t.Fatalf("LateSubagentAPIKey = %q", cfg.LateSubagentAPIKey)
 	}
-	if cfg.SubagentModel != "qwen-sub" {
-		t.Fatalf("SubagentModel = %q", cfg.SubagentModel)
+	if cfg.LateSubagentModel != "qwen-sub" {
+		t.Fatalf("LateSubagentModel = %q", cfg.LateSubagentModel)
 	}
 }
 
@@ -424,9 +424,9 @@ func TestResolveSubagentSettings(t *testing.T) {
 		{
 			name: "config only",
 			cfg: &Config{
-				SubagentBaseURL: "https://config-sub.example",
-				SubagentAPIKey:  "config-sub-key",
-				SubagentModel:   "config-sub-model",
+				LateSubagentBaseURL: "https://config-sub.example",
+				LateSubagentAPIKey:  "config-sub-key",
+				LateSubagentModel:   "config-sub-model",
 			},
 			openAI: OpenAISettings{BaseURL: "https://openai.example", APIKey: "openai-key", Model: "openai-model"},
 			want:   SubagentSettings{BaseURL: "https://config-sub.example", APIKey: "config-sub-key", Model: "config-sub-model"},
@@ -434,9 +434,9 @@ func TestResolveSubagentSettings(t *testing.T) {
 		{
 			name: "env wins over config",
 			cfg: &Config{
-				SubagentBaseURL: "https://config-sub.example",
-				SubagentAPIKey:  "config-sub-key",
-				SubagentModel:   "config-sub-model",
+				LateSubagentBaseURL: "https://config-sub.example",
+				LateSubagentAPIKey:  "config-sub-key",
+				LateSubagentModel:   "config-sub-model",
 			},
 			openAI: OpenAISettings{BaseURL: "https://openai.example", APIKey: "openai-key", Model: "openai-model"},
 			env: map[string]string{
@@ -454,9 +454,9 @@ func TestResolveSubagentSettings(t *testing.T) {
 		{
 			name: "empty env falls back to config",
 			cfg: &Config{
-				SubagentBaseURL: "https://config-sub.example",
-				SubagentAPIKey:  "config-sub-key",
-				SubagentModel:   "config-sub-model",
+				LateSubagentBaseURL: "https://config-sub.example",
+				LateSubagentAPIKey:  "config-sub-key",
+				LateSubagentModel:   "config-sub-model",
 			},
 			openAI: OpenAISettings{BaseURL: "https://openai.example", APIKey: "openai-key", Model: "openai-model"},
 			env: map[string]string{
@@ -474,15 +474,34 @@ func TestResolveSubagentSettings(t *testing.T) {
 		{
 			name: "openai fallback for base and api key",
 			cfg: &Config{
-				SubagentModel: "config-sub-model",
+				LateSubagentModel: "config-sub-model",
 			},
 			openAI: OpenAISettings{BaseURL: "https://openai.example", APIKey: "openai-key", Model: "openai-model"},
 			want:   SubagentSettings{BaseURL: "https://openai.example", APIKey: "openai-key", Model: "config-sub-model"},
 		},
 		{
-			name:   "no model keeps behavior unchanged",
+			name:   "openai fallback for model",
 			openAI: OpenAISettings{BaseURL: "https://openai.example", APIKey: "openai-key", Model: "openai-model"},
-			want:   SubagentSettings{BaseURL: "https://openai.example", APIKey: "openai-key", Model: ""},
+			want:   SubagentSettings{BaseURL: "https://openai.example", APIKey: "openai-key", Model: "openai-model"},
+		},
+		{
+			name: "legacy config support",
+			cfg: &Config{
+				SubagentBaseURL: "https://legacy-sub.example",
+				SubagentAPIKey:  "legacy-sub-key",
+				SubagentModel:   "legacy-sub-model",
+			},
+			openAI: OpenAISettings{BaseURL: "https://openai.example", APIKey: "openai-key", Model: "openai-model"},
+			want:   SubagentSettings{BaseURL: "https://legacy-sub.example", APIKey: "legacy-sub-key", Model: "legacy-sub-model"},
+		},
+		{
+			name: "new config overrides legacy",
+			cfg: &Config{
+				SubagentBaseURL:     "https://legacy-sub.example",
+				LateSubagentBaseURL: "https://new-sub.example",
+			},
+			openAI: OpenAISettings{BaseURL: "https://openai.example", APIKey: "openai-key", Model: "openai-model"},
+			want:   SubagentSettings{BaseURL: "https://new-sub.example", APIKey: "openai-key", Model: "openai-model"},
 		},
 	}
 

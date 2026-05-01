@@ -561,3 +561,51 @@ func TestBashTool_RequiresConfirmation_WindowsAlwaysPrompt(t *testing.T) {
 		}
 	}
 }
+func TestBashTool_BinaryOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Binary detection test using 'cat' on /usr/bin/ls is Unix-specific")
+	}
+	tool := ShellTool{}
+
+	// Create a small binary file for testing if /usr/bin/ls is not available or readable
+	tmpDir := t.TempDir()
+	binPath := filepath.Join(tmpDir, "test.bin")
+	err := os.WriteFile(binPath, []byte{0x7f, 0x45, 0x4c, 0x46, 0x01, 0x01, 0x01, 0x00, 0x00}, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	params := json.RawMessage(fmt.Sprintf(`{"command": "cat %s"}`, binPath))
+	out, err := tool.Execute(approvedContext(), params)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if out != "(binary output detected)" {
+		t.Errorf("Expected '(binary output detected)', got %q", out)
+	}
+}
+
+func TestBashTool_LargeSingleLineOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix-specific command 'printf' used")
+	}
+	tool := ShellTool{}
+
+	// Create a command that outputs a single line longer than maxBashOutputChars
+	// maxBashOutputChars is 32768
+	cmd := fmt.Sprintf("printf 'a%%.0s' {1..%d}", maxBashOutputChars+1000)
+	params := json.RawMessage(fmt.Sprintf(`{"command": "%s"}`, cmd))
+	out, err := tool.Execute(approvedContext(), params)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if len(out) > maxBashOutputChars+len("\n... (output truncated)")+10 {
+		t.Errorf("Output length %d exceeds limit %d", len(out), maxBashOutputChars)
+	}
+
+	if !strings.Contains(out, "... (output truncated)") {
+		t.Error("Expected output to contain truncation message")
+	}
+}
