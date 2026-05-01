@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"late/internal/common"
@@ -28,14 +29,72 @@ var allowedMCPCommands = map[string]bool{
 	"uvx":     true,
 }
 
-func isAllowedMCPCommand(command string) bool {
+var windowsExecutableExtensions = map[string]bool{
+	".bat": true,
+	".cmd": true,
+	".com": true,
+	".exe": true,
+}
+
+func normalizeMCPCommandName(command string) (string, bool) {
 	command = strings.TrimSpace(command)
 	if command == "" {
+		return "", false
+	}
+
+	containsSeparator := strings.Contains(command, "/") || strings.Contains(command, "\\")
+	if containsSeparator && !filepath.IsAbs(command) {
+		// Reject relative or shell-resolved paths like ./node or bin/python.
+		return "", false
+	}
+
+	base := command
+	if filepath.IsAbs(command) {
+		base = filepath.Base(command)
+	}
+
+	base = strings.ToLower(strings.TrimSpace(base))
+	if base == "" {
+		return "", false
+	}
+
+	if ext := filepath.Ext(base); windowsExecutableExtensions[ext] {
+		base = strings.TrimSuffix(base, ext)
+	}
+
+	if base == "" || strings.Contains(base, "/") || strings.Contains(base, "\\") {
+		return "", false
+	}
+
+	return base, true
+}
+
+func isAllowedMCPCommand(command string) bool {
+	normalized, ok := normalizeMCPCommandName(command)
+	if !ok {
 		return false
 	}
 
-	base := filepath.Base(command)
-	return allowedMCPCommands[base]
+	return allowedMCPCommands[normalized]
+}
+
+func serverEnvToList(env map[string]string) []string {
+	if len(env) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	result := make([]string, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, fmt.Sprintf("%s=%s", key, env[key]))
+	}
+
+	return result
 }
 
 // Client manages MCP connections and tools.
@@ -231,9 +290,10 @@ func (c *Client) ConnectFromConfig(ctx context.Context, config *MCPConfig) error
 
 		// Expand environment variables in server configuration
 		ExpandServerEnvVars(&server)
+		envList := serverEnvToList(server.Env)
 
 		// Create transport for this server
-		transport, err := NewStdioTransport(ctx, server.Command, server.Args, nil)
+		transport, err := NewStdioTransport(ctx, server.Command, server.Args, envList)
 		if err != nil {
 			return fmt.Errorf("failed to create transport for server %s: %w", name, err)
 		}
