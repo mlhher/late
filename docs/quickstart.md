@@ -148,7 +148,12 @@ You can set your preferred model selection (orchestrator, subagents) and their r
 
 ## MCP Integration
 
-Late supports the Model Context Protocol. Add your MCP servers to `~/.config/late/mcp_config.json` (global) or `.late/mcp_config.json` (project-local):
+Late supports the Model Context Protocol. Add your MCP servers to one of the following locations:
+
+* **Global (Linux):** `~/.config/late/mcp_config.json`
+* **Global (macOS):** `~/Library/Application Support/late/mcp_config.json`
+* **Global (Windows):** `%APPDATA%\late\mcp_config.json`
+* **Project-local:** `.late/mcp_config.json`
 
 ```json
 {
@@ -164,7 +169,9 @@ Late supports the Model Context Protocol. Add your MCP servers to `~/.config/lat
 ## Agent Skills
 
 [Skills](https://agentskills.io/) are reusable sets of instructions. They are discovered automatically from:
-* **Global:** `~/.config/late/skills/`
+* **Global (Linux):** `~/.config/late/skills/`
+* **Global (macOS):** `~/Library/Application Support/late/skills/`
+* **Global (Windows):** `%APPDATA%\late\skills\`
 * **Project:** `.late/skills/`
 
 There is no further setup required. Just add your skills to the directories and they will be discovered automatically.
