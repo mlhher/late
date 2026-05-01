@@ -7,8 +7,11 @@ import (
 	"late/internal/client"
 	"late/internal/common"
 	"late/internal/tool"
-	"runtime"
 )
+
+var unsupervisedReadOnlyTools = map[string]bool{
+	"read_file": true,
+}
 
 // TUIInputProvider implements common.InputProvider by sending messages to the TUI.
 type TUIInputProvider struct {
@@ -61,26 +64,27 @@ func TUIConfirmMiddleware(messenger Messenger, reg *common.ToolRegistry) common.
 			}
 
 			// Check for unsupervised execution flag in context
-			if skip, ok := ctx.Value(common.SkipConfirmationKey).(bool); ok && skip {
-				// On Windows, never bypass shell command confirmation.
-				if !(runtime.GOOS == "windows" && tc.Function.Name == "bash") {
-					approvedCtx := context.WithValue(ctx, common.ToolApprovalKey, true)
-					return next(approvedCtx, tc)
-				}
+			skipConfirm, _ := ctx.Value(common.SkipConfirmationKey).(bool)
+			if skipConfirm && unsupervisedReadOnlyTools[tc.Function.Name] {
+				approvedCtx := context.WithValue(ctx, common.ToolApprovalKey, true)
+				return next(approvedCtx, tc)
 			}
 
 			// Check if the tool requires confirmation
 			if reg != nil {
 				if t := reg.Get(tc.Function.Name); t != nil {
 					// Check project-allowed tools (local or global)
-					if allowed, _ := tool.LoadAllAllowedTools(); allowed[tc.Function.Name] {
-						approvedCtx := context.WithValue(ctx, common.ToolApprovalKey, true)
-						return next(approvedCtx, tc)
+					if !skipConfirm {
+						if allowed, _ := tool.LoadAllAllowedTools(); allowed[tc.Function.Name] {
+							approvedCtx := context.WithValue(ctx, common.ToolApprovalKey, true)
+							return next(approvedCtx, tc)
+						}
 					}
 
-					// Skip confirmation if the tool doesn't require it based on its own logic
-					if !t.RequiresConfirmation(json.RawMessage(tc.Function.Arguments)) {
-						return next(ctx, tc)
+					// In unsupervised mode, only read-only tools can bypass confirmation.
+					if !t.RequiresConfirmation(json.RawMessage(tc.Function.Arguments)) && (!skipConfirm || unsupervisedReadOnlyTools[tc.Function.Name]) {
+						approvedCtx := context.WithValue(ctx, common.ToolApprovalKey, true)
+						return next(approvedCtx, tc)
 					}
 
 					// For ShellTool, check if the command is blocked (e.g., cd commands)

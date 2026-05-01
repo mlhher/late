@@ -6,7 +6,6 @@ import (
 	"late/internal/client"
 	"late/internal/common"
 	"late/internal/tool"
-	"runtime"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -30,7 +29,9 @@ func TestTUIConfirmMiddleware_SkipConfirmation(t *testing.T) {
 	messenger := &mockMessenger{}
 	reg := common.NewToolRegistry()
 	bashTool := &tool.ShellTool{}
+	readTool := tool.NewReadFileTool()
 	reg.Register(bashTool)
+	reg.Register(readTool)
 
 	middleware := TUIConfirmMiddleware(messenger, reg)
 
@@ -46,34 +47,26 @@ func TestTUIConfirmMiddleware_SkipConfirmation(t *testing.T) {
 
 	runner := middleware(next)
 
-	// Tool call that REQUIRES confirmation (e.g. rm)
-	tc := client.ToolCall{
+	readCall := client.ToolCall{
+		Function: client.FunctionCall{
+			Name:      "read_file",
+			Arguments: `{"path": "README.md"}`,
+		},
+	}
+
+	bashCall := client.ToolCall{
 		Function: client.FunctionCall{
 			Name:      "bash",
 			Arguments: `{"command": "wget https://mlgpt.io"}`,
 		},
 	}
 
-	t.Run("Unsupervised execution skips confirmation", func(t *testing.T) {
+	t.Run("Unsupervised execution auto-approves read-only tools", func(t *testing.T) {
 		messenger.confirmCalled = false
 		approvedSeen = false
 		ctx := context.WithValue(context.Background(), common.SkipConfirmationKey, true)
 
-		if runtime.GOOS == "windows" {
-			// Windows policy: shell commands must still go through confirmation.
-			ctx, cancel := context.WithCancel(ctx)
-			cancel()
-			_, _ = runner(ctx, tc)
-			if !messenger.confirmCalled {
-				t.Errorf("Expected confirmation to be requested on Windows")
-			}
-			if approvedSeen {
-				t.Errorf("Did not expect approval marker when confirmation was not granted")
-			}
-			return
-		}
-
-		result, err := runner(ctx, tc)
+		result, err := runner(ctx, readCall)
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
@@ -81,10 +74,28 @@ func TestTUIConfirmMiddleware_SkipConfirmation(t *testing.T) {
 			t.Errorf("Expected result 'success', got %q", result)
 		}
 		if messenger.confirmCalled {
-			t.Errorf("Expected confirmation to be skipped, but it was requested")
+			t.Errorf("Expected confirmation to be skipped for read-only tool, but it was requested")
 		}
 		if !approvedSeen {
 			t.Errorf("Expected middleware to mark tool execution as approved in context")
+		}
+	})
+
+	t.Run("Unsupervised execution still requests confirmation for mutating tools", func(t *testing.T) {
+		messenger.confirmCalled = false
+		approvedSeen = false
+
+		// Use cancelled context so test doesn't block waiting for UI response.
+		ctx := context.WithValue(context.Background(), common.SkipConfirmationKey, true)
+		ctx, cancel := context.WithCancel(ctx)
+		cancel()
+
+		_, _ = runner(ctx, bashCall)
+		if !messenger.confirmCalled {
+			t.Errorf("Expected confirmation to be requested for non-read-only tool")
+		}
+		if approvedSeen {
+			t.Errorf("Did not expect approval marker when confirmation was not granted")
 		}
 	})
 
@@ -95,7 +106,7 @@ func TestTUIConfirmMiddleware_SkipConfirmation(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		_, _ = runner(ctx, tc)
+		_, _ = runner(ctx, bashCall)
 		if !messenger.confirmCalled {
 			t.Errorf("Expected confirmation to be requested")
 		}

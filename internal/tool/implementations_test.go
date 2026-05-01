@@ -12,119 +12,161 @@ import (
 	"testing"
 )
 
+func withTempCWDImpl(t *testing.T, fn func(tmpDir string)) {
+	t.Helper()
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get cwd: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("failed to switch cwd: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(original)
+	}()
+
+	fn(tmpDir)
+}
+
 func approvedContext() context.Context {
 	return context.WithValue(context.Background(), common.ToolApprovalKey, true)
 }
 
 func TestReadFileTool_PartialRead(t *testing.T) {
-	// constant setup
-	tmpDir := t.TempDir()
-	filePath := filepath.Join(tmpDir, "test.txt")
-	filePath = filepath.ToSlash(filePath)
-	content := "line1\nline2\nline3\nline4\nline5\n"
-	err := os.WriteFile(filePath, []byte(content), 0644)
-	if err != nil {
-		t.Fatal(err)
-	}
+	withTempCWDImpl(t, func(tmpDir string) {
+		filePath := filepath.ToSlash(filepath.Join(tmpDir, "test.txt"))
+		content := "line1\nline2\nline3\nline4\nline5\n"
+		err := os.WriteFile(filePath, []byte(content), 0644)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	tool := NewReadFileTool()
+		tool := NewReadFileTool()
 
-	// Test case: Read lines 2-4
-	args := json.RawMessage(`{"path": "` + filePath + `", "start_line": 2, "end_line": 4}`)
-	result, err := tool.Execute(context.Background(), args)
-	if err != nil {
-		t.Fatal(err)
-	}
+		// Test case: Read lines 2-4
+		args := json.RawMessage(`{"path": "test.txt", "start_line": 2, "end_line": 4}`)
+		result, err := tool.Execute(context.Background(), args)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	expected := "2 | line2\n3 | line3\n4 | line4\n"
-	if result != expected {
-		t.Errorf("Expected:\n%q\nGot:\n%q", expected, result)
-	}
+		expected := "2 | line2\n3 | line3\n4 | line4\n"
+		if result != expected {
+			t.Errorf("Expected:\n%q\nGot:\n%q", expected, result)
+		}
 
-	// Test case: Invalid range
-	args = json.RawMessage(`{"path": "` + filePath + `", "start_line": 4, "end_line": 2}`)
-	result, err = tool.Execute(context.Background(), args)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(result, "Invalid range") {
-		t.Errorf("Expected invalid range error, got: %q", result)
-	}
+		// Test case: Invalid range
+		args = json.RawMessage(`{"path": "test.txt", "start_line": 4, "end_line": 2}`)
+		result, err = tool.Execute(context.Background(), args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(result, "Invalid range") {
+			t.Errorf("Expected invalid range error, got: %q", result)
+		}
+	})
 }
 
 func TestReadFileTool_NoCaching(t *testing.T) {
-	tmpDir := t.TempDir()
-	filePath := filepath.Join(tmpDir, "test.txt")
-	filePath = filepath.ToSlash(filePath)
-	content := "unchanged content"
-	os.WriteFile(filePath, []byte(content), 0644)
+	withTempCWDImpl(t, func(tmpDir string) {
+		filePath := filepath.Join(tmpDir, "test.txt")
+		content := "unchanged content"
+		os.WriteFile(filePath, []byte(content), 0644)
 
-	tool := NewReadFileTool()
-	args := json.RawMessage(`{"path": "` + filePath + `"}`)
+		tool := NewReadFileTool()
+		args := json.RawMessage(`{"path": "test.txt"}`)
 
-	// First read
-	res1, err := tool.Execute(context.Background(), args)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(res1, "unchanged content") {
-		t.Error("First read failed")
-	}
+		// First read
+		res1, err := tool.Execute(context.Background(), args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(res1, "unchanged content") {
+			t.Error("First read failed")
+		}
 
-	// Second read (should RETURN CONTENT now, not unchanged message)
-	res2, err := tool.Execute(context.Background(), args)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// It should contain the content again
-	if !strings.Contains(res2, "unchanged content") {
-		t.Errorf("Expected content to be returned again, got: %q", res2)
-	}
-	if strings.Contains(res2, "File has not changed") {
-		t.Error("Should not return unchanged message")
-	}
+		// Second read (should RETURN CONTENT now, not unchanged message)
+		res2, err := tool.Execute(context.Background(), args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(res2, "unchanged content") {
+			t.Errorf("Expected content to be returned again, got: %q", res2)
+		}
+		if strings.Contains(res2, "File has not changed") {
+			t.Error("Should not return unchanged message")
+		}
 
-	// Modify file
-	os.WriteFile(filePath, []byte("new content"), 0644)
+		// Modify file
+		os.WriteFile(filePath, []byte("new content"), 0644)
 
-	// Third read (should return new content)
-	res3, err := tool.Execute(context.Background(), args)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(res3, "new content") {
-		t.Errorf("Expected new content, got: %q", res3)
-	}
+		// Third read (should return new content)
+		res3, err := tool.Execute(context.Background(), args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(res3, "new content") {
+			t.Errorf("Expected new content, got: %q", res3)
+		}
+	})
 }
 
 func TestReadFileTool_OutputTruncation(t *testing.T) {
-	tmpDir := t.TempDir()
-	filePath := filepath.Join(tmpDir, "large_test.txt")
-	filePath = filepath.ToSlash(filePath)
+	withTempCWDImpl(t, func(tmpDir string) {
+		filePath := filepath.ToSlash(filepath.Join(tmpDir, "large_test.txt"))
 
-	// Generate a file that exceeds maxReadFileChars
-	var sb strings.Builder
-	for i := 0; i < 1000; i++ {
-		sb.WriteString(fmt.Sprintf("This is line %d and it contains some text to fill up space.\n", i+1))
-	}
-	err := os.WriteFile(filePath, []byte(sb.String()), 0644)
-	if err != nil {
-		t.Fatal(err)
-	}
+		// Generate a file that exceeds maxReadFileChars
+		var sb strings.Builder
+		for i := 0; i < 1000; i++ {
+			sb.WriteString(fmt.Sprintf("This is line %d and it contains some text to fill up space.\n", i+1))
+		}
+		err := os.WriteFile(filePath, []byte(sb.String()), 0644)
+		if err != nil {
+			t.Fatal(err)
+		}
 
+		tool := NewReadFileTool()
+		args := json.RawMessage(`{"path": "large_test.txt"}`)
+		result, err := tool.Execute(context.Background(), args)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(result) > maxReadFileChars+len("... (output truncated)")+100 { // some padding
+			t.Errorf("Output length %d exceeds limit %d", len(result), maxReadFileChars)
+		}
+
+		if !strings.Contains(result, "... (output truncated)") {
+			t.Error("Expected output to contain truncation message")
+		}
+	})
+}
+
+func TestReadFileTool_UnsafePathRejected(t *testing.T) {
 	tool := NewReadFileTool()
-	args := json.RawMessage(`{"path": "` + filePath + `"}`)
-	result, err := tool.Execute(context.Background(), args)
-	if err != nil {
-		t.Fatal(err)
-	}
+	args := json.RawMessage(`{"path": "/etc/passwd"}`)
 
-	if len(result) > maxReadFileChars+len("... (output truncated)")+100 { // some padding
-		t.Errorf("Output length %d exceeds limit %d", len(result), maxReadFileChars)
+	_, err := tool.Execute(context.Background(), args)
+	if err == nil {
+		t.Fatal("expected error for unsafe path")
 	}
+	if !strings.Contains(err.Error(), "outside the allowed directory") {
+		t.Fatalf("expected safe-path error, got: %v", err)
+	}
+}
 
-	if !strings.Contains(result, "... (output truncated)") {
-		t.Error("Expected output to contain truncation message")
+func TestWriteFileTool_UnsafePathRejected(t *testing.T) {
+	tool := WriteFileTool{}
+	args := json.RawMessage(`{"path": "/tmp/late-unsafe-test.txt", "content": "x"}`)
+
+	_, err := tool.Execute(context.Background(), args)
+	if err == nil {
+		t.Fatal("expected error for unsafe path")
+	}
+	if !strings.Contains(err.Error(), "outside the allowed directory") {
+		t.Fatalf("expected safe-path error, got: %v", err)
 	}
 }
 

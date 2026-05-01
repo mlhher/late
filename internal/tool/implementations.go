@@ -54,6 +54,10 @@ func (t *ReadFileTool) Execute(ctx context.Context, args json.RawMessage) (strin
 		return "", err
 	}
 
+	if !IsSafePath(params.Path) {
+		return "", fmt.Errorf("path '%s' is outside the allowed directory", params.Path)
+	}
+
 	data, err := os.ReadFile(params.Path)
 	if err != nil {
 		return "", err
@@ -142,6 +146,10 @@ func (t WriteFileTool) Execute(ctx context.Context, args json.RawMessage) (strin
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return "", err
+	}
+
+	if !IsSafePath(params.Path) {
+		return "", fmt.Errorf("path '%s' is outside the allowed directory", params.Path)
 	}
 
 	if params.Content == "" {

@@ -42,6 +42,10 @@ func (t *TargetEditTool) Execute(ctx context.Context, args json.RawMessage) (str
 		return "", err
 	}
 
+	if !IsSafePath(params.File) {
+		return "", fmt.Errorf("file '%s' is outside the allowed directory", params.File)
+	}
+
 	// Validate file exists
 	if _, err := os.Stat(params.File); os.IsNotExist(err) {
 		return "", fmt.Errorf("file does not exist: %s", params.File)

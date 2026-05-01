@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -17,10 +16,21 @@ func TestTargetEditTool_WindowsLineEndings(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
+	originalCWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chdir(originalCWD)
+	}()
+
 	file1 := "windows.txt"
 	// File has Windows line endings (\r\n)
 	content := "line 1\r\nline 2\r\nline 3\r\n"
-	filePath := filepath.Join(tmpDir, file1)
+	filePath := file1
 	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +70,7 @@ func TestTargetEditTool_WindowsLineEndings(t *testing.T) {
 	})
 
 	t.Run("normalizes mixed line endings to unix", func(t *testing.T) {
-		mixedFile := filepath.Join(tmpDir, "mixed.txt")
+		mixedFile := "mixed.txt"
 		// Mixed line endings: \n and \r\n
 		content := "line 1\nline 2\r\nline 3\n"
 		if err := os.WriteFile(mixedFile, []byte(content), 0644); err != nil {

@@ -8,11 +8,35 @@ import (
 	"late/internal/tool"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"late/internal/common"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+var allowedMCPCommands = map[string]bool{
+	"bun":     true,
+	"deno":    true,
+	"go":      true,
+	"node":    true,
+	"npx":     true,
+	"python":  true,
+	"python3": true,
+	"uv":      true,
+	"uvx":     true,
+}
+
+func isAllowedMCPCommand(command string) bool {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return false
+	}
+
+	base := filepath.Base(command)
+	return allowedMCPCommands[base]
+}
 
 // Client manages MCP connections and tools.
 type Client struct {
@@ -155,6 +179,10 @@ func (c *Client) Close() error {
 
 // NewStdioTransport creates a new transport that communicates with a subprocess.
 func NewStdioTransport(ctx context.Context, command string, args []string, env []string) (mcp.Transport, error) {
+	if !isAllowedMCPCommand(command) {
+		return nil, fmt.Errorf("mcp command '%s' is not allowed", command)
+	}
+
 	cmd := exec.Command(command, args...)
 	cmd.Env = append(os.Environ(), env...)
 
