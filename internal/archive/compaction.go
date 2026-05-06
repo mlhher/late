@@ -257,7 +257,7 @@ func ReconcileOnStartup(archive *SessionArchive, active []client.ChatMessage) ([
 	for _, msg := range active {
 		h := HashMessage(msg)
 		if archivedHashes[h] {
-			warnings = append(warnings, fmt.Sprintf("duplicate message detected (hash %s) — keeping in active history, will skip re-archival", h[:8]))
+			warnings = append(warnings, fmt.Sprintf("duplicate message detected (hash %s) — already in archive, will be skipped on next compaction", h[:8]))
 		}
 		clean = append(clean, msg)
 	}

@@ -19,6 +19,7 @@ import (
 	"late/internal/assets"
 	"late/internal/client"
 	appconfig "late/internal/config"
+	"late/internal/archive"
 	"late/internal/mcp"
 	"late/internal/pathutil"
 	"late/internal/session"
@@ -444,6 +445,11 @@ func handleSessionDelete(id string) {
 	if err := os.Remove(meta.HistoryPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error deleting history: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Delete archive and lock files (fail-open: not all sessions have an archive).
+	if archErr := archive.DeleteFiles(meta.HistoryPath); archErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not delete archive files: %v\n", archErr)
 	}
 
 	fmt.Printf("Deleted session: %s\n", meta.Title)

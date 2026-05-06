@@ -388,15 +388,28 @@ func (o *BaseOrchestrator) forceCompact() bool {
 	if histPath == "" {
 		return false
 	}
-	cfg, err := config.LoadConfig()
-	if err != nil || !cfg.IsArchiveCompactionEnabled() {
-		return false
+
+	// Prefer the already-loaded archive settings; only re-read config from disk as fallback.
+	var settings config.ArchiveCompactionConfig
+	o.mu.RLock()
+	existing := o.archiveSub
+	o.mu.RUnlock()
+	if existing != nil {
+		settings = existing.cfg
+	} else {
+		cfg, err := config.LoadConfig()
+		if err != nil || !cfg.IsArchiveCompactionEnabled() {
+			return false
+		}
+		settings = cfg.ArchiveCompactionSettings()
 	}
-	settings := cfg.ArchiveCompactionSettings()
 
 	var arch *archive.SessionArchive
 	archPath := archive.ArchivePath(histPath)
-	if loaded, loadErr := archive.Load(archPath, o.id); loadErr == nil {
+	// Reuse the already-loaded archive when available to avoid unnecessary disk I/O.
+	if existing != nil && existing.sub != nil && existing.sub.Archive != nil {
+		arch = existing.sub.Archive
+	} else if loaded, loadErr := archive.Load(archPath, o.id); loadErr == nil {
 		arch = loaded
 	} else {
 		arch = archive.New(archive.BaseSessionID(histPath))
@@ -491,11 +504,10 @@ func (o *BaseOrchestrator) runArchivePreHook() {
 			log.Printf("[archive] reconcile: %s", w)
 		}
 		if len(warnings) > 0 {
-			removed := len(o.sess.History) - len(reconciledHistory)
+			log.Printf("[archive] reconcile: found %d message(s) already archived; they will be deduplicated on next compaction", len(warnings))
 			o.mu.Lock()
 			o.sess.History = reconciledHistory
 			o.mu.Unlock()
-			log.Printf("[archive] reconcile: removed %d duplicate messages from active history", removed)
 		}
 	}
 

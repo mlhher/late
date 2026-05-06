@@ -33,6 +33,7 @@ type indexedEntry struct {
 	rawContent string
 	content    string // lowercased
 	toolMeta   string // lowercased tool call names + result summaries
+	rawToolMeta string // original-casing tool metadata (for case-sensitive search)
 	roleLower  string // lowercased role
 }
 
@@ -145,7 +146,9 @@ func (s *SearchService) buildIndex() {
 			if am.Role == "tool" && am.Message.Content != "" {
 				toolParts = append(toolParts, am.Message.Content)
 			}
-			entry.toolMeta = strings.ToLower(strings.Join(toolParts, " "))
+			raw := strings.Join(toolParts, " ")
+			entry.rawToolMeta = raw
+			entry.toolMeta = strings.ToLower(raw)
 			s.index = append(s.index, entry)
 		}
 	}
@@ -162,7 +165,7 @@ func scoreEntry(e indexedEntry, queryNorm string, tokens []string, caseSensitive
 	role := e.roleLower
 	if caseSensitive {
 		content = e.rawContent
-		toolMeta = e.toolMeta // toolMeta is always lowercase; case-sensitive won't match uppercase
+		toolMeta = e.rawToolMeta
 		role = e.role
 	}
 
