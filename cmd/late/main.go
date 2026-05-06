@@ -245,7 +245,6 @@ func main() {
 		settings := appConfig.ArchiveCompactionSettings()
 		fmt.Fprintf(os.Stderr, "[late] archive compaction enabled (threshold=%d, keepRecent=%d)\n",
 			settings.CompactionThresholdMessages, settings.KeepRecentMessages)
-		_ = tool.RegisterArchiveTools // referenced to ensure linkage; actual registration done at pre-run hook
 	}
 
 	// Initialize common renderer

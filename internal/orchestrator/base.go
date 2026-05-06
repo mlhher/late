@@ -597,14 +597,6 @@ func (o *BaseOrchestrator) runArchivePreHook() {
 		}
 	}
 
-	svc := archive.NewSearchService(newArch)
-	if !res.NoOp && !res.LockHeld {
-		svc.MarkDirty()
-	}
-	searchStart := time.Now()
-	svc.WarmUp() // eagerly build the index so the first query is fast
-	log.Printf("[archive] search index ready in %s", time.Since(searchStart))
-
 	o.mu.Lock()
 	firstInit := o.archiveSub == nil || o.archiveSub.sub == nil
 	if !firstInit {
@@ -613,11 +605,22 @@ func (o *BaseOrchestrator) runArchivePreHook() {
 		// o.archiveSub with a new struct would leave the tools searching a stale archive.
 		o.archiveSub.sub.Archive = newArch
 		if !res.NoOp && !res.LockHeld {
-			// Compaction produced a new archive — refresh the search index.
+			// Compaction produced a new archive — rebuild search index and assign it.
+			svc := archive.NewSearchService(newArch)
+			svc.MarkDirty()
+			searchStart := time.Now()
+			svc.WarmUp()
+			log.Printf("[archive] search index rebuilt in %s", time.Since(searchStart))
 			o.archiveSub.sub.Search = svc
 		}
 		o.archiveSub.cfg = settings
 	} else {
+		// First initialization — always build the index so archive tools are ready immediately.
+		svc := archive.NewSearchService(newArch)
+		svc.MarkDirty()
+		searchStart := time.Now()
+		svc.WarmUp()
+		log.Printf("[archive] search index ready in %s", time.Since(searchStart))
 		o.archiveSub = &archiveState{
 			sub: &tool.ArchiveSubsystem{
 				Archive: newArch,
