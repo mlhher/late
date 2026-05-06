@@ -425,8 +425,12 @@ func (o *BaseOrchestrator) forceCompact() bool {
 
 	log.Printf("[archive] emergency compaction triggered by context overflow (history=%d)", len(o.sess.History))
 	res, newActive, newArch, compactErr := archive.Compact(histPath, o.id, o.sess.History, arch, compactCfg)
-	if compactErr != nil || res.NoOp {
-		log.Printf("[archive] emergency compaction failed or no-op: %v", compactErr)
+	if compactErr != nil || res.NoOp || res.LockHeld {
+		if res.LockHeld {
+			log.Printf("[archive] emergency compaction skipped: lock held by another process")
+		} else {
+			log.Printf("[archive] emergency compaction failed or no-op: %v", compactErr)
+		}
 		return false
 	}
 
@@ -506,9 +510,9 @@ func (o *BaseOrchestrator) runArchivePreHook() {
 	}
 
 	var arch *archive.SessionArchive
-	o.mu.Lock()
+	o.mu.RLock()
 	existing := o.archiveSub
-	o.mu.Unlock()
+	o.mu.RUnlock()
 
 	if existing != nil && existing.sub != nil && existing.sub.Archive != nil {
 		arch = existing.sub.Archive
@@ -557,7 +561,7 @@ func (o *BaseOrchestrator) runArchivePreHook() {
 	if res.LockHeld {
 		log.Printf("[archive] compaction skipped (lock held by another process)")
 	}
-	if !res.NoOp {
+	if !res.NoOp && !res.LockHeld {
 		log.Printf("[archive] compaction complete: archived=%d msgs in %s", res.ArchivedCount, compactDur)
 
 		// Inject a synthetic notice so the model is aware compaction occurred.
@@ -592,7 +596,7 @@ func (o *BaseOrchestrator) runArchivePreHook() {
 	}
 
 	svc := archive.NewSearchService(newArch)
-	if !res.NoOp {
+	if !res.NoOp && !res.LockHeld {
 		svc.MarkDirty()
 	}
 	searchStart := time.Now()
@@ -606,7 +610,7 @@ func (o *BaseOrchestrator) runArchivePreHook() {
 		// retrieve_archived_message) keep their *ArchiveSubsystem pointer. Replacing
 		// o.archiveSub with a new struct would leave the tools searching a stale archive.
 		o.archiveSub.sub.Archive = newArch
-		if !res.NoOp {
+		if !res.NoOp && !res.LockHeld {
 			// Compaction produced a new archive — refresh the search index.
 			o.archiveSub.sub.Search = svc
 		}
