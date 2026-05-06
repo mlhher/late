@@ -32,7 +32,7 @@ type PolicyEngine struct {
 //  7. Variable/parameter expansion → NeedsConfirmation.
 //  8. Destructive filesystem operation (Remove-Item, Copy-Item, etc.) → NeedsConfirmation.
 //  9. Shell operators (&&, ||, ;, |) with any non-allow-listed command → NeedsConfirmation.
-// 10. All commands in ir.Commands are allow-listed + no blocking signals
+//  10. All commands in ir.Commands are allow-listed + no blocking signals
 //     → auto-approve (NeedsConfirmation = false).
 func (p *PolicyEngine) Decide(ir ParsedIR) Decision {
 	d := Decision{ReasonCodes: ir.RiskFlags}
@@ -115,6 +115,12 @@ func (p *PolicyEngine) allCommandsAllowlisted(ir ParsedIR) bool {
 		allowedFlags, ok := p.AllowedCommands[cmd]
 		if !ok {
 			return false
+		}
+		// nil flag set = built-in whitelist entry: all flags are permitted.
+		// Only enforce strict flag checking for user-approved commands
+		// (non-nil flag sets stored by the permissions subsystem).
+		if allowedFlags == nil {
+			continue
 		}
 		// Every flag actually used must appear in the stored allow-list.
 		for _, flag := range ir.CommandArgs[cmd] {

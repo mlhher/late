@@ -2,11 +2,17 @@ package orchestrator
 
 import (
 	"context"
+	"late/internal/archive"
 	"late/internal/client"
 	"late/internal/common"
+	"late/internal/config"
 	"late/internal/executor"
 	"late/internal/session"
+	"late/internal/tool"
+	"log"
+	"os"
 	"sync"
+	"time"
 )
 
 // BaseOrchestrator implements common.Orchestrator and manages an agent's run loop.
@@ -30,6 +36,15 @@ type BaseOrchestrator struct {
 
 	// Max turns configuration
 	maxTurns int
+
+	// Archive subsystem (nil when compaction is disabled)
+	archiveSub *archiveState
+}
+
+// archiveState holds loaded archive and search service for one session run.
+type archiveState struct {
+	sub *tool.ArchiveSubsystem
+	cfg config.ArchiveCompactionConfig
 }
 
 func NewBaseOrchestrator(id string, sess *session.Session, middlewares []common.ToolMiddleware, maxTurns int) *BaseOrchestrator {
@@ -121,6 +136,9 @@ func (o *BaseOrchestrator) Execute(text string) (string, error) {
 	// Build extra body
 	var extraBody map[string]any
 
+	// Pre-run archive compaction hook (fail-open).
+	o.runArchivePreHook()
+
 	onStartTurn := func() {
 		o.RefreshContextSize(ctx)
 		o.mu.Lock()
@@ -187,6 +205,9 @@ func (o *BaseOrchestrator) run() {
 
 	// Inject orchestrator ID into context for tool interactions
 	ctx = context.WithValue(ctx, common.OrchestratorIDKey, o.id)
+
+	// Pre-run archive compaction hook (fail-open).
+	o.runArchivePreHook()
 
 	onStartTurn := func() {
 		o.RefreshContextSize(ctx)
@@ -332,5 +353,116 @@ func (o *BaseOrchestrator) AddChild(child common.Orchestrator) {
 	o.eventCh <- common.ChildAddedEvent{
 		ParentID: o.id,
 		Child:    child,
+	}
+}
+
+// runArchivePreHook runs archive compaction before a run loop if enabled.
+// Fail-open: any error is logged but does not block execution.
+func (o *BaseOrchestrator) runArchivePreHook() {
+	histPath := o.sess.HistoryPath
+	if histPath == "" {
+		return
+	}
+
+	cfg, err := config.LoadConfig()
+	if err != nil || !cfg.IsArchiveCompactionEnabled() {
+		return
+	}
+	settings := cfg.ArchiveCompactionSettings()
+
+	// Phase 8: verify archive file permissions (warn only).
+	archPath := archive.ArchivePath(histPath)
+	if info, statErr := os.Stat(archPath); statErr == nil {
+		if perm := info.Mode().Perm(); perm&0o077 != 0 {
+			log.Printf("[archive] warning: archive file %s has loose permissions (%o); expected 0600", archPath, perm)
+		}
+	}
+
+	var arch *archive.SessionArchive
+	o.mu.Lock()
+	existing := o.archiveSub
+	o.mu.Unlock()
+
+	if existing != nil && existing.sub != nil && existing.sub.Archive != nil {
+		arch = existing.sub.Archive
+	} else {
+		arch, err = archive.Load(archPath, o.id)
+		if err != nil {
+			log.Printf("[archive] failed to load archive for hook: %v", err)
+			return
+		}
+	}
+
+	compactCfg := archive.CompactionConfig{
+		ThresholdMessages:  settings.CompactionThresholdMessages,
+		KeepRecentMessages: settings.KeepRecentMessages,
+		ChunkSize:          settings.ArchiveChunkSize,
+		StaleAfterSeconds:  settings.LockStaleAfterSeconds,
+	}
+
+	log.Printf("[archive] pre-run hook: history=%d msgs, threshold=%d", len(o.sess.History), settings.CompactionThresholdMessages)
+	compactStart := time.Now()
+
+	res, newActive, newArch, err := archive.Compact(
+		histPath, o.id,
+		o.sess.History,
+		arch,
+		compactCfg,
+	)
+	compactDur := time.Since(compactStart)
+
+	if err != nil {
+		log.Printf("[archive] compaction hook error: %v", err)
+		return
+	}
+	if res.LockHeld {
+		log.Printf("[archive] compaction skipped (lock held by another process)")
+	}
+	if !res.NoOp {
+		log.Printf("[archive] compaction complete: archived=%d msgs in %s", res.ArchivedCount, compactDur)
+		o.mu.Lock()
+		o.sess.History = newActive
+		o.mu.Unlock()
+		if err := session.SaveHistory(histPath, newActive); err != nil {
+			log.Printf("[archive] failed to persist compacted history: %v", err)
+		}
+
+		// Phase 8: update session meta counters.
+		metaID := archive.BaseSessionID(histPath)
+		if meta, loadErr := session.LoadSessionMeta(metaID); loadErr == nil && meta != nil {
+			meta.CompactionCount = newArch.CompactionCount
+			meta.ArchivedMessageCount = newArch.ArchivedMessageCount
+			meta.LastCompactionAt = time.Now().UTC()
+			if saveErr := session.SaveSessionMeta(*meta); saveErr != nil {
+				log.Printf("[archive] failed to save session meta counters: %v", saveErr)
+			}
+		}
+	}
+
+	svc := archive.NewSearchService(newArch)
+	if !res.NoOp {
+		svc.MarkDirty()
+	}
+	searchStart := time.Now()
+	_ = svc.Search("", 0, false) // warm the lazy index
+	log.Printf("[archive] search index ready in %s", time.Since(searchStart))
+
+	o.mu.Lock()
+	o.archiveSub = &archiveState{
+		sub: &tool.ArchiveSubsystem{
+			Archive: newArch,
+			Search:  svc,
+		},
+		cfg: settings,
+	}
+	o.mu.Unlock()
+
+	// Register archive tools into session registry (idempotent: only if not already present).
+	reg := o.sess.Registry
+	if reg != nil && reg.Get("search_session_archive") == nil {
+		tool.RegisterArchiveTools(reg, o.archiveSub.sub,
+			settings.ArchiveSearchMaxResults,
+			settings.ArchiveSearchCaseSensitive)
+		log.Printf("[archive] tools registered (search_session_archive, retrieve_archived_message)")
 	}
 }

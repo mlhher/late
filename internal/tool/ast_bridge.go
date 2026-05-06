@@ -4,6 +4,15 @@ import (
 	"late/internal/tool/ast"
 )
 
+// whitelistedUnixCommands lists Unix/bash commands that are considered
+// read-only/safe and auto-approve without user allowlisting.
+// A nil flag entry in AllowedCommands means all flags are permitted.
+var whitelistedUnixCommands = []string{
+	"cat", "date", "echo", "env", "file", "find", "grep", "head",
+	"ls", "printf", "pwd", "sort", "stat", "tail", "test", "true",
+	"uniq", "wc", "which", "whoami",
+}
+
 // whitelistedWindowsCommands contains PowerShell cmdlets and aliases that are
 // considered read-only/safe and auto-approve without user allowlisting.
 var whitelistedWindowsCommands = map[string]bool{
@@ -36,14 +45,22 @@ type astAnalyzer struct {
 }
 
 func newASTAnalyzer(platform ast.Platform, cwd string, allowed map[string]map[string]bool) *astAnalyzer {
-	// On Windows, seed the policy engine with the built-in safe cmdlets so
-	// that Get-ChildItem, ls, pwd etc. auto-approve without user allowlisting.
+	// Seed the policy engine with the built-in safe commands for the target
+	// platform so they auto-approve without user allowlisting.
 	// Check the platform parameter (not runtime.GOOS) so behaviour is consistent
 	// when platform is overridden, e.g. in cross-platform tests.
-	if platform == ast.PlatformWindows {
+	switch platform {
+	case ast.PlatformWindows:
 		for cmd := range whitelistedWindowsCommands {
 			if _, ok := allowed[cmd]; !ok {
 				allowed[cmd] = map[string]bool{}
+			}
+		}
+	default: // Unix
+		for _, cmd := range whitelistedUnixCommands {
+			if _, ok := allowed[cmd]; !ok {
+				// nil means "all flags permitted" for built-in safe commands.
+				allowed[cmd] = nil
 			}
 		}
 	}
