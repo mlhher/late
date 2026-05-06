@@ -446,10 +446,19 @@ func (o *BaseOrchestrator) forceCompact() bool {
 
 	svc := archive.NewSearchService(newArch)
 	svc.MarkDirty()
+
 	o.mu.Lock()
-	o.archiveSub = &archiveState{
-		sub: &tool.ArchiveSubsystem{Archive: newArch, Search: svc},
-		cfg: settings,
+	if o.archiveSub != nil && o.archiveSub.sub != nil {
+		// Update the existing ArchiveSubsystem in-place so any already-registered
+		// tools (search_session_archive, retrieve_archived_message) automatically
+		// see the freshly compacted archive without needing to be re-registered.
+		o.archiveSub.sub.Archive = newArch
+		o.archiveSub.sub.Search = svc
+	} else {
+		o.archiveSub = &archiveState{
+			sub: &tool.ArchiveSubsystem{Archive: newArch, Search: svc},
+			cfg: settings,
+		}
 	}
 	o.mu.Unlock()
 

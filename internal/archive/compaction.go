@@ -203,6 +203,7 @@ func Compact(historyPath, sessionID string, active []client.ChatMessage, archive
 
 	newArchive := *archive
 	newArchive.Chunks = append(append([]ArchiveChunk{}, archive.Chunks...), newChunks...)
+	newArchive.ArchiveGeneration = newGeneration // set before writing so a single atomic write is sufficient
 	newArchive.ArchivedMessageCount += totalNewMessages
 	newArchive.CompactionCount++
 	newArchive.UpdatedAt = now
@@ -227,12 +228,6 @@ func Compact(historyPath, sessionID string, active []client.ChatMessage, archive
 	}
 	if err := os.Rename(activeTmp, historyPath); err != nil {
 		return CompactionResult{}, active, archive, fmt.Errorf("active rename failed (partial compaction — will reconcile on restart): %w", err)
-	}
-
-	// Persist final generation after full two-file commit.
-	newArchive.ArchiveGeneration = newGeneration
-	if saveErr := Save(ap, &newArchive); saveErr != nil {
-		log.Printf("[archive] warning: failed to persist final archive_generation: %v", saveErr)
 	}
 
 	log.Printf("[archive] compaction complete: archived %d messages, generation %d", totalNewMessages, newGeneration)

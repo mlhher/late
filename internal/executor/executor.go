@@ -219,6 +219,11 @@ const sigWindowSize = 8
 // the loop is considered stuck in an A→B→A→B style cycle and is terminated.
 const maxSigFrequency = 3
 
+// maxOverflowRetries is the maximum number of consecutive emergency compaction
+// attempts per turn. Prevents an infinite retry loop when the remaining history
+// is too large for the context window even after compaction.
+const maxOverflowRetries = 3
+
 // toolCallSig returns a compact string identifying a tool call by name+args,
 // used for consecutive-repetition detection.
 func toolCallSig(calls []client.ToolCall) string {
@@ -250,6 +255,7 @@ func RunLoop(
 	var lastSig string
 	var repeatCount int
 	var sigWindow []string // rolling window for A→B→A→B cycle detection
+	var overflowRetries int // consecutive overflow-compaction retries for the current turn
 
 	for i := 0; maxTurns <= 0 || i < maxTurns; i++ {
 		if onStartTurn != nil {
@@ -263,13 +269,18 @@ func RunLoop(
 		}
 
 		if acc.FinishReason == "length" {
-			if onContextOverflow != nil && onContextOverflow() {
-				// History was trimmed — retry this turn without incrementing i.
+			if onContextOverflow != nil && overflowRetries < maxOverflowRetries && onContextOverflow() {
+				overflowRetries++
+				// Retry this turn (do not advance i through the post-statement).
 				i--
 				continue
 			}
+			if overflowRetries >= maxOverflowRetries {
+				return "", fmt.Errorf("context window full: %d compaction attempt(s) did not free enough context — remaining history may be too large", overflowRetries)
+			}
 			return "", fmt.Errorf("exceeds the available context size")
 		}
+		overflowRetries = 0 // reset on a turn that completed without overflow
 
 		// If stopped, the last tool call might be partially streamed and thus invalid JSON.
 		// We shouldn't save corrupted tool calls to the session history.

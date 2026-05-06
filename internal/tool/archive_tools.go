@@ -85,7 +85,11 @@ func (t *SearchSessionArchiveTool) Execute(_ context.Context, args json.RawMessa
 	}
 	maxResults := t.maxResults
 	if mr := getToolParamInt(args, "max_results"); mr > 0 {
-		maxResults = mr
+		// Allow the caller to request fewer results than the configured cap,
+		// but never more — the cap exists to bound response payload size.
+		if t.maxResults <= 0 || mr < t.maxResults {
+			maxResults = mr
+		}
 	}
 	results := t.subsystem.Search.Search(query, maxResults, t.caseSensitive)
 	if len(results) == 0 {
