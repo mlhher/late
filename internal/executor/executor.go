@@ -234,6 +234,10 @@ func RunLoop(
 	onEndTurn func(),
 	onStreamChunk func(common.StreamResult),
 	middlewares []common.ToolMiddleware,
+	// onContextOverflow is called when the model hits the context window limit.
+	// If it returns true, the current turn is retried (caller should have trimmed history).
+	// If nil or returns false, the overflow is returned as an error.
+	onContextOverflow func() bool,
 ) (string, error) {
 	var lastContent string
 	var lastSig string
@@ -251,6 +255,11 @@ func RunLoop(
 		}
 
 		if acc.FinishReason == "length" {
+			if onContextOverflow != nil && onContextOverflow() {
+				// History was trimmed — retry this turn without incrementing i.
+				i--
+				continue
+			}
 			return "", fmt.Errorf("exceeds the available context size")
 		}
 

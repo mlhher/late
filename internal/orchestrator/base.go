@@ -179,6 +179,7 @@ func (o *BaseOrchestrator) Execute(text string) (string, error) {
 			}
 		},
 		o.middlewares,
+		o.forceCompact,
 	)
 
 	if err != nil {
@@ -249,6 +250,7 @@ func (o *BaseOrchestrator) run() {
 			}
 		},
 		o.middlewares,
+		o.forceCompact,
 	)
 
 	// Reset accumulator after finished or ready for next turn
@@ -355,6 +357,74 @@ func (o *BaseOrchestrator) AddChild(child common.Orchestrator) {
 		ParentID: o.id,
 		Child:    child,
 	}
+}
+
+// forceCompact performs an emergency compaction when the context window overflows.
+// It ignores the normal threshold — it always compacts regardless of history length.
+// Returns true if compaction succeeded and the run loop should retry the turn.
+func (o *BaseOrchestrator) forceCompact() bool {
+	histPath := o.sess.HistoryPath
+	if histPath == "" {
+		return false
+	}
+	cfg, err := config.LoadConfig()
+	if err != nil || !cfg.IsArchiveCompactionEnabled() {
+		return false
+	}
+	settings := cfg.ArchiveCompactionSettings()
+
+	var arch *archive.SessionArchive
+	archPath := archive.ArchivePath(histPath)
+	if loaded, loadErr := archive.Load(archPath, o.id); loadErr == nil {
+		arch = loaded
+	} else {
+		arch = archive.New(archive.BaseSessionID(histPath))
+	}
+
+	// Use a threshold of 0 to force compaction regardless of history length.
+	compactCfg := archive.CompactionConfig{
+		ThresholdMessages:  0,
+		KeepRecentMessages: settings.KeepRecentMessages,
+		StaleAfterSeconds:  settings.LockStaleAfterSeconds,
+	}
+
+	log.Printf("[archive] emergency compaction triggered by context overflow (history=%d)", len(o.sess.History))
+	res, newActive, newArch, compactErr := archive.Compact(histPath, o.id, o.sess.History, arch, compactCfg)
+	if compactErr != nil || res.NoOp {
+		log.Printf("[archive] emergency compaction failed or no-op: %v", compactErr)
+		return false
+	}
+
+	notice := fmt.Sprintf(
+		"[System] Context window was full. %d messages were moved to the session archive. "+
+			"Use search_session_archive to retrieve historical context.",
+		res.ArchivedCount,
+	)
+	newActive = append(newActive, client.ChatMessage{Role: "user", Content: notice})
+
+	o.mu.Lock()
+	o.sess.History = newActive
+	o.mu.Unlock()
+	if err := session.SaveHistory(histPath, newActive); err != nil {
+		log.Printf("[archive] emergency compaction: failed to save history: %v", err)
+	}
+
+	svc := archive.NewSearchService(newArch)
+	svc.MarkDirty()
+	o.mu.Lock()
+	o.archiveSub = &archiveState{
+		sub: &tool.ArchiveSubsystem{Archive: newArch, Search: svc},
+		cfg: settings,
+	}
+	o.mu.Unlock()
+
+	reg := o.sess.Registry
+	if reg != nil && reg.Get("search_session_archive") == nil {
+		tool.RegisterArchiveTools(reg, o.archiveSub.sub, settings.ArchiveSearchMaxResults, settings.ArchiveSearchCaseSensitive)
+	}
+
+	log.Printf("[archive] emergency compaction complete: archived=%d msgs", res.ArchivedCount)
+	return true
 }
 
 // runArchivePreHook runs archive compaction before a run loop if enabled.
