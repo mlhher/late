@@ -460,11 +460,23 @@ func (o *BaseOrchestrator) forceCompact() bool {
 			cfg: settings,
 		}
 	}
+	sub := o.archiveSub.sub
 	o.mu.Unlock()
+
+	// Update session meta counters so 'late session list -v' reflects the emergency compaction.
+	metaID := archive.BaseSessionID(histPath)
+	if meta, loadErr := session.LoadSessionMeta(metaID); loadErr == nil && meta != nil {
+		meta.CompactionCount = newArch.CompactionCount
+		meta.ArchivedMessageCount = newArch.ArchivedMessageCount
+		meta.LastCompactionAt = time.Now().UTC()
+		if saveErr := session.SaveSessionMeta(*meta); saveErr != nil {
+			log.Printf("[archive] emergency compaction: failed to save session meta counters: %v", saveErr)
+		}
+	}
 
 	reg := o.sess.Registry
 	if reg != nil && reg.Get("search_session_archive") == nil {
-		tool.RegisterArchiveTools(reg, o.archiveSub.sub, settings.ArchiveSearchMaxResults, settings.ArchiveSearchCaseSensitive)
+		tool.RegisterArchiveTools(reg, sub, settings.ArchiveSearchMaxResults, settings.ArchiveSearchCaseSensitive)
 	}
 
 	log.Printf("[archive] emergency compaction complete: archived=%d msgs", res.ArchivedCount)
@@ -588,21 +600,37 @@ func (o *BaseOrchestrator) runArchivePreHook() {
 	log.Printf("[archive] search index ready in %s", time.Since(searchStart))
 
 	o.mu.Lock()
-	o.archiveSub = &archiveState{
-		sub: &tool.ArchiveSubsystem{
-			Archive: newArch,
-			Search:  svc,
-		},
-		cfg: settings,
+	firstInit := o.archiveSub == nil || o.archiveSub.sub == nil
+	if !firstInit {
+		// Already initialized — update in-place so registered tools (search_session_archive,
+		// retrieve_archived_message) keep their *ArchiveSubsystem pointer. Replacing
+		// o.archiveSub with a new struct would leave the tools searching a stale archive.
+		o.archiveSub.sub.Archive = newArch
+		if !res.NoOp {
+			// Compaction produced a new archive — refresh the search index.
+			o.archiveSub.sub.Search = svc
+		}
+		o.archiveSub.cfg = settings
+	} else {
+		o.archiveSub = &archiveState{
+			sub: &tool.ArchiveSubsystem{
+				Archive: newArch,
+				Search:  svc,
+			},
+			cfg: settings,
+		}
 	}
+	sub := o.archiveSub.sub
 	o.mu.Unlock()
 
-	// Register archive tools into session registry (idempotent: only if not already present).
-	reg := o.sess.Registry
-	if reg != nil && reg.Get("search_session_archive") == nil {
-		tool.RegisterArchiveTools(reg, o.archiveSub.sub,
-			settings.ArchiveSearchMaxResults,
-			settings.ArchiveSearchCaseSensitive)
-		log.Printf("[archive] tools registered (search_session_archive, retrieve_archived_message)")
+	// Register archive tools on first initialization only (subsequent calls update in-place).
+	if firstInit && sub != nil {
+		reg := o.sess.Registry
+		if reg != nil {
+			tool.RegisterArchiveTools(reg, sub,
+				settings.ArchiveSearchMaxResults,
+				settings.ArchiveSearchCaseSensitive)
+			log.Printf("[archive] tools registered (search_session_archive, retrieve_archived_message)")
+		}
 	}
 }

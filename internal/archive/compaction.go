@@ -117,6 +117,9 @@ func processAlive(pid int) bool {
 
 // Compact performs a single compaction pass for the session identified by historyPath.
 func Compact(historyPath, sessionID string, active []client.ChatMessage, archive *SessionArchive, cfg CompactionConfig) (CompactionResult, []client.ChatMessage, *SessionArchive, error) {
+	if cfg.ChunkSize <= 0 {
+		cfg.ChunkSize = 50 // defensive default; callers should always set this explicitly
+	}
 	if len(active) <= cfg.ThresholdMessages {
 		return CompactionResult{NoOp: true}, active, archive, nil
 	}
