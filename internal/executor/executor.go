@@ -212,6 +212,13 @@ func ConsumeStream(
 // may repeat back-to-back before the loop is terminated.
 const maxConsecutiveRepeats = 4
 
+// sigWindowSize is the number of recent tool call signatures kept for cycle detection.
+const sigWindowSize = 8
+
+// maxSigFrequency is the max times a signature may appear in the window before
+// the loop is considered stuck in an A→B→A→B style cycle and is terminated.
+const maxSigFrequency = 3
+
 // toolCallSig returns a compact string identifying a tool call by name+args,
 // used for consecutive-repetition detection.
 func toolCallSig(calls []client.ToolCall) string {
@@ -242,6 +249,7 @@ func RunLoop(
 	var lastContent string
 	var lastSig string
 	var repeatCount int
+	var sigWindow []string // rolling window for A→B→A→B cycle detection
 
 	for i := 0; maxTurns <= 0 || i < maxTurns; i++ {
 		if onStartTurn != nil {
@@ -301,6 +309,23 @@ func RunLoop(
 		} else {
 			lastSig = sig
 			repeatCount = 0
+		}
+
+		// Rolling-window cycle detection: catch A→B→A→B patterns.
+		// Append current sig to window, keep only the last sigWindowSize entries.
+		sigWindow = append(sigWindow, sig)
+		if len(sigWindow) > sigWindowSize {
+			sigWindow = sigWindow[len(sigWindow)-sigWindowSize:]
+		}
+		// Count how many times this sig appears in the window (including just-added).
+		freq := 0
+		for _, s := range sigWindow {
+			if s == sig {
+				freq++
+			}
+		}
+		if freq >= maxSigFrequency {
+			return lastContent + "\n\n(Terminated: tool call cycle detected — possible infinite loop)", nil
 		}
 
 		// If a stop was requested, break the loop before executing tools
