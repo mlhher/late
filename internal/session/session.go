@@ -216,9 +216,9 @@ func (s *Session) GenerateSessionMeta() SessionMeta {
 	lastPrompt := ""
 
 	if len(s.History) > 0 {
-		// Find first user message for title
+		// Find first real user message for title (skip system-injected notices).
 		for _, msg := range s.History {
-			if msg.Role == "user" && title == "Untitled Session" {
+			if msg.Role == "user" && !strings.HasPrefix(msg.Content, "[System]") && title == "Untitled Session" {
 				truncated := msg.Content
 				if len(truncated) > 100 {
 					truncated = truncateUTF8(truncated, 100)
@@ -227,9 +227,9 @@ func (s *Session) GenerateSessionMeta() SessionMeta {
 				break
 			}
 		}
-		// Last user message for last prompt
+		// Last real user message for last prompt (skip system-injected notices).
 		for i := len(s.History) - 1; i >= 0; i-- {
-			if s.History[i].Role == "user" {
+			if s.History[i].Role == "user" && !strings.HasPrefix(s.History[i].Content, "[System]") {
 				lastPrompt = s.History[i].Content
 				if len(lastPrompt) > 50 {
 					lastPrompt = truncateUTF8(lastPrompt, 50)
@@ -245,7 +245,7 @@ func (s *Session) GenerateSessionMeta() SessionMeta {
 	return SessionMeta{
 		ID:             id,
 		Title:          title,
-		CreatedAt:      time.Now(),
+		CreatedAt:      time.Now(), // overwritten by UpdateSessionMetadata if on-disk meta exists
 		LastUpdated:    time.Now(),
 		HistoryPath:    s.HistoryPath,
 		LastUserPrompt: lastPrompt,
@@ -253,9 +253,22 @@ func (s *Session) GenerateSessionMeta() SessionMeta {
 	}
 }
 
-// UpdateSessionMetadata updates the session metadata file
+// UpdateSessionMetadata updates the session metadata file, preserving fields
+// that are managed outside the session (archive counters, CreatedAt).
 func (s *Session) UpdateSessionMetadata() error {
 	meta := s.GenerateSessionMeta()
+	// Preserve fields set by the orchestrator (archive counters) and the
+	// original creation time. Without this, every saveAndNotify call would
+	// zero-out CompactionCount/ArchivedMessageCount/LastCompactionAt and reset
+	// CreatedAt to the current time.
+	if existing, loadErr := LoadSessionMeta(meta.ID); loadErr == nil && existing != nil {
+		if !existing.CreatedAt.IsZero() {
+			meta.CreatedAt = existing.CreatedAt
+		}
+		meta.CompactionCount = existing.CompactionCount
+		meta.ArchivedMessageCount = existing.ArchivedMessageCount
+		meta.LastCompactionAt = existing.LastCompactionAt
+	}
 	return SaveSessionMeta(meta)
 }
 
