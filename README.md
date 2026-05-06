@@ -1,8 +1,10 @@
 # Late: High-Leverage AI Agent Orchestration
 
-> Every other coding agent feeds your session into one context window until it hallucinates. Late delegates like a real engineering team: one architect plans, ephemeral subagents execute exact edits, nothing bleeds between tasks. Single static binary, zero config, zero dependencies — download it, point it at a model, go.
+> Every other coding agent feeds your session into one context window until it hallucinates. Late delegates like a real engineering team: one architect plans, ephemeral subagents execute exact edits, nothing bleeds between tasks. Single static binary, zero config, zero dependencies — no runtimes, no `node_modules`, no venvs. Zero to first prompt in seconds.
 
 [![GitHub Stars](https://img.shields.io/github/stars/mlhher/late-cli?style=social)](https://github.com/mlhher/late-cli/stargazers)
+
+[![Release](https://img.shields.io/github/v/release/mlhher/late-cli)](https://github.com/mlhher/late-cli/releases) [![Homebrew](https://img.shields.io/badge/Homebrew-tap-brightgreen.svg)](https://github.com/mlhher/homebrew-late) [![Go Report Card](https://goreportcard.com/badge/github.com/mlhher/late)](https://goreportcard.com/report/github.com/mlhher/late) [![DeepWiki](https://img.shields.io/badge/DeepWiki-docs-blue.svg)](https://deepwiki.com/mlhher/late-cli)
 
 **Late** (Lightweight AI Terminal Environment) is a deterministic coding agent orchestrator designed to give a solo developer the execution throughput of an entire engineering team.
 
@@ -71,16 +73,28 @@ Natively supports both thinking and non-thinking models (including extra support
 
 ## 🚀 Quick Start (Zero Dependencies)
 
-**1. Download the Binary**
-Grab the latest single-binary release for your OS (Linux/macOS/Windows) from the [Releases](https://github.com/mlhher/late/releases) page.
+```bash
+# Homebrew (macOS / Linux)
+brew tap mlhher/late && brew install late
+
+# Or download the binary directly
+# https://github.com/mlhher/late-cli/releases
+```
+
+<details>
+<summary>Manual install (no package manager)</summary>
+
+Grab the latest single-binary release for your OS (Linux/macOS/Windows) from the [Releases](https://github.com/mlhher/late-cli/releases) page.
 
 ```bash
 chmod +x late-linux-amd64  # (Adjust for your downloaded filename)
 mv late-linux-amd64 ~/.local/bin/late # Ensure ~/.local/bin is in your system's $PATH
 ```
 
-**2. Point to Your Model**
-Point Late to any OpenAI-compatible API endpoint (local or cloud).
+</details>
+
+**Point to Your Model**
+Set any OpenAI-compatible API endpoint (local or cloud).
 
 ```bash
 export OPENAI_BASE_URL="http://localhost:8080"
@@ -88,7 +102,7 @@ export OPENAI_BASE_URL="http://localhost:8080"
 
 > **Note for Windows users:** Use your shell's native export command (e.g. `$env:OPENAI_BASE_URL="http://localhost:8080"` in PowerShell).
 
-**3. Execute**
+**Run**
 
 ```bash
 late
