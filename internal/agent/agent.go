@@ -29,28 +29,35 @@ func NewSubagentOrchestrator(
 ) (common.Orchestrator, error) {
 	// 1. Determine System Prompt
 	systemPrompt := ""
-	if agentType == "coder" {
+	switch agentType {
+	case "coder":
 		content, err := assets.PromptsFS.ReadFile("prompts/instruction-coding.md")
 		if err != nil {
 			return nil, fmt.Errorf("failed to load embedded subagent prompt: %w", err)
 		}
 		systemPrompt = string(content)
-
-		if injectCWD {
-			cwd, err := os.Getwd()
-			if err == nil {
-				systemPrompt = common.ReplacePlaceholders(systemPrompt, map[string]string{
-					"${{CWD}}": cwd,
-				})
-			}
+	case "planner":
+		content, err := assets.PromptsFS.ReadFile("prompts/instruction-planning.md")
+		if err != nil {
+			return nil, fmt.Errorf("failed to load embedded subagent prompt: %w", err)
 		}
-
-		if gemmaThinking {
-			systemPrompt = "<|think|>" + systemPrompt
-		}
-	} else {
+		systemPrompt = string(content)
+	default:
 		// TODO: reviewer, committer
 		return nil, fmt.Errorf("unknown agent type: %s", agentType)
+	}
+
+	if injectCWD {
+		cwd, err := os.Getwd()
+		if err == nil {
+			systemPrompt = common.ReplacePlaceholders(systemPrompt, map[string]string{
+				"${{CWD}}": cwd,
+			})
+		}
+	}
+
+	if gemmaThinking {
+		systemPrompt = "<|think|>" + systemPrompt
 	}
 
 	// 2. Create Session
@@ -69,9 +76,12 @@ func NewSubagentOrchestrator(
 		}
 	}
 
-	// Always ensure coder subagents have the full toolset (not just planning tools)
-	if agentType == "coder" {
+	// Ensure coder subagents have the full toolset; planner gets read-only subset.
+	switch agentType {
+	case "coder":
 		executor.RegisterTools(sess.Registry, enabledTools, false)
+	case "planner":
+		executor.RegisterTools(sess.Registry, enabledTools, true)
 	}
 
 	// 3. Construct Initial Context

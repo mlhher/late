@@ -406,6 +406,7 @@ func (o *BaseOrchestrator) forceCompact() bool {
 	compactCfg := archive.CompactionConfig{
 		ThresholdMessages:  0,
 		KeepRecentMessages: settings.KeepRecentMessages,
+		ChunkSize:          settings.ArchiveChunkSize,
 		StaleAfterSeconds:  settings.LockStaleAfterSeconds,
 	}
 
@@ -483,6 +484,19 @@ func (o *BaseOrchestrator) runArchivePreHook() {
 			log.Printf("[archive] failed to load archive for hook: %v", err)
 			return
 		}
+		// Reconcile on first load: detect messages duplicated between archive and active
+		// history, which can happen after a crash mid-compaction.
+		reconciledHistory, warnings := archive.ReconcileOnStartup(arch, o.sess.History)
+		for _, w := range warnings {
+			log.Printf("[archive] reconcile: %s", w)
+		}
+		if len(warnings) > 0 {
+			removed := len(o.sess.History) - len(reconciledHistory)
+			o.mu.Lock()
+			o.sess.History = reconciledHistory
+			o.mu.Unlock()
+			log.Printf("[archive] reconcile: removed %d duplicate messages from active history", removed)
+		}
 	}
 
 	compactCfg := archive.CompactionConfig{
@@ -549,7 +563,7 @@ func (o *BaseOrchestrator) runArchivePreHook() {
 		svc.MarkDirty()
 	}
 	searchStart := time.Now()
-	_ = svc.Search("", 0, false) // warm the lazy index
+	svc.WarmUp() // eagerly build the index so the first query is fast
 	log.Printf("[archive] search index ready in %s", time.Since(searchStart))
 
 	o.mu.Lock()

@@ -48,6 +48,20 @@ func (s *SearchService) MarkDirty() {
 	s.dirty = true
 }
 
+// WarmUp eagerly builds the in-memory search index so the first real query is fast.
+func (s *SearchService) WarmUp() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.archive == nil {
+		return
+	}
+	if !s.built || s.dirty {
+		s.buildIndex()
+		s.built = true
+		s.dirty = false
+	}
+}
+
 // UpdateArchive replaces the archive reference and marks the index dirty.
 func (s *SearchService) UpdateArchive(archive *SessionArchive) {
 	s.mu.Lock()
