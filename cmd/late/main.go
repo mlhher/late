@@ -16,10 +16,10 @@ import (
 	"strings"
 	"time"
 
+	"late/internal/archive"
 	"late/internal/assets"
 	"late/internal/client"
 	appconfig "late/internal/config"
-	"late/internal/archive"
 	"late/internal/mcp"
 	"late/internal/pathutil"
 	"late/internal/session"
@@ -55,6 +55,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  session list [-v]      List all saved sessions (use -v for verbose/detailed view)\n")
 		fmt.Fprintf(os.Stderr, "  session load <id>      Load a session by ID\n")
 		fmt.Fprintf(os.Stderr, "  session delete <id>    Delete a session by ID\n")
+		fmt.Fprintf(os.Stderr, "  session prune          Delete old sessions (--older-than <days>, --keep-last <n>, --dry-run)\n")
 		fmt.Fprintf(os.Stderr, "  worktree list          List all worktrees\n")
 		fmt.Fprintf(os.Stderr, "  worktree create <path> [branch]  Create a new worktree\n")
 		fmt.Fprintf(os.Stderr, "  worktree remove <path>           Remove a worktree\n")
@@ -316,12 +317,14 @@ func main() {
 // Returns: command, args (remaining), verbose flag
 func handleSessionCommand(args []string) (string, []string, bool) {
 	if len(args) == 0 {
-		fmt.Println("Usage: late session <list|load|delete> [args...]")
+		fmt.Println("Usage: late session <list|load|delete|prune> [args...]")
 		fmt.Println("")
 		fmt.Println("Commands:")
-		fmt.Println("  list [-v]      List all saved sessions (use -v for verbose/detailed view)")
-		fmt.Println("  load <id>      Load a session by ID (can use prefix)")
-		fmt.Println("  delete <id>    Delete a session by ID")
+		fmt.Println("  list [-v]                List all saved sessions (use -v for verbose/detailed view)")
+		fmt.Println("  load <id>                Load a session by ID (can use prefix)")
+		fmt.Println("  delete <id>              Delete a session by ID")
+		fmt.Println("  prune [--older-than <days>] [--keep-last <n>] [--dry-run]")
+		fmt.Println("                           Delete old sessions by age or count")
 		return "", nil, false
 	}
 
@@ -365,6 +368,21 @@ func handleSessionCommand(args []string) (string, []string, bool) {
 			os.Exit(1)
 		}
 		handleSessionDelete(commandArgs[0])
+		return "", nil, true
+	case "prune":
+		fs := flag.NewFlagSet("prune", flag.ContinueOnError)
+		olderThan := fs.Int("older-than", 0, "Delete sessions last updated more than N days ago (0 = disabled)")
+		keepLast := fs.Int("keep-last", 0, "Keep only the N most recently updated sessions (0 = disabled)")
+		dryRun := fs.Bool("dry-run", false, "Print what would be deleted without deleting")
+		if err := fs.Parse(args[1:]); err != nil {
+			os.Exit(1)
+		}
+		if *olderThan == 0 && *keepLast == 0 {
+			fmt.Println("Error: at least one of --older-than or --keep-last is required")
+			fmt.Println("Usage: late session prune [--older-than <days>] [--keep-last <n>] [--dry-run]")
+			os.Exit(1)
+		}
+		handleSessionPrune(*olderThan, *keepLast, *dryRun)
 		return "", nil, true
 	default:
 		fmt.Printf("Unknown session command: %s\n", args[0])
@@ -453,6 +471,75 @@ func handleSessionDelete(id string) {
 	}
 
 	fmt.Printf("Deleted session: %s\n", meta.Title)
+}
+
+// handleSessionPrune deletes sessions matching the given criteria.
+// olderThan: delete sessions last updated more than this many days ago (0 = disabled).
+// keepLast: after age filtering, keep only the N most recent sessions (0 = disabled).
+// dryRun: print what would be deleted without removing anything.
+func handleSessionPrune(olderThan, keepLast int, dryRun bool) {
+	metas, err := session.ListSessions() // sorted oldest-first
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error listing sessions: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Build candidate set: all sessions that are eligible to be deleted.
+	// ListSessions returns oldest-first, so we work in that order.
+	var toDelete []session.SessionMeta
+	remaining := metas
+
+	if olderThan > 0 {
+		cutoff := time.Now().AddDate(0, 0, -olderThan)
+		var kept []session.SessionMeta
+		for _, m := range remaining {
+			if m.LastUpdated.Before(cutoff) {
+				toDelete = append(toDelete, m)
+			} else {
+				kept = append(kept, m)
+			}
+		}
+		remaining = kept
+	}
+
+	if keepLast > 0 && len(remaining) > keepLast {
+		// remaining is oldest-first; trim the front (oldest) down to keepLast.
+		excess := len(remaining) - keepLast
+		toDelete = append(toDelete, remaining[:excess]...)
+		remaining = remaining[excess:]
+	}
+
+	if len(toDelete) == 0 {
+		fmt.Println("No sessions matched the prune criteria.")
+		return
+	}
+
+	if dryRun {
+		fmt.Printf("Would delete %d session(s):\n", len(toDelete))
+		for _, m := range toDelete {
+			fmt.Printf("  %s  %s  (last updated %s)\n", m.ID, m.Title, m.LastUpdated.Format("2006-01-02"))
+		}
+		return
+	}
+
+	deleted := 0
+	for _, m := range toDelete {
+		// Re-use exact same teardown as handleSessionDelete.
+		sessionsDir, dirErr := session.SessionDir()
+		if dirErr != nil {
+			fmt.Fprintf(os.Stderr, "Error getting session directory: %v\n", dirErr)
+			continue
+		}
+		metaPath := filepath.Join(sessionsDir, m.ID+".meta.json")
+		_ = os.Remove(metaPath)
+		_ = os.Remove(m.HistoryPath)
+		if archErr := archive.DeleteFiles(m.HistoryPath); archErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not delete archive files for %s: %v\n", m.ID, archErr)
+		}
+		fmt.Printf("Deleted: %s  %s\n", m.ID, m.Title)
+		deleted++
+	}
+	fmt.Printf("Pruned %d session(s).\n", deleted)
 }
 
 // handleWorktreeCommand processes worktree subcommands
