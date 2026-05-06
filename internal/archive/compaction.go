@@ -150,6 +150,10 @@ func Compact(historyPath, sessionID string, active []client.ChatMessage, archive
 	var newChunks []ArchiveChunk
 	var totalNewMessages int
 	now := time.Now().UTC()
+	// Track the next sequence number in a local variable so we never mutate the
+	// caller's *SessionArchive. If a rename fails below, the caller's Archive
+	// pointer stays consistent with what is on disk.
+	nextSeq := archive.NextSequence
 
 	for start := 0; start < len(toArchive); start += cfg.ChunkSize {
 		end := start + cfg.ChunkSize
@@ -165,8 +169,8 @@ func Compact(historyPath, sessionID string, active []client.ChatMessage, archive
 				log.Printf("[archive] skipping duplicate message (hash %s)", h[:8])
 				continue
 			}
-			seq := archive.NextSequence
-			archive.NextSequence++
+			seq := nextSeq
+			nextSeq++
 			am := ArchivedMessage{
 				MessageID:  fmt.Sprintf("msg-%d", seq),
 				Sequence:   seq,
@@ -205,6 +209,7 @@ func Compact(historyPath, sessionID string, active []client.ChatMessage, archive
 	}
 
 	newArchive := *archive
+	newArchive.NextSequence = nextSeq // advance the sequence only on the copy
 	newArchive.Chunks = append(append([]ArchiveChunk{}, archive.Chunks...), newChunks...)
 	newArchive.ArchiveGeneration = newGeneration // set before writing so a single atomic write is sufficient
 	newArchive.ArchivedMessageCount += totalNewMessages

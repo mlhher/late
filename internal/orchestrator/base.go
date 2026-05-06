@@ -409,7 +409,7 @@ func (o *BaseOrchestrator) forceCompact() bool {
 	// Reuse the already-loaded archive when available to avoid unnecessary disk I/O.
 	if existing != nil && existing.sub != nil && existing.sub.Archive != nil {
 		arch = existing.sub.Archive
-	} else if loaded, loadErr := archive.Load(archPath, o.id); loadErr == nil {
+	} else if loaded, loadErr := archive.Load(archPath, archive.BaseSessionID(histPath)); loadErr == nil {
 		arch = loaded
 	} else {
 		arch = archive.New(archive.BaseSessionID(histPath))
@@ -436,7 +436,8 @@ func (o *BaseOrchestrator) forceCompact() bool {
 
 	notice := fmt.Sprintf(
 		"[System] Context window was full. %d messages were moved to the session archive. "+
-			"Use search_session_archive to retrieve historical context.",
+			"Use search_session_archive to search for historical context, "+
+			"or retrieve_archived_message to fetch a specific message by reference.",
 		res.ArchivedCount,
 	)
 	newActive = append(newActive, client.ChatMessage{Role: "user", Content: notice})
@@ -450,6 +451,7 @@ func (o *BaseOrchestrator) forceCompact() bool {
 
 	svc := archive.NewSearchService(newArch)
 	svc.MarkDirty()
+	svc.WarmUp() // eagerly build index so first archive search after emergency compaction is fast
 
 	o.mu.Lock()
 	if o.archiveSub != nil && o.archiveSub.sub != nil {
@@ -517,7 +519,7 @@ func (o *BaseOrchestrator) runArchivePreHook() {
 	if existing != nil && existing.sub != nil && existing.sub.Archive != nil {
 		arch = existing.sub.Archive
 	} else {
-		arch, err = archive.Load(archPath, o.id)
+		arch, err = archive.Load(archPath, archive.BaseSessionID(histPath))
 		if err != nil {
 			log.Printf("[archive] failed to load archive for hook: %v", err)
 			return
