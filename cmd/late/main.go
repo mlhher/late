@@ -20,9 +20,11 @@ import (
 	"late/internal/client"
 	appconfig "late/internal/config"
 	"late/internal/mcp"
+	"late/internal/pathutil"
 	"late/internal/session"
 	"late/internal/tool"
 	"late/internal/tui"
+	"log"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/glamour/v2"
@@ -135,6 +137,16 @@ func main() {
 	}
 
 	fmt.Println("Starting late TUI...")
+
+	// Redirect log output to a file so it doesn't bleed into the TUI.
+	if lateDir, logErr := pathutil.LateSessionDir(); logErr == nil {
+		if mkErr := os.MkdirAll(filepath.Dir(lateDir), 0o700); mkErr == nil {
+			if lf, lfErr := os.OpenFile(filepath.Join(filepath.Dir(lateDir), "late.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); lfErr == nil {
+				log.SetOutput(lf)
+				log.SetFlags(log.LstdFlags)
+			}
+		}
+	}
 
 	// Define history path with timestamp-based session ID
 	sessionsDir, err := session.SessionDir()

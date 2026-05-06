@@ -7,8 +7,8 @@ import (
 	"late/internal/client"
 	"late/internal/common"
 	"late/internal/pathutil"
-	"late/internal/skill"
 	"late/internal/session"
+	"late/internal/skill"
 	"late/internal/tool"
 )
 
@@ -18,8 +18,8 @@ import (
 // This replaces the duplicated accumulation logic in tui/state.go (GenerationState.Append)
 // and agent/agent.go (manual accumulation loop).
 type StreamAccumulator struct {
-	Content   string
-	Reasoning string
+	Content      string
+	Reasoning    string
 	ToolCalls    []client.ToolCall
 	Usage        client.Usage
 	FinishReason string
@@ -87,16 +87,16 @@ func ExecuteToolCalls(ctx context.Context, sess *session.Session, toolCalls []cl
 		// Fail-closed: if no confirmation middleware is provided, do not
 		// execute shell commands (they must be explicitly approved by a
 		// middleware such as the TUI confirm middleware).
-if len(middlewares) == 0 {
-				if t := sess.Registry.Get(tc.Function.Name); t != nil {
-					if _, ok := t.(*tool.ShellTool); ok {
-						result := "shell command requires explicit approval before execution"
-						if err := sess.AddToolResultMessage(tc.ID, result); err != nil {
-							return err
-						}
-						continue
+		if len(middlewares) == 0 {
+			if t := sess.Registry.Get(tc.Function.Name); t != nil {
+				if _, ok := t.(*tool.ShellTool); ok {
+					result := "shell command requires explicit approval before execution"
+					if err := sess.AddToolResultMessage(tc.ID, result); err != nil {
+						return err
 					}
+					continue
 				}
+			}
 		}
 
 		result, err := runner(ctx, tc)
@@ -208,6 +208,23 @@ func ConsumeStream(
 // It forces the sequence: inference stream -> verifiable accumulation -> history commit -> safe tool execution.
 // If the deterministic tool extraction yields zero calls, the loop securely collapses and returns execution control.
 
+// maxConsecutiveRepeats is the number of times the exact same tool call signature
+// may repeat back-to-back before the loop is terminated.
+const maxConsecutiveRepeats = 4
+
+// toolCallSig returns a compact string identifying a tool call by name+args,
+// used for consecutive-repetition detection.
+func toolCallSig(calls []client.ToolCall) string {
+	if len(calls) == 0 {
+		return ""
+	}
+	sig := ""
+	for _, c := range calls {
+		sig += c.Function.Name + ":" + c.Function.Arguments + "|"
+	}
+	return sig
+}
+
 func RunLoop(
 	ctx context.Context,
 	sess *session.Session,
@@ -219,6 +236,8 @@ func RunLoop(
 	middlewares []common.ToolMiddleware,
 ) (string, error) {
 	var lastContent string
+	var lastSig string
+	var repeatCount int
 
 	for i := 0; maxTurns <= 0 || i < maxTurns; i++ {
 		if onStartTurn != nil {
@@ -262,6 +281,18 @@ func RunLoop(
 		}
 
 		lastContent = acc.Content
+
+		// Detect consecutive identical tool calls and abort to prevent infinite loops.
+		sig := toolCallSig(acc.ToolCalls)
+		if sig == lastSig {
+			repeatCount++
+			if repeatCount >= maxConsecutiveRepeats {
+				return lastContent + "\n\n(Terminated: identical tool call repeated too many times — possible infinite loop)", nil
+			}
+		} else {
+			lastSig = sig
+			repeatCount = 0
+		}
 
 		// If a stop was requested, break the loop before executing tools
 		select {

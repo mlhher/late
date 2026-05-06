@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
 	"late/internal/archive"
 	"late/internal/client"
 	"late/internal/common"
@@ -420,6 +421,19 @@ func (o *BaseOrchestrator) runArchivePreHook() {
 	}
 	if !res.NoOp {
 		log.Printf("[archive] compaction complete: archived=%d msgs in %s", res.ArchivedCount, compactDur)
+
+		// Inject a synthetic notice so the model is aware compaction occurred.
+		notice := fmt.Sprintf(
+			"[System] %d messages were moved to the session archive to free context space. "+
+				"Use search_session_archive to search for historical context, "+
+				"or retrieve_archived_message to fetch a specific message by reference.",
+			res.ArchivedCount,
+		)
+		newActive = append(newActive, client.ChatMessage{
+			Role:    "user",
+			Content: notice,
+		})
+
 		o.mu.Lock()
 		o.sess.History = newActive
 		o.mu.Unlock()
