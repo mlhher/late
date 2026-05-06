@@ -331,6 +331,27 @@ func (o *BaseOrchestrator) Registry() *common.ToolRegistry {
 	return o.sess.Registry
 }
 
+// GetArchiveSubsystem returns the parent's archive subsystem so subagents can
+// search the parent's session archive. Returns nil when compaction is disabled.
+func (o *BaseOrchestrator) GetArchiveSubsystem() *tool.ArchiveSubsystem {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.archiveSub == nil {
+		return nil
+	}
+	return o.archiveSub.sub
+}
+
+// GetArchiveSearchSettings returns maxResults and caseSensitive for archive search tools.
+func (o *BaseOrchestrator) GetArchiveSearchSettings() (int, bool) {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.archiveSub == nil {
+		return 10, false
+	}
+	return o.archiveSub.cfg.ArchiveSearchMaxResults, o.archiveSub.cfg.ArchiveSearchCaseSensitive
+}
+
 func (o *BaseOrchestrator) Children() []common.Orchestrator {
 	o.mu.RLock()
 	defer o.mu.RUnlock()

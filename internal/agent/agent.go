@@ -9,6 +9,7 @@ import (
 	"late/internal/executor"
 	"late/internal/orchestrator"
 	"late/internal/session"
+	"late/internal/tool"
 	"late/internal/tui"
 	"os"
 )
@@ -104,6 +105,12 @@ func NewSubagentOrchestrator(
 
 	if p, ok := parent.(*orchestrator.BaseOrchestrator); ok {
 		p.AddChild(child)
+
+		// Inherit parent's archive so subagent can search parent session history.
+		if sub := p.GetArchiveSubsystem(); sub != nil {
+			maxResults, caseSensitive := p.GetArchiveSearchSettings()
+			tool.RegisterArchiveTools(sess.Registry, sub, maxResults, caseSensitive)
+		}
 	}
 
 	return child, nil
