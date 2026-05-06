@@ -102,7 +102,7 @@ func (p *PolicyEngine) Decide(ir ParsedIR) Decision {
 // entry in p.AllowedCommands AND every flag used in the invocation is present
 // in the stored allowed-flag set for that command.
 //
-// Flag validation mirrors the legacy BashAnalyzer: if a flag appears in the
+// Flag validation is strict: if a flag appears in the
 // command but was not stored when the command was originally approved, the
 // allow-list check fails and the policy engine falls through to
 // NeedsConfirmation. This prevents a previously-approved "find ." from
