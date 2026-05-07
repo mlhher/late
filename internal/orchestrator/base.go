@@ -440,7 +440,7 @@ func (o *BaseOrchestrator) forceCompact() bool {
 			"or retrieve_archived_message to fetch a specific message by reference.",
 		res.ArchivedCount,
 	)
-	newActive = append(newActive, client.ChatMessage{Role: "user", Content: notice})
+	newActive = append(newActive, client.ChatMessage{Role: "user", Content: notice, SystemNotice: true})
 
 	o.mu.Lock()
 	o.sess.History = newActive
@@ -574,8 +574,9 @@ func (o *BaseOrchestrator) runArchivePreHook() {
 			res.ArchivedCount,
 		)
 		newActive = append(newActive, client.ChatMessage{
-			Role:    "user",
-			Content: notice,
+			Role:         "user",
+			Content:      notice,
+			SystemNotice: true,
 		})
 
 		o.mu.Lock()

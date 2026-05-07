@@ -1,6 +1,7 @@
 package archive
 
 import (
+	"sort"
 	"strings"
 	"sync"
 	"unicode"
@@ -26,15 +27,15 @@ type SearchService struct {
 }
 
 type indexedEntry struct {
-	chunkID    string
-	messageID  string
-	sequence   int64
-	role       string
-	rawContent string
-	content    string // lowercased
-	toolMeta   string // lowercased tool call names + result summaries
+	chunkID     string
+	messageID   string
+	sequence    int64
+	role        string
+	rawContent  string
+	content     string // lowercased
+	toolMeta    string // lowercased tool call names + result summaries
 	rawToolMeta string // original-casing tool metadata (for case-sensitive search)
-	roleLower  string // lowercased role
+	roleLower   string // lowercased role
 }
 
 // NewSearchService constructs a search service backed by the provided archive.
@@ -207,14 +208,11 @@ func tokenize(query string, caseSensitive bool) []string {
 
 // sortSearchResults sorts descending by score, then ascending by sequence (deterministic).
 func sortSearchResults(results []SearchResult) {
-	for i := 1; i < len(results); i++ {
-		for j := i; j > 0; j-- {
-			a, b := results[j-1], results[j]
-			if a.Score < b.Score || (a.Score == b.Score && a.Sequence > b.Sequence) {
-				results[j-1], results[j] = results[j], results[j-1]
-			} else {
-				break
-			}
+	sort.Slice(results, func(i, j int) bool {
+		a, b := results[i], results[j]
+		if a.Score != b.Score {
+			return a.Score > b.Score // descending score
 		}
-	}
+		return a.Sequence < b.Sequence // ascending sequence for deterministic tie-break
+	})
 }

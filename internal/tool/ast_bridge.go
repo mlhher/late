@@ -7,8 +7,13 @@ import (
 // whitelistedUnixCommands lists Unix/bash commands that are considered
 // read-only/safe and auto-approve without user allowlisting.
 // A nil flag entry in AllowedCommands means all flags are permitted.
+//
+// Excluded intentionally:
+//   - "find"  — nil flag set would auto-approve dangerous flags like -exec.
+//   - "env"   — acts as an arbitrary-command wrapper (e.g. "env rm -rf /");
+//     the AST parser sees only "env" as the base command.
 var whitelistedUnixCommands = []string{
-	"cat", "date", "echo", "env", "file", "find", "grep", "head",
+	"cat", "date", "echo", "file", "grep", "head",
 	"ls", "printf", "pwd", "sort", "stat", "tail", "test", "true",
 	"uniq", "wc", "which", "whoami",
 }
@@ -51,9 +56,11 @@ func newASTAnalyzer(platform ast.Platform, cwd string, allowed map[string]map[st
 	// when platform is overridden, e.g. in cross-platform tests.
 	switch platform {
 	case ast.PlatformWindows:
+		// nil means "all flags permitted" — matches the prior PowerShellAnalyzer
+		// behaviour where safe cmdlets auto-approved regardless of flags.
 		for cmd := range whitelistedWindowsCommands {
 			if _, ok := allowed[cmd]; !ok {
-				allowed[cmd] = map[string]bool{}
+				allowed[cmd] = nil
 			}
 		}
 	default: // Unix

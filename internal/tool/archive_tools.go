@@ -151,12 +151,14 @@ func (t *RetrieveArchivedMessageTool) Execute(_ context.Context, args json.RawMe
 		refs = refs[:maxRefsPerRetrieval]
 	}
 
-	// Build lookup: chunkID → messageID → ArchivedMessage.
-	lookup := make(map[string]map[string]archive.ArchivedMessage)
-	for _, chunk := range t.subsystem.Archive.Chunks {
-		m := make(map[string]archive.ArchivedMessage, len(chunk.Messages))
-		for _, am := range chunk.Messages {
-			m[am.MessageID] = am
+	// Build lookup: chunkID → messageID → *ArchivedMessage (pointer avoids copying
+	// large Message.Content for every retrieval call).
+	lookup := make(map[string]map[string]*archive.ArchivedMessage)
+	for i := range t.subsystem.Archive.Chunks {
+		chunk := &t.subsystem.Archive.Chunks[i]
+		m := make(map[string]*archive.ArchivedMessage, len(chunk.Messages))
+		for j := range chunk.Messages {
+			m[chunk.Messages[j].MessageID] = &chunk.Messages[j]
 		}
 		lookup[chunk.ChunkID] = m
 	}

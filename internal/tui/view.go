@@ -169,7 +169,7 @@ func (m *Model) updateViewport() {
 		switch msg.Role {
 		case "user":
 			// Skip system-injected notices (e.g. archive compaction notices).
-			if strings.HasPrefix(msg.Content, "[System]") {
+			if msg.SystemNotice {
 				s.RenderedHistory = append(s.RenderedHistory, "")
 				continue
 			}

@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"late/internal/client"
@@ -10,6 +11,7 @@ import (
 	"late/internal/session"
 	"late/internal/skill"
 	"late/internal/tool"
+	"strings"
 )
 
 // --- Stream Accumulator ---
@@ -226,15 +228,21 @@ const maxOverflowRetries = 3
 
 // toolCallSig returns a compact string identifying a tool call by name+args,
 // used for consecutive-repetition detection.
+// Arguments are hashed (first 8 bytes of SHA-256) to avoid large allocations
+// when tools like write_file carry kilobyte-scale argument payloads.
 func toolCallSig(calls []client.ToolCall) string {
 	if len(calls) == 0 {
 		return ""
 	}
-	sig := ""
+	var sb strings.Builder
 	for _, c := range calls {
-		sig += c.Function.Name + ":" + c.Function.Arguments + "|"
+		h := sha256.Sum256([]byte(c.Function.Arguments))
+		sb.WriteString(c.Function.Name)
+		sb.WriteByte(':')
+		sb.WriteString(fmt.Sprintf("%x", h[:8]))
+		sb.WriteByte('|')
 	}
-	return sig
+	return sb.String()
 }
 
 func RunLoop(
@@ -254,7 +262,7 @@ func RunLoop(
 	var lastContent string
 	var lastSig string
 	var repeatCount int
-	var sigWindow []string // rolling window for A→B→A→B cycle detection
+	var sigWindow []string  // rolling window for A→B→A→B cycle detection
 	var overflowRetries int // consecutive overflow-compaction retries for the current turn
 
 	for i := 0; maxTurns <= 0 || i < maxTurns; i++ {

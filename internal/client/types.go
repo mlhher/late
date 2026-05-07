@@ -23,6 +23,10 @@ type ChatMessage struct {
 	ReasoningContent string     `json:"reasoning_content,omitempty"`
 	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID       string     `json:"tool_call_id,omitempty"` // For tool responses
+	// SystemNotice marks messages injected by the runtime (e.g. archive compaction
+	// notices). Filtering code should check this flag instead of inspecting
+	// user-controlled content, to avoid misclassifying legitimate user messages.
+	SystemNotice bool `json:"system_notice,omitempty"`
 }
 
 type ToolCall struct {

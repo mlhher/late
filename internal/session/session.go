@@ -218,7 +218,7 @@ func (s *Session) GenerateSessionMeta() SessionMeta {
 	if len(s.History) > 0 {
 		// Find first real user message for title (skip system-injected notices).
 		for _, msg := range s.History {
-			if msg.Role == "user" && !strings.HasPrefix(msg.Content, "[System]") && title == "Untitled Session" {
+			if msg.Role == "user" && !msg.SystemNotice && title == "Untitled Session" {
 				truncated := msg.Content
 				if len(truncated) > 100 {
 					truncated = truncateUTF8(truncated, 100)
@@ -229,7 +229,7 @@ func (s *Session) GenerateSessionMeta() SessionMeta {
 		}
 		// Last real user message for last prompt (skip system-injected notices).
 		for i := len(s.History) - 1; i >= 0; i-- {
-			if s.History[i].Role == "user" && !strings.HasPrefix(s.History[i].Content, "[System]") {
+			if s.History[i].Role == "user" && !s.History[i].SystemNotice {
 				lastPrompt = s.History[i].Content
 				if len(lastPrompt) > 50 {
 					lastPrompt = truncateUTF8(lastPrompt, 50)

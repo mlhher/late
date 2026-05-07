@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -106,14 +105,7 @@ func readLockPID(lp string) int {
 	return n
 }
 
-// processAlive returns true if the given pid appears to be running.
-func processAlive(pid int) bool {
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	return proc.Signal(syscall.Signal(0)) == nil
-}
+// processAlive is platform-specific; see process_unix.go and process_windows.go.
 
 // Compact performs a single compaction pass for the session identified by historyPath.
 func Compact(historyPath, sessionID string, active []client.ChatMessage, archive *SessionArchive, cfg CompactionConfig) (CompactionResult, []client.ChatMessage, *SessionArchive, error) {
