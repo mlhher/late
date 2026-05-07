@@ -2,14 +2,16 @@ package executor
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"late/internal/client"
 	"late/internal/common"
 	"late/internal/pathutil"
-	"late/internal/skill"
 	"late/internal/session"
+	"late/internal/skill"
 	"late/internal/tool"
+	"strings"
 )
 
 // --- Stream Accumulator ---
@@ -18,8 +20,8 @@ import (
 // This replaces the duplicated accumulation logic in tui/state.go (GenerationState.Append)
 // and agent/agent.go (manual accumulation loop).
 type StreamAccumulator struct {
-	Content   string
-	Reasoning string
+	Content      string
+	Reasoning    string
 	ToolCalls    []client.ToolCall
 	Usage        client.Usage
 	FinishReason string
@@ -87,16 +89,16 @@ func ExecuteToolCalls(ctx context.Context, sess *session.Session, toolCalls []cl
 		// Fail-closed: if no confirmation middleware is provided, do not
 		// execute shell commands (they must be explicitly approved by a
 		// middleware such as the TUI confirm middleware).
-if len(middlewares) == 0 {
-				if t := sess.Registry.Get(tc.Function.Name); t != nil {
-					if _, ok := t.(*tool.ShellTool); ok {
-						result := "shell command requires explicit approval before execution"
-						if err := sess.AddToolResultMessage(tc.ID, result); err != nil {
-							return err
-						}
-						continue
+		if len(middlewares) == 0 {
+			if t := sess.Registry.Get(tc.Function.Name); t != nil {
+				if _, ok := t.(*tool.ShellTool); ok {
+					result := "shell command requires explicit approval before execution"
+					if err := sess.AddToolResultMessage(tc.ID, result); err != nil {
+						return err
 					}
+					continue
 				}
+			}
 		}
 
 		result, err := runner(ctx, tc)
@@ -208,6 +210,41 @@ func ConsumeStream(
 // It forces the sequence: inference stream -> verifiable accumulation -> history commit -> safe tool execution.
 // If the deterministic tool extraction yields zero calls, the loop securely collapses and returns execution control.
 
+// maxConsecutiveRepeats is the number of times the exact same tool call signature
+// may repeat back-to-back before the loop is terminated.
+const maxConsecutiveRepeats = 4
+
+// sigWindowSize is the number of recent tool call signatures kept for cycle detection.
+const sigWindowSize = 8
+
+// maxSigFrequency is the max times a signature may appear in the window before
+// the loop is considered stuck in an A→B→A→B style cycle and is terminated.
+const maxSigFrequency = 3
+
+// maxOverflowRetries is the maximum number of consecutive emergency compaction
+// attempts per turn. Prevents an infinite retry loop when the remaining history
+// is too large for the context window even after compaction.
+const maxOverflowRetries = 3
+
+// toolCallSig returns a compact string identifying a tool call by name+args,
+// used for consecutive-repetition detection.
+// Arguments are hashed (first 8 bytes of SHA-256) to avoid large allocations
+// when tools like write_file carry kilobyte-scale argument payloads.
+func toolCallSig(calls []client.ToolCall) string {
+	if len(calls) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	for _, c := range calls {
+		h := sha256.Sum256([]byte(c.Function.Arguments))
+		sb.WriteString(c.Function.Name)
+		sb.WriteByte(':')
+		sb.WriteString(fmt.Sprintf("%x", h[:8]))
+		sb.WriteByte('|')
+	}
+	return sb.String()
+}
+
 func RunLoop(
 	ctx context.Context,
 	sess *session.Session,
@@ -217,8 +254,16 @@ func RunLoop(
 	onEndTurn func(),
 	onStreamChunk func(common.StreamResult),
 	middlewares []common.ToolMiddleware,
+	// onContextOverflow is called when the model hits the context window limit.
+	// If it returns true, the current turn is retried (caller should have trimmed history).
+	// If nil or returns false, the overflow is returned as an error.
+	onContextOverflow func() bool,
 ) (string, error) {
 	var lastContent string
+	var lastSig string
+	var repeatCount int
+	var sigWindow []string  // rolling window for A→B→A→B cycle detection
+	var overflowRetries int // consecutive overflow-compaction retries for the current turn
 
 	for i := 0; maxTurns <= 0 || i < maxTurns; i++ {
 		if onStartTurn != nil {
@@ -232,8 +277,18 @@ func RunLoop(
 		}
 
 		if acc.FinishReason == "length" {
+			if onContextOverflow != nil && overflowRetries < maxOverflowRetries && onContextOverflow() {
+				overflowRetries++
+				// Retry this turn (do not advance i through the post-statement).
+				i--
+				continue
+			}
+			if overflowRetries >= maxOverflowRetries {
+				return "", fmt.Errorf("context window full: %d compaction attempt(s) did not free enough context — remaining history may be too large", overflowRetries)
+			}
 			return "", fmt.Errorf("exceeds the available context size")
 		}
+		overflowRetries = 0 // reset on a turn that completed without overflow
 
 		// If stopped, the last tool call might be partially streamed and thus invalid JSON.
 		// We shouldn't save corrupted tool calls to the session history.
@@ -262,6 +317,35 @@ func RunLoop(
 		}
 
 		lastContent = acc.Content
+
+		// Detect consecutive identical tool calls and abort to prevent infinite loops.
+		sig := toolCallSig(acc.ToolCalls)
+		if sig == lastSig {
+			repeatCount++
+			if repeatCount >= maxConsecutiveRepeats {
+				return lastContent + "\n\n(Terminated: identical tool call repeated too many times — possible infinite loop)", nil
+			}
+		} else {
+			lastSig = sig
+			repeatCount = 0
+		}
+
+		// Rolling-window cycle detection: catch A→B→A→B patterns.
+		// Append current sig to window, keep only the last sigWindowSize entries.
+		sigWindow = append(sigWindow, sig)
+		if len(sigWindow) > sigWindowSize {
+			sigWindow = sigWindow[len(sigWindow)-sigWindowSize:]
+		}
+		// Count how many times this sig appears in the window (including just-added).
+		freq := 0
+		for _, s := range sigWindow {
+			if s == sig {
+				freq++
+			}
+		}
+		if freq >= maxSigFrequency {
+			return lastContent + "\n\n(Terminated: tool call cycle detected — possible infinite loop)", nil
+		}
 
 		// If a stop was requested, break the loop before executing tools
 		select {

@@ -201,7 +201,79 @@ late session list          # List all saved sessions
 late session list -v       # Verbose listing with details
 late session load <id>     # Resume a previous session
 late session delete <id>   # Delete a session
+late session prune --older-than 30          # Delete sessions older than 30 days
+late session prune --keep-last 20           # Keep only the 20 most recent sessions
+late session prune --older-than 14 --keep-last 10 --dry-run  # Preview what would be deleted
 ```
+
+## Session Archive Compaction
+
+Late can automatically archive older messages when your session grows too long, keeping the active context window lean while preserving full recall via search tools.
+
+### How it works
+
+When the number of messages in the active history exceeds `compaction_threshold_messages`, Late moves the oldest messages (keeping the most recent `keep_recent_messages`) into a compressed archive file stored next to your session history at:
+
+- **Linux/macOS:** `~/.local/share/late/sessions/<session-id>.archive.json`
+- **Windows:** `%APPDATA%\late\sessions\<session-id>.archive.json`
+
+The active history file (`<session-id>.json`) shrinks back to just the recent window. The model is notified and can search or retrieve archived messages at any time using the `search_session_archive` and `retrieve_archived_message` tools.
+
+### Enabling compaction
+
+Add an `archive_compaction` block to your `config.json`:
+
+```json
+"archive_compaction": {
+  "enabled": true,
+  "compaction_threshold_messages": 100,
+  "keep_recent_messages": 20,
+  "archive_chunk_size": 50,
+  "archive_search_max_results": 10
+}
+```
+
+### Recommended settings by context window size
+
+**64k context window**
+
+```json
+"archive_compaction": {
+  "enabled": true,
+  "compaction_threshold_messages": 80,
+  "keep_recent_messages": 20,
+  "archive_chunk_size": 40,
+  "archive_search_max_results": 15
+}
+```
+
+At 64k tokens, compaction fires when the active history reaches 80 messages, keeping the last 20. Each archive chunk covers 40 messages. This leaves enough room for the model to work without running into context limits, while keeping chunk lookup fast.
+
+**128k context window**
+
+```json
+"archive_compaction": {
+  "enabled": true,
+  "compaction_threshold_messages": 160,
+  "keep_recent_messages": 30,
+  "archive_chunk_size": 60,
+  "archive_search_max_results": 20
+}
+```
+
+At 128k tokens, you can hold roughly twice as many messages before needing to compact. Keeping 30 recent messages gives the model a wider immediate working window (15 tool call/result pairs). Larger chunks mean fewer archive files over a long session and a 20-result search cap gives broader recall when the model needs to look back.
+
+### Configuration reference
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `enabled` | `false` | Must be `true` to activate compaction |
+| `compaction_threshold_messages` | `100` | Compact when active history exceeds this many messages |
+| `keep_recent_messages` | `20` | Number of most-recent messages to keep in the active window after compaction |
+| `archive_chunk_size` | `50` | Messages per archive chunk |
+| `archive_search_max_results` | `10` | Max results returned by `search_session_archive` |
+| `archive_search_case_sensitive` | `false` | Whether archive search is case-sensitive |
+| `archive_compaction_lock_stale_after_seconds` | `300` | How long before a compaction lock is considered stale and cleared |
 
 ## Git Worktrees
 

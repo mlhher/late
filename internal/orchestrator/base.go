@@ -2,11 +2,18 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
+	"late/internal/archive"
 	"late/internal/client"
 	"late/internal/common"
+	"late/internal/config"
 	"late/internal/executor"
 	"late/internal/session"
+	"late/internal/tool"
+	"log"
+	"os"
 	"sync"
+	"time"
 )
 
 // BaseOrchestrator implements common.Orchestrator and manages an agent's run loop.
@@ -30,6 +37,15 @@ type BaseOrchestrator struct {
 
 	// Max turns configuration
 	maxTurns int
+
+	// Archive subsystem (nil when compaction is disabled)
+	archiveSub *archiveState
+}
+
+// archiveState holds loaded archive and search service for one session run.
+type archiveState struct {
+	sub *tool.ArchiveSubsystem
+	cfg config.ArchiveCompactionConfig
 }
 
 func NewBaseOrchestrator(id string, sess *session.Session, middlewares []common.ToolMiddleware, maxTurns int) *BaseOrchestrator {
@@ -121,6 +137,9 @@ func (o *BaseOrchestrator) Execute(text string) (string, error) {
 	// Build extra body
 	var extraBody map[string]any
 
+	// Pre-run archive compaction hook (fail-open).
+	o.runArchivePreHook()
+
 	onStartTurn := func() {
 		o.RefreshContextSize(ctx)
 		o.mu.Lock()
@@ -160,6 +179,7 @@ func (o *BaseOrchestrator) Execute(text string) (string, error) {
 			}
 		},
 		o.middlewares,
+		o.forceCompact,
 	)
 
 	if err != nil {
@@ -187,6 +207,9 @@ func (o *BaseOrchestrator) run() {
 
 	// Inject orchestrator ID into context for tool interactions
 	ctx = context.WithValue(ctx, common.OrchestratorIDKey, o.id)
+
+	// Pre-run archive compaction hook (fail-open).
+	o.runArchivePreHook()
 
 	onStartTurn := func() {
 		o.RefreshContextSize(ctx)
@@ -227,6 +250,7 @@ func (o *BaseOrchestrator) run() {
 			}
 		},
 		o.middlewares,
+		o.forceCompact,
 	)
 
 	// Reset accumulator after finished or ready for next turn
@@ -307,6 +331,27 @@ func (o *BaseOrchestrator) Registry() *common.ToolRegistry {
 	return o.sess.Registry
 }
 
+// GetArchiveSubsystem returns the parent's archive subsystem so subagents can
+// search the parent's session archive. Returns nil when compaction is disabled.
+func (o *BaseOrchestrator) GetArchiveSubsystem() *tool.ArchiveSubsystem {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.archiveSub == nil {
+		return nil
+	}
+	return o.archiveSub.sub
+}
+
+// GetArchiveSearchSettings returns maxResults and caseSensitive for archive search tools.
+func (o *BaseOrchestrator) GetArchiveSearchSettings() (int, bool) {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.archiveSub == nil {
+		return 10, false
+	}
+	return o.archiveSub.cfg.ArchiveSearchMaxResults, o.archiveSub.cfg.ArchiveSearchCaseSensitive
+}
+
 func (o *BaseOrchestrator) Children() []common.Orchestrator {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
@@ -332,5 +377,270 @@ func (o *BaseOrchestrator) AddChild(child common.Orchestrator) {
 	o.eventCh <- common.ChildAddedEvent{
 		ParentID: o.id,
 		Child:    child,
+	}
+}
+
+// forceCompact performs an emergency compaction when the context window overflows.
+// It ignores the normal threshold — it always compacts regardless of history length.
+// Returns true if compaction succeeded and the run loop should retry the turn.
+func (o *BaseOrchestrator) forceCompact() bool {
+	histPath := o.sess.HistoryPath
+	if histPath == "" {
+		return false
+	}
+
+	// Prefer the already-loaded archive settings; only re-read config from disk as fallback.
+	var settings config.ArchiveCompactionConfig
+	o.mu.RLock()
+	existing := o.archiveSub
+	o.mu.RUnlock()
+	if existing != nil {
+		settings = existing.cfg
+	} else {
+		cfg, err := config.LoadConfig()
+		if err != nil || !cfg.IsArchiveCompactionEnabled() {
+			return false
+		}
+		settings = cfg.ArchiveCompactionSettings()
+	}
+
+	var arch *archive.SessionArchive
+	archPath := archive.ArchivePath(histPath)
+	// Reuse the already-loaded archive when available to avoid unnecessary disk I/O.
+	if existing != nil && existing.sub != nil && existing.sub.Archive != nil {
+		arch = existing.sub.Archive
+	} else if loaded, loadErr := archive.Load(archPath, archive.BaseSessionID(histPath)); loadErr == nil {
+		arch = loaded
+	} else {
+		arch = archive.New(archive.BaseSessionID(histPath))
+	}
+
+	// Use a threshold of 0 to force compaction regardless of history length.
+	compactCfg := archive.CompactionConfig{
+		ThresholdMessages:  0,
+		KeepRecentMessages: settings.KeepRecentMessages,
+		ChunkSize:          settings.ArchiveChunkSize,
+		StaleAfterSeconds:  settings.LockStaleAfterSeconds,
+	}
+
+	log.Printf("[archive] emergency compaction triggered by context overflow (history=%d)", len(o.sess.History))
+	res, newActive, newArch, compactErr := archive.Compact(histPath, o.id, o.sess.History, arch, compactCfg)
+	if compactErr != nil || res.NoOp || res.LockHeld {
+		if res.LockHeld {
+			log.Printf("[archive] emergency compaction skipped: lock held by another process")
+		} else {
+			log.Printf("[archive] emergency compaction failed or no-op: %v", compactErr)
+		}
+		return false
+	}
+
+	notice := fmt.Sprintf(
+		"[System] Context window was full. %d messages were moved to the session archive. "+
+			"Use search_session_archive to search for historical context, "+
+			"or retrieve_archived_message to fetch a specific message by reference.",
+		res.ArchivedCount,
+	)
+	newActive = append(newActive, client.ChatMessage{Role: "user", Content: notice, SystemNotice: true})
+
+	o.mu.Lock()
+	o.sess.History = newActive
+	o.mu.Unlock()
+	if err := session.SaveHistory(histPath, newActive); err != nil {
+		log.Printf("[archive] emergency compaction: failed to save history: %v", err)
+	}
+
+	svc := archive.NewSearchService(newArch)
+	svc.MarkDirty()
+	svc.WarmUp() // eagerly build index so first archive search after emergency compaction is fast
+
+	o.mu.Lock()
+	if o.archiveSub != nil && o.archiveSub.sub != nil {
+		// Update the existing ArchiveSubsystem in-place so any already-registered
+		// tools (search_session_archive, retrieve_archived_message) automatically
+		// see the freshly compacted archive without needing to be re-registered.
+		o.archiveSub.sub.Archive = newArch
+		o.archiveSub.sub.Search = svc
+	} else {
+		o.archiveSub = &archiveState{
+			sub: &tool.ArchiveSubsystem{Archive: newArch, Search: svc},
+			cfg: settings,
+		}
+	}
+	sub := o.archiveSub.sub
+	o.mu.Unlock()
+
+	// Update session meta counters so 'late session list -v' reflects the emergency compaction.
+	metaID := archive.BaseSessionID(histPath)
+	if meta, loadErr := session.LoadSessionMeta(metaID); loadErr == nil && meta != nil {
+		meta.CompactionCount = newArch.CompactionCount
+		meta.ArchivedMessageCount = newArch.ArchivedMessageCount
+		meta.LastCompactionAt = time.Now().UTC()
+		if saveErr := session.SaveSessionMeta(*meta); saveErr != nil {
+			log.Printf("[archive] emergency compaction: failed to save session meta counters: %v", saveErr)
+		}
+	}
+
+	reg := o.sess.Registry
+	if reg != nil && reg.Get("search_session_archive") == nil {
+		tool.RegisterArchiveTools(reg, sub, settings.ArchiveSearchMaxResults, settings.ArchiveSearchCaseSensitive)
+	}
+
+	log.Printf("[archive] emergency compaction complete: archived=%d msgs", res.ArchivedCount)
+	return true
+}
+
+// runArchivePreHook runs archive compaction before a run loop if enabled.
+// Fail-open: any error is logged but does not block execution.
+func (o *BaseOrchestrator) runArchivePreHook() {
+	histPath := o.sess.HistoryPath
+	if histPath == "" {
+		return
+	}
+
+	cfg, err := config.LoadConfig()
+	if err != nil || !cfg.IsArchiveCompactionEnabled() {
+		return
+	}
+	settings := cfg.ArchiveCompactionSettings()
+
+	// Phase 8: verify archive file permissions (warn only).
+	archPath := archive.ArchivePath(histPath)
+	if info, statErr := os.Stat(archPath); statErr == nil {
+		if perm := info.Mode().Perm(); perm&0o077 != 0 {
+			log.Printf("[archive] warning: archive file %s has loose permissions (%o); expected 0600", archPath, perm)
+		}
+	}
+
+	var arch *archive.SessionArchive
+	o.mu.RLock()
+	existing := o.archiveSub
+	o.mu.RUnlock()
+
+	if existing != nil && existing.sub != nil && existing.sub.Archive != nil {
+		arch = existing.sub.Archive
+	} else {
+		arch, err = archive.Load(archPath, archive.BaseSessionID(histPath))
+		if err != nil {
+			log.Printf("[archive] failed to load archive for hook: %v", err)
+			return
+		}
+		// Reconcile on first load: detect messages duplicated between archive and active
+		// history, which can happen after a crash mid-compaction.
+		reconciledHistory, warnings := archive.ReconcileOnStartup(arch, o.sess.History)
+		for _, w := range warnings {
+			log.Printf("[archive] reconcile: %s", w)
+		}
+		if len(warnings) > 0 {
+			log.Printf("[archive] reconcile: found %d message(s) already archived; they will be deduplicated on next compaction", len(warnings))
+			o.mu.Lock()
+			o.sess.History = reconciledHistory
+			o.mu.Unlock()
+		}
+	}
+
+	compactCfg := archive.CompactionConfig{
+		ThresholdMessages:  settings.CompactionThresholdMessages,
+		KeepRecentMessages: settings.KeepRecentMessages,
+		ChunkSize:          settings.ArchiveChunkSize,
+		StaleAfterSeconds:  settings.LockStaleAfterSeconds,
+	}
+
+	log.Printf("[archive] pre-run hook: history=%d msgs, threshold=%d", len(o.sess.History), settings.CompactionThresholdMessages)
+	compactStart := time.Now()
+
+	res, newActive, newArch, err := archive.Compact(
+		histPath, o.id,
+		o.sess.History,
+		arch,
+		compactCfg,
+	)
+	compactDur := time.Since(compactStart)
+
+	if err != nil {
+		log.Printf("[archive] compaction hook error: %v", err)
+		return
+	}
+	if res.LockHeld {
+		log.Printf("[archive] compaction skipped (lock held by another process)")
+	}
+	if !res.NoOp && !res.LockHeld {
+		log.Printf("[archive] compaction complete: archived=%d msgs in %s", res.ArchivedCount, compactDur)
+
+		// Inject a synthetic notice so the model is aware compaction occurred.
+		notice := fmt.Sprintf(
+			"[System] %d messages were moved to the session archive to free context space. "+
+				"Use search_session_archive to search for historical context, "+
+				"or retrieve_archived_message to fetch a specific message by reference.",
+			res.ArchivedCount,
+		)
+		newActive = append(newActive, client.ChatMessage{
+			Role:         "user",
+			Content:      notice,
+			SystemNotice: true,
+		})
+
+		o.mu.Lock()
+		o.sess.History = newActive
+		o.mu.Unlock()
+		if err := session.SaveHistory(histPath, newActive); err != nil {
+			log.Printf("[archive] failed to persist compacted history: %v", err)
+		}
+
+		// Phase 8: update session meta counters.
+		metaID := archive.BaseSessionID(histPath)
+		if meta, loadErr := session.LoadSessionMeta(metaID); loadErr == nil && meta != nil {
+			meta.CompactionCount = newArch.CompactionCount
+			meta.ArchivedMessageCount = newArch.ArchivedMessageCount
+			meta.LastCompactionAt = time.Now().UTC()
+			if saveErr := session.SaveSessionMeta(*meta); saveErr != nil {
+				log.Printf("[archive] failed to save session meta counters: %v", saveErr)
+			}
+		}
+	}
+
+	o.mu.Lock()
+	firstInit := o.archiveSub == nil || o.archiveSub.sub == nil
+	if !firstInit {
+		// Already initialized — update in-place so registered tools (search_session_archive,
+		// retrieve_archived_message) keep their *ArchiveSubsystem pointer. Replacing
+		// o.archiveSub with a new struct would leave the tools searching a stale archive.
+		o.archiveSub.sub.Archive = newArch
+		if !res.NoOp && !res.LockHeld {
+			// Compaction produced a new archive — rebuild search index and assign it.
+			svc := archive.NewSearchService(newArch)
+			svc.MarkDirty()
+			searchStart := time.Now()
+			svc.WarmUp()
+			log.Printf("[archive] search index rebuilt in %s", time.Since(searchStart))
+			o.archiveSub.sub.Search = svc
+		}
+		o.archiveSub.cfg = settings
+	} else {
+		// First initialization — always build the index so archive tools are ready immediately.
+		svc := archive.NewSearchService(newArch)
+		svc.MarkDirty()
+		searchStart := time.Now()
+		svc.WarmUp()
+		log.Printf("[archive] search index ready in %s", time.Since(searchStart))
+		o.archiveSub = &archiveState{
+			sub: &tool.ArchiveSubsystem{
+				Archive: newArch,
+				Search:  svc,
+			},
+			cfg: settings,
+		}
+	}
+	sub := o.archiveSub.sub
+	o.mu.Unlock()
+
+	// Register archive tools on first initialization only (subsequent calls update in-place).
+	if firstInit && sub != nil {
+		reg := o.sess.Registry
+		if reg != nil {
+			tool.RegisterArchiveTools(reg, sub,
+				settings.ArchiveSearchMaxResults,
+				settings.ArchiveSearchCaseSensitive)
+			log.Printf("[archive] tools registered (search_session_archive, retrieve_archived_message)")
+		}
 	}
 }

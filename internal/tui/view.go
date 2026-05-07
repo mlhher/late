@@ -168,6 +168,11 @@ func (m *Model) updateViewport() {
 		var rendered string
 		switch msg.Role {
 		case "user":
+			// Skip system-injected notices (e.g. archive compaction notices).
+			if msg.SystemNotice {
+				s.RenderedHistory = append(s.RenderedHistory, "")
+				continue
+			}
 			rendered = userMsgStyle.Width(msgWidth + 1).Render(msg.Content)
 		case "assistant":
 			var assistantParts []string

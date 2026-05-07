@@ -20,6 +20,11 @@ type SessionMeta struct {
 	HistoryPath    string    `json:"history_path"`     // Full path to history file
 	LastUserPrompt string    `json:"last_user_prompt"` // Last 100 chars of last user message
 	MessageCount   int       `json:"message_count"`
+
+	// Archive compaction metadata (Phase 8 observability).
+	CompactionCount      int       `json:"compaction_count,omitempty"`
+	ArchivedMessageCount int       `json:"archived_message_count,omitempty"`
+	LastCompactionAt     time.Time `json:"last_compaction_at,omitempty"`
 }
 
 // SessionDir returns the directory where session metadata and histories are stored
@@ -141,6 +146,11 @@ func ListSessions() ([]SessionMeta, error) {
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".meta.json") {
 			id := strings.TrimSuffix(entry.Name(), ".meta.json")
+			// Only include Late's own sessions; other tools may write .meta.json
+			// files in the same directory with different naming conventions.
+			if !strings.HasPrefix(id, "session-") {
+				continue
+			}
 			meta, err := LoadSessionMeta(id)
 			if err == nil && meta != nil {
 				metas = append(metas, *meta)

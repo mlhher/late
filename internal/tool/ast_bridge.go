@@ -4,8 +4,45 @@ import (
 	"late/internal/tool/ast"
 )
 
-// astAnalyzer wraps the ast pipeline and implements CommandAnalyzer so it can
-// be dropped into ShellTool.getAnalyzer as a drop-in replacement (Phase 5).
+// whitelistedUnixCommands lists Unix/bash commands that are considered
+// read-only/safe and auto-approve without user allowlisting.
+// A nil flag entry in AllowedCommands means all flags are permitted.
+//
+// Excluded intentionally:
+//   - "find"  — nil flag set would auto-approve dangerous flags like -exec.
+//   - "env"   — acts as an arbitrary-command wrapper (e.g. "env rm -rf /");
+//     the AST parser sees only "env" as the base command.
+var whitelistedUnixCommands = []string{
+	"cat", "date", "echo", "file", "grep", "head",
+	"ls", "printf", "pwd", "sort", "stat", "tail", "test", "true",
+	"uniq", "wc", "which", "whoami",
+}
+
+// whitelistedWindowsCommands contains PowerShell cmdlets and aliases that are
+// considered read-only/safe and auto-approve without user allowlisting.
+var whitelistedWindowsCommands = map[string]bool{
+	"cat":            true,
+	"date":           true,
+	"dir":            true,
+	"echo":           true,
+	"gc":             true,
+	"gci":            true,
+	"get-childitem":  true,
+	"get-content":    true,
+	"get-date":       true,
+	"get-location":   true,
+	"ls":             true,
+	"measure-object": true,
+	"pwd":            true,
+	"select-string":  true,
+	"sls":            true,
+	"type":           true,
+	"whoami":         true,
+	"write-host":     true,
+	"write-output":   true,
+}
+
+// astAnalyzer wraps the AST pipeline and implements CommandAnalyzer.
 type astAnalyzer struct {
 	parser ast.Parser
 	policy *ast.PolicyEngine
@@ -13,15 +50,24 @@ type astAnalyzer struct {
 }
 
 func newASTAnalyzer(platform ast.Platform, cwd string, allowed map[string]map[string]bool) *astAnalyzer {
-	// On Windows, seed the policy engine with the built-in safe cmdlets so
-	// that Get-ChildItem, ls, pwd etc. auto-approve without user allowlisting.
-	// Source of truth is whitelistedWindowsCommands in powershell_analyzer.go.
+	// Seed the policy engine with the built-in safe commands for the target
+	// platform so they auto-approve without user allowlisting.
 	// Check the platform parameter (not runtime.GOOS) so behaviour is consistent
 	// when platform is overridden, e.g. in cross-platform tests.
-	if platform == ast.PlatformWindows {
+	switch platform {
+	case ast.PlatformWindows:
+		// nil means "all flags permitted" — matches the prior PowerShellAnalyzer
+		// behaviour where safe cmdlets auto-approved regardless of flags.
 		for cmd := range whitelistedWindowsCommands {
 			if _, ok := allowed[cmd]; !ok {
-				allowed[cmd] = map[string]bool{}
+				allowed[cmd] = nil
+			}
+		}
+	default: // Unix
+		for _, cmd := range whitelistedUnixCommands {
+			if _, ok := allowed[cmd]; !ok {
+				// nil means "all flags permitted" for built-in safe commands.
+				allowed[cmd] = nil
 			}
 		}
 	}
@@ -53,35 +99,5 @@ func (a *astAnalyzer) Analyze(command string) CommandAnalysis {
 		IsBlocked:         d.IsBlocked,
 		BlockReason:       d.BlockReason,
 		NeedsConfirmation: d.NeedsConfirmation,
-	}
-}
-
-// shadowAnalyzerShim bridges the ast.LegacyAnalysis interface with the
-// concrete CommandAnalyzer types in this package so ShadowAnalyzer can wrap
-// them without importing tool (which would be circular).
-type shadowAnalyzerShim struct {
-	inner CommandAnalyzer
-}
-
-func (s *shadowAnalyzerShim) Analyze(command string) ast.LegacyAnalysis {
-	ca := s.inner.Analyze(command)
-	return ast.LegacyAnalysis{
-		IsBlocked:         ca.IsBlocked,
-		BlockReason:       ca.BlockReason,
-		NeedsConfirmation: ca.NeedsConfirmation,
-	}
-}
-
-// shadowWrapper wraps an ast.ShadowAnalyzer and implements CommandAnalyzer.
-type shadowWrapper struct {
-	shadow *ast.ShadowAnalyzer
-}
-
-func (sw *shadowWrapper) Analyze(command string) CommandAnalysis {
-	la := sw.shadow.Analyze(command)
-	return CommandAnalysis{
-		IsBlocked:         la.IsBlocked,
-		BlockReason:       la.BlockReason,
-		NeedsConfirmation: la.NeedsConfirmation,
 	}
 }

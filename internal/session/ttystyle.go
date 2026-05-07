@@ -50,6 +50,12 @@ func FormatSessionDisplay(meta SessionMeta, verbose bool) string {
 		lines = append(lines, fmt.Sprintf("    Created: %s", meta.CreatedAt.Format("2006-01-02 15:04:05")))
 		lines = append(lines, fmt.Sprintf("    Updated: %s", meta.LastUpdated.Format("2006-01-02 15:04:05")))
 		lines = append(lines, fmt.Sprintf("    Msg #:   %d", meta.MessageCount))
+		if meta.CompactionCount > 0 {
+			lines = append(lines, fmt.Sprintf("    Archive: %d compaction(s), %d archived msg(s), last %s",
+				meta.CompactionCount,
+				meta.ArchivedMessageCount,
+				meta.LastCompactionAt.Format("2006-01-02 15:04")))
+		}
 		if meta.LastUserPrompt != "" {
 			last := meta.LastUserPrompt
 			if len([]rune(last)) > 50 {
