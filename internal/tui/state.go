@@ -3,6 +3,7 @@ package tui
 import (
 	"late/internal/client"
 	"late/internal/common"
+	"late/internal/git"
 
 	"charm.land/bubbles/v2/filepicker"
 	"charm.land/bubbles/v2/spinner"
@@ -33,6 +34,8 @@ const (
 	ViewDump
 	ViewSubagent
 	ViewFilePicker
+	ViewCommitLog
+	ViewRewind
 )
 
 // Fixed layout heights (crush-style)
@@ -42,12 +45,28 @@ const (
 	AppPadding      = 0
 )
 
+// AvailableCommands lists all slash commands available in the TUI.
+var AvailableCommands = []string{
+	"/clear",
+	"/compose",
+	"/help",
+	"/log",
+	"/quit",
+	"/rewind",
+}
+
 // RenderBlock represents the line bounds of a rendered block in the viewport.
 type RenderBlock struct {
 	MessageIndex int    // -1 if active/streaming content
 	Content      string // raw copyable content
 	StartLine    int
 	EndLine      int
+}
+
+// RewindEntry represents a user message that can be rewound to.
+type RewindEntry struct {
+	Index   int
+	Content string
 }
 
 // AppState tracks the interactive state of a single orchestrator.
@@ -119,6 +138,39 @@ type Model struct {
 	LastClickTime   int64
 	ToastMessage    string
 	ToastExpireTime int64
+
+	// Model and config info (set from main.go after creation)
+	ModelName    string // Active model name
+	SubagentInfo string // Subagent model/config description, empty if same as main
+	CWD          string // Current working directory, shown in status bar
+	ShowCWD      bool   // Whether to show current working directory in status bar
+
+	// Esc confirmation
+	EscConfirmPending bool   // Show "are you sure?" when Esc pressed at main view
+	escBgContent      string // Saved viewport content to show underneath the dialog
+
+	// Paste detection
+	lastInputLen int // Length of input after previous update, to detect pastes
+	Pastes       map[string]string
+
+	// Input history (ring buffer via slice)
+	InputHistory   []string // Previously submitted prompts, oldest first
+	HistoryIndex   int      // Current position: -1 = new input, 0 = oldest, len-1 = newest
+	HistoryWorking string   // Temp save of current input when browsing history
+
+	// Commit log view
+	CommitEntries []git.CommitEntry
+	CommitIndex   int
+	CommitDetail  string // Full commit detail when viewing a single commit
+
+	// Rewind view
+	RewindEntries []RewindEntry
+	RewindIndex   int
+
+	// Slash-command autocomplete
+	ShowAutocomplete  bool
+	AutocompleteItems []string
+	AutocompleteIndex int
 
 	// Performance caches
 	cachedRenderer      *glamour.TermRenderer

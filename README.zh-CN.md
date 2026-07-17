@@ -1,12 +1,30 @@
-# Late: 高效的 AI 智能体编排工具 (High-Leverage AI Agent Orchestration)
+<h1 align="center">Late：真正好用的 AI 编程智能体</h1>
 
-[English](README.md) | [中文](README.zh-CN.md)
+<p align="center">
+  <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a>
+</p>
 
-> 现有的编程智能体常常将编辑、重试和实现细节全部塞进自己的上下文窗口中，直到模型彻底“迷失”。而 Late 则将这些细节委托给短暂的“子智能体 (subagents)”处理——它们在隔离的上下文中执行单一任务，并在完成后自动销毁。主控节点 (Orchestrator) 仅负责制定计划和查看结果，绝不干涉具体的代码实现细节。单一静态文件，零依赖，支持任何模型。
+> 现有的编程智能体常常将编辑、重试和实现细节全部塞进自己的上下文窗口中，直到模型彻底“迷失”。而 Late 则将这些细节委托给短暂的“子智能体 (subagents)”处理——它们在隔离的上下文中执行单一任务，并在完成后自动销毁。主控节点 (Orchestrator) 仅负责制定计划和查看结果，绝不干涉具体的代码实现细节。
+>
+> 单一静态文件，零依赖，支持任何模型。
 
-[![Release](https://img.shields.io/github/v/release/mlhher/late-cli)](https://github.com/mlhher/late-cli/releases) [![Homebrew](https://img.shields.io/badge/Homebrew-tap-brightgreen.svg)](https://github.com/mlhher/homebrew-late) [![Go Report Card](https://goreportcard.com/badge/github.com/mlhher/late)](https://goreportcard.com/report/github.com/mlhher/late) [![DeepWiki](https://img.shields.io/badge/DeepWiki-docs-blue.svg)](https://deepwiki.com/mlhher/late-cli)
+<div align="center">
 
-**随时随地投入项目，即刻开始构建。** 只需不到 10 秒钟即可发送你的第一条指令。
+[![Release](https://img.shields.io/github/v/release/mlhher/late-cli)](https://github.com/mlhher/late-cli/releases) [![Homebrew](https://img.shields.io/badge/Homebrew-tap-brightgreen.svg)](https://github.com/mlhher/homebrew-late) [![DeepWiki](https://img.shields.io/badge/DeepWiki-docs-blue.svg)](https://deepwiki.com/mlhher/late-cli)
+
+**只需不到 10 秒钟，即可写下你的第一条提示词。**
+
+**停止在噪音上浪费 Token。**
+
+**使用小型本地模型或大型云端模型解决实际问题。**
+
+
+![Late Orchestrator planning a multi-phase implementation and spawning the first subagent](assets/late-subagent-handoff.png)
+*首席架构师正在制定计划，并生成多个原子级子智能体进行精准编辑。*
+
+<br/>
+
+</div>
 
 ```bash
 # Linux / macOS
@@ -25,9 +43,6 @@ late
 > 
 > **连接云端模型?**
 > 默认情况本地模型 (如 `llama.cpp`，运行在 `:8080` 端口) 可开箱即用，无需配置。如果使用云端服务 (如 DeepSeek, 阿里云百炼, 通义千问, Claude, Gemini, OpenRouter 等)，请在运行前设置 `OPENAI_BASE_URL`，`OPENAI_API_KEY` 和 `OPENAI_MODEL` 环境变量。
-
-![Late Orchestrator planning a multi-phase implementation and spawning the first subagent](assets/late-subagent-handoff.png)
-*架构师 (主控节点) 正在制定计划，并生成原子化的子智能体以执行精确的代码修改。*
 
 |  | Late | Claude Code | OpenCode | The Weekly Clone |
 | --- | --- | --- | --- | --- |
@@ -70,6 +85,9 @@ Late 极其谨慎地管理 KV 缓存和上下文窗口，为逻辑推理留出�
 - **MCP 协议集成 (MCP Integration):** 通过标准 I/O 原生连接外部模型上下文协议 (Model Context Protocol) 服务器。
 - **智能体技能 (Agent Skills):** 直接放入可重用的指令集和脚本，无需任何繁琐配置或样板代码。
 - **Git 工作树支持 (Git Worktree Support):** 支持跨分支的并行独立智能体实例，而不会出现上下文冲突。
+- **上下文感知搜索 (Context-Aware Search):** 原生搜索工具会自动遵循 `.gitignore` 和 `.llmignore` 规则，防止无关文件淹没上下文窗口。
+- **丰富的终端界面 (Rich Terminal UI):** 斜杠命令、输入历史记录、提交日志查看器，以及交互式键盘帮助浮层 (`Ctrl+H`)。
+- **时光倒流与撰写 (Rewind & Compose):** 使用 `/rewind` 回溯历史记录以撤销操作，或者使用 `/compose` 在外部编辑器中编写复杂的提示词。
 - **Gemma 4 思考模式 (Gemma 4 Thinking Mode):** 标准套壳工具只会把文本死板地丢给 API，导致根本无法触发 Gemma 的推理功能。Late 提供了一个专属 Flag，用于精确注入触发其思考模式所需的特定 Token。
 
 ---

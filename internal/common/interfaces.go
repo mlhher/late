@@ -18,6 +18,7 @@ type Orchestrator interface {
 	Submit(text string, images []string) error
 	Execute(text string) (string, error)
 	Reset() error
+	Rewind(index int) error
 	Cancel()
 	IsStopRequested() bool
 	Events() <-chan Event

@@ -4,6 +4,19 @@
 
 本指南将帮助你在 5 分钟内快速上手并高效使用 Late。
 
+## 目录
+- [初始设置](#初始设置)
+- [用户界面](#用户界面)
+- [给出好的指令](#给出好的指令)
+- [工具授权审批](#工具授权审批)
+- [配置说明](#配置说明)
+- [MCP 协议集成](#mcp-协议集成)
+- [智能体技能 (Agent Skills)](#智能体技能-agent-skills)
+- [文件排除规则](#文件排除规则)
+- [常用命令行标志 (Flags)](#常用命令行标志-flags)
+- [会话管理 (Sessions)](#会话管理-sessions)
+- [Git 工作树 (Git Worktrees)](#git-工作树-git-worktrees)
+
 ## 初始设置
 
 **1. 配置你的 API 端点** (支持任何兼容 OpenAI 格式的 API，例如 llama.cpp, [DeepSeek](https://api-docs.deepseek.com/), [阿里云百炼/通义千问](https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope), [Google](https://ai.google.dev/gemini-api/docs/openai), [Anthropic](https://platform.claude.com/docs/en/api/openai-sdk), [OpenRouter](https://openrouter.ai/docs/quickstart))：
@@ -56,11 +69,25 @@ Late 提供了一个基于终端的用户界面 (TUI)，包含三个区域：**�
 | `Tab` | 在不同智能体的标签页间切换（主控 ↔ 子智能体） |
 | `Ctrl+A` | 打开文件选择器以附加文件 |
 | `Ctrl+X` | 清除所有已附加的文件 |
+| `Ctrl+H` | 显示键盘帮助浮层 |
 | `Esc` / `Ctrl+G` | 停止当前智能体的运行（取消文本生成） |
 | `Ctrl+D` / `Ctrl+C` | 退出 Late |
 | `双击` | 复制消息到剪贴板 |
 
-> **提示：** Late 支持标准的终端文本编辑快捷键，如 `Alt+Arrows`（按词跳跃）、`Ctrl+A/E`（行首/行尾）以及 `Alt+Backspace/Del`（删除整个词）。
+> **提示：** Late 支持标准的终端文本编辑快捷键，如 `Alt+Arrows`（按词跳跃）以及 `Alt+Backspace/Del`（删除整个词）。
+
+### 斜杠命令 (Slash Commands)
+
+在输入框中输入 `/` 即可调出命令选择器。你可以使用 `向上`/`向下` 方向键在可用命令中导航，并按 `Enter` 键选择其中一个。你无需输入完整的命令。
+
+| 命令 | 描述说明 |
+| --- | --- |
+| `/clear` | 清除当前会话。 |
+| `/rewind` | 打开可视化的消息历史记录，以便将对话回溯到较早的时间点。 |
+| `/compose` | 打开系统默认的外部编辑器 (`$EDITOR`) 以起草长篇或复杂的指令。 |
+| `/log` | 打开 Git 提交日志查看器。 |
+| `/help` | 显示默认的快捷键绑定。 |
+| `/quit` | 退出 Late。 |
 
 ### 文件附件
 
@@ -82,7 +109,7 @@ Late 提供了一个基于终端的用户界面 (TUI)，包含三个区域：**�
 
 > **提示：** 如果某个子智能体似乎卡住了，你可以按 `Tab` 切换到它查看具体情况。按 `Esc` 或 `Ctrl+G` 可以随时停止它的运行，这不会影响主控节点的工作。
 
-## 如何编写高质量的指令
+## 给出好的指令
 
 Late 在指令明确、具体的场景下表现最佳。例如：
 
@@ -192,7 +219,13 @@ Late 支持 Model Context Protocol (大模型上下文协议)。请将你的 MCP
 * **全局 (Windows):** `%APPDATA%\late\skills\`
 * **项目本地:** `.late/skills/`
 
-无需其他任何配置，只需将你的技能文件放置在这些目录中，Late 就会自动识别并启用它们。
+无需其他任何配置，只需将你的技能文件放置在这些目录中，Late 就会自动识别并启用它们。Late 也支持自动化的技能引用发现。
+
+## 文件排除规则
+
+Late 的原生搜索工具会自动遵循你的项目 `.gitignore`，通过排除 vendor 和 build 目录来节省 LLM 上下文。
+
+你还可以在 `.gitignore` 旁边创建一个 `.llmignore` 文件，专门向智能体隐藏文件（例如，机密信息、大型二进制文件、测试夹具或生成代码），而不会影响你的 git 追踪。
 
 ## 常用命令行标志 (Flags)
 
@@ -200,9 +233,11 @@ Late 支持 Model Context Protocol (大模型上下文协议)。请将你的 MCP
 | --- | --- |
 | `--help` | 显示所有标志及可用命令 |
 | `--version` | 显示当前版本信息 |
+| `--continue` | 恢复上一个会话 |
 | `--gemma-thinking` | 为 Gemma 4 等模型注入专用的思考标记 (thinking tokens) |
 | `--subagent-max-turns <n>` | 设置每个子智能体的最大交互轮数 (默认：500) |
 | `--append-system-prompt "..."` | 向系统提示词的末尾追加文本（例如自定义的补充说明） |
+| `--enable-images` | 将模型视为支持图像（适用于非 llama.cpp 的服务器） |
 
 ## 会话管理 (Sessions)
 

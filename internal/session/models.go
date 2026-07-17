@@ -155,3 +155,18 @@ func ListSessions() ([]SessionMeta, error) {
 
 	return metas, nil
 }
+
+// GetLatestSession returns the metadata of the latest session (most recently updated).
+// If no sessions exist, it returns nil, nil.
+func GetLatestSession() (*SessionMeta, error) {
+	metas, err := ListSessions()
+	if err != nil {
+		return nil, err
+	}
+	if len(metas) == 0 {
+		return nil, nil
+	}
+	// ListSessions returns sessions sorted by LastUpdated ascending (oldest first)
+	return &metas[len(metas)-1], nil
+}
+

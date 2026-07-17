@@ -44,6 +44,8 @@ func main() {
 	versionReq := flag.Bool("version", false, "Show version")
 	unsupervisedReq := flag.Bool("i-promise-i-have-backups-and-will-not-file-issues", false, "Unsupported: Execute all tools without supervision. Do not use this, bad things will happen. You have been warned.")
 	enableImagesReq := flag.Bool("enable-images", false, "Force enable support for image attachments for unsupported servers.")
+	continueReq := flag.Bool("continue", false, "Load and start the latest session")
+	showCWDReq := flag.Bool("show-cwd", true, "Show current working directory in status bar")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of late:\n")
@@ -76,7 +78,20 @@ func main() {
 	}
 
 	var loadedHistoryPath string
-	if flag.NArg() > 0 && flag.Arg(0) == "session" {
+	if *continueReq {
+		meta, err := session.GetLatestSession()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error getting latest session: %v\n", err)
+			os.Exit(1)
+		}
+		if meta == nil {
+			fmt.Fprintln(os.Stderr, "No sessions found to continue.")
+			os.Exit(1)
+		}
+		fmt.Printf("Resuming session: %s (%s)\n", meta.ID, meta.Title)
+		time.Sleep(500 * time.Millisecond) // Give user a moment to see what's happening
+		loadedHistoryPath = meta.HistoryPath
+	} else if flag.NArg() > 0 && flag.Arg(0) == "session" {
 		path, _, shouldExit := handleSessionCommand(flag.Args()[1:])
 		if shouldExit {
 			return
@@ -263,6 +278,16 @@ func main() {
 	rootAgent := orchestrator.NewBaseOrchestrator("main", sess, nil, 0)
 
 	model := tui.NewModel(rootAgent, renderer)
+	model.ModelName = resolvedOpenAIConfig.Model
+	model.ShowCWD = *showCWDReq
+
+	// Detect if subagents use a different model/backend
+	if resolvedSubagentConfig.BaseURL != resolvedOpenAIConfig.BaseURL ||
+		resolvedSubagentConfig.APIKey != resolvedOpenAIConfig.APIKey ||
+		resolvedSubagentConfig.Model != resolvedOpenAIConfig.Model {
+		model.SubagentInfo = resolvedSubagentConfig.Model
+	}
+
 	p := tea.NewProgram(model)
 
 	// Wire TUI integration

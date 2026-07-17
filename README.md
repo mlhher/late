@@ -1,12 +1,30 @@
-# Late: High-Leverage AI Agent Orchestration
+<h1 align="center">Late: The AI Coding Agent That Just Works</h1>
 
-[English](README.md) | [中文](README.zh-CN.md)
+<p align="center">
+  <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a>
+</p>
 
-> Every other coding agent floods its own context with edits, retries and implementation details until the model loses the thread. Late delegates all of that to ephemeral subagents — isolated contexts that execute one task and are destroyed. The orchestrator sees only plans and outcomes, never the mess. Single static binary, zero dependencies, any model.
+> Every other coding agent floods its own context with edits, retries and implementation details until the model loses the thread. Late delegates all of that to ephemeral subagents — isolated contexts that execute one task and are destroyed. The orchestrator sees only plans and outcomes, never the mess. 
+>
+> Single static binary, zero dependencies, any model.
 
-[![Release](https://img.shields.io/github/v/release/mlhher/late-cli)](https://github.com/mlhher/late-cli/releases) [![Homebrew](https://img.shields.io/badge/Homebrew-tap-brightgreen.svg)](https://github.com/mlhher/homebrew-late) [![Go Report Card](https://goreportcard.com/badge/github.com/mlhher/late)](https://goreportcard.com/report/github.com/mlhher/late) [![DeepWiki](https://img.shields.io/badge/DeepWiki-docs-blue.svg)](https://deepwiki.com/mlhher/late-cli)
+<div align="center">
 
-**Drop into any project and start building.** Get to your first prompt in less than 10 seconds.
+[![Release](https://img.shields.io/github/v/release/mlhher/late-cli)](https://github.com/mlhher/late-cli/releases) [![Homebrew](https://img.shields.io/badge/Homebrew-tap-brightgreen.svg)](https://github.com/mlhher/homebrew-late) [![DeepWiki](https://img.shields.io/badge/DeepWiki-docs-blue.svg)](https://deepwiki.com/mlhher/late-cli)
+
+**Get to your first prompt in less than 10 seconds.**
+
+**Stop burning tokens on noise.**
+
+**Solve real problems with small local models or use big cloud models.**
+
+
+![Late Orchestrator planning a multi-phase implementation and spawning the first subagent](assets/late-subagent-handoff.png)
+*Lead Architect forming a plan and spawning multiple atomic subagents for surgical edits.*
+
+<br/>
+
+</div>
 
 ```bash
 # Linux / macOS
@@ -25,9 +43,6 @@ late
 > 
 > **Connecting to Cloud Models?**
 > Local models (llama.cpp on `:8080`, the default for llama-server) work out-of-the-box. No configuration required. For cloud providers (DeepSeek, Claude, Gemini, OpenRouter), set your `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` environment variables.
-
-![Late Orchestrator planning a multi-phase implementation and spawning the first subagent](assets/late-subagent-handoff.png)
-*Lead Architect forming a plan and spawning an atomic subagent for a surgical edit.*
 
 |  | Late | Claude Code | OpenCode | The Weekly Clone |
 | --- | --- | --- | --- | --- |
@@ -70,6 +85,9 @@ Late manages the KV cache and context window carefully, leaving more room for re
 - **MCP Integration:** Natively map external Model Context Protocol servers directly into Late via standard I/O.
 - **Agent Skills:** Drop in reusable sets of instructions and scripts. Zero configuration or boilerplate required.
 - **Git Worktree Support:** Run independent, parallel agent instances across multiple branches without context bleeding.
+- **Context-Aware Search:** Native search tool that automatically respects `.gitignore` and `.llmignore` to prevent flooding the context window with irrelevant files.
+- **Rich Terminal UI:** Slash commands, input history, commit log viewer, and an interactive keyboard help overlay (`Ctrl+H`).
+- **Rewind & Compose:** Jump back in history to undo actions with `/rewind`, or write complex prompts in an external editor using `/compose`.
 - **Gemma 4 Thinking Mode:** Standard wrappers just pipe text to an API, which means they can't trigger Gemma's reasoning. Late includes a dedicated flag to inject the exact tokens required to actually make it think.
 
 ---

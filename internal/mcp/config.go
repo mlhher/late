@@ -17,10 +17,14 @@ type MCPConfig struct {
 
 // MCPServer represents a single MCP server configuration
 type MCPServer struct {
+	// Stdio subprocess (default when Command is set):
 	Command  string            `json:"command"`
 	Args     []string          `json:"args"`
 	Env      map[string]string `json:"env"`
-	Disabled bool              `json:"disabled,omitempty"`
+	// Remote server (used when URL is set):
+	URL           string `json:"url"`
+	TransportType string `json:"transportType,omitempty"` // "stdio", "sse", or "streamable-http"
+	Disabled      bool   `json:"disabled,omitempty"`
 }
 
 // LoadMCPConfig loads the MCP configuration from the first available config file
@@ -43,8 +47,9 @@ func LoadMCPConfig() (*MCPConfig, error) {
 		defaultData, _ := json.MarshalIndent(emptyConfig, "", "  ")
 
 		if err := os.MkdirAll(lateConfigDir, 0700); err == nil {
-			// Ignore write error, just fallback to empty config
-			_ = os.WriteFile(defaultUserPath, defaultData, 0600)
+			if err := os.WriteFile(defaultUserPath, defaultData, 0600); err != nil {
+				// fmt.Fprintf(os.Stderr, "Warning: Could not write default MCP config to %s: %v\n", defaultUserPath, err)
+			}
 		}
 
 		return &emptyConfig, nil
@@ -111,12 +116,12 @@ func ExpandEnvVars(value string) string {
 func ExpandServerEnvVars(server *MCPServer) {
 	// Expand command
 	server.Command = ExpandEnvVars(server.Command)
-
+	// Expand URL
+	server.URL = ExpandEnvVars(server.URL)
 	// Expand args
 	for i := range server.Args {
 		server.Args[i] = ExpandEnvVars(server.Args[i])
 	}
-
 	// Expand env values
 	for key, value := range server.Env {
 		server.Env[key] = ExpandEnvVars(value)

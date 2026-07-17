@@ -23,9 +23,10 @@ type SearchTool struct{}
 func (t *SearchTool) Name() string { return "search_tool" }
 func (t *SearchTool) Description() string {
 	return "PREFERRED over bash grep/find/rg. " +
-		"Search files by regex/literal pattern. Returns {path, line, content}. " +
+		"Search files by regex/literal pattern or by name glob. Returns {path, line, content}. " +
 		"Honors .gitignore, permission gates, and output caps. " +
-		"Modes: files_with_matches (paths), content (lines+numbers), count (counts)."
+		"Modes: files_with_matches (paths), content (lines+numbers), count (counts). " +
+		"Set search_names:true to match filenames by glob (e.g. '*.go') instead of searching contents."
 }
 func (t *SearchTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
@@ -33,7 +34,7 @@ func (t *SearchTool) Parameters() json.RawMessage {
 		"properties": {
 			"pattern": {
 				"type": "string",
-				"description": "Pattern to search for. Interpreted as a regex unless 'fixed_strings' is true."
+				"description": "Pattern to search for. Interpreted as a regex unless 'fixed_strings' or 'search_names' is true."
 			},
 			"path": {
 				"type": "string",
@@ -55,6 +56,10 @@ func (t *SearchTool) Parameters() json.RawMessage {
 			"fixed_strings": {
 				"type": "boolean",
 				"description": "If true, treat pattern as a literal string instead of regex (default: false). Equivalent to grep -F."
+			},
+			"search_names": {
+				"type": "boolean",
+				"description": "If true, match filenames by glob pattern (e.g. '*.go', '*_test.go') instead of searching file contents. Ignores case_sensitive, fixed_strings, context_lines. Output defaults to files_with_matches."
 			},
 			"context_lines": {
 				"type": "integer",
@@ -86,6 +91,7 @@ func (t *SearchTool) Execute(ctx context.Context, args json.RawMessage) (string,
 		OutputMode    string `json:"output_mode"`
 		CaseSensitive bool   `json:"case_sensitive"`
 		FixedStrings  bool   `json:"fixed_strings"`
+		SearchNames   bool   `json:"search_names"`
 		ContextLines  int    `json:"context_lines"`
 		MaxResults    int    `json:"max_results"`
 		Recursive     bool   `json:"recursive"`
@@ -132,6 +138,11 @@ func (t *SearchTool) Execute(ctx context.Context, args json.RawMessage) (string,
 
 	// Load .gitignore if available (cached per process from CWD)
 	gi, repoRoot := getGitIgnoreForPath(searchPath)
+
+	// --- search_names: filename glob matching fast path ---
+	if params.SearchNames {
+		return searchByNames(ctx, searchPath, params.Pattern, params.Include, params.Exclude, params.OutputMode, params.MaxResults, params.Recursive, gi, repoRoot)
+	}
 
 	// Compile matcher
 	var matchFunc func(line string) bool
@@ -455,6 +466,180 @@ func readFileContent(path string, matchFunc func(string) bool, contextLines, max
 	}
 
 	return fileBuf.String(), nil
+}
+
+// searchByNames matches files by filename glob instead of searching contents.
+// Skips content reading entirely — much faster for filename discovery.
+func searchByNames(ctx context.Context, searchPath, pattern, include, exclude, outputMode string, maxResults int, recursive bool, gi *GitIgnore, repoRoot string) (string, error) {
+	// Auto-coerce common regex patterns to glob equivalents. Agents often
+	// pass \.go$ or _test\.go$ because search_tool normally uses regex.
+	// Detect these and convert silently so the user gets results instead
+	// of "No matches found".
+	pattern = coerceRegexToGlob(pattern)
+
+	var sb strings.Builder
+	fileCount := 0
+	truncated := false
+	stopErr := fmt.Errorf("stop")
+
+	// Decide walk strategy
+	walkFn := func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return filepath.SkipDir
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if name == ".git" || name == "node_modules" || name == ".svn" || name == ".hg" {
+				return filepath.SkipDir
+			}
+			if matchesGitIgnore(gi, repoRoot, path, true) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasPrefix(d.Name(), ".") {
+			return nil
+		}
+		if matchesGitIgnore(gi, repoRoot, path, false) {
+			return nil
+		}
+
+		// Apply exclude glob (overrides include)
+		if exclude != "" {
+			if matched, err := filepath.Match(exclude, d.Name()); err == nil && matched {
+				return nil
+			}
+		}
+
+		// Apply include glob — if set, filename must match
+		if include != "" {
+			if matched, err := filepath.Match(include, d.Name()); err != nil || !matched {
+				return nil
+			}
+		}
+
+		// Check filename against pattern glob
+		matched, err := filepath.Match(pattern, d.Name())
+		if err != nil || !matched {
+			return nil
+		}
+
+		// Context cancellation check
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		line := path + "\n"
+
+		if sb.Len()+len(line) > maxSearchChars {
+			truncated = true
+			return stopErr
+		}
+		sb.WriteString(line)
+		fileCount++
+		if fileCount >= maxResults {
+			truncated = true
+			return stopErr
+		}
+		return nil
+	}
+
+	var err error
+	if recursive {
+		err = filepath.WalkDir(searchPath, walkFn)
+	} else {
+		entries, readErr := os.ReadDir(searchPath)
+		if readErr == nil {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				fullPath := filepath.Join(searchPath, entry.Name())
+				if wErr := walkFn(fullPath, entry, nil); wErr != nil {
+					if wErr == stopErr {
+						err = stopErr
+						break
+					}
+					if wErr == context.Canceled || wErr == context.DeadlineExceeded {
+						err = wErr
+						break
+					}
+				}
+			}
+		}
+	}
+
+	if err != nil && err != stopErr && err != context.Canceled && err != context.DeadlineExceeded {
+		return "", fmt.Errorf("search failed: %w", err)
+	}
+
+	result := sb.String()
+	if result == "" {
+		return "No matches found", nil
+	}
+	if truncated {
+		result += "\n... (output truncated)"
+	}
+	return result, nil
+}
+
+// coerceRegexToGlob converts common regex patterns to glob equivalents so
+// agents who reflexively pass `\.go$` or `_test\.go$` still get results
+// when using search_names:true.
+func coerceRegexToGlob(pattern string) string {
+	// Already looks like a simple glob (no regex metacharacters) — pass through
+	hasMeta := strings.ContainsAny(pattern, `\$^()+?|[]{}`)
+	if !hasMeta {
+		// Also check for unescaped .* or .+ which indicate regex intent
+		if strings.Contains(pattern, ".*") || strings.Contains(pattern, ".+") {
+			hasMeta = true
+		}
+	}
+	if !hasMeta {
+		return pattern
+	}
+
+	// Track whether anchors were present so we can infer wildcards
+	hadAnchorStart := strings.HasPrefix(pattern, "^")
+	hadAnchorEnd := strings.HasSuffix(pattern, "$")
+
+	result := pattern
+
+	// Strip anchors: ^foo → foo, foo$ → foo
+	result = strings.TrimPrefix(result, "^")
+	result = strings.TrimSuffix(result, "$")
+
+	// Convert `\.` → `.`
+	result = strings.ReplaceAll(result, `\.`, ".")
+
+	// Convert `.*` → `*`
+	result = strings.ReplaceAll(result, `.*`, "*")
+
+	// Convert `.+` → `*`
+	result = strings.ReplaceAll(result, `.+`, "*")
+
+	// Convert `(?:` and `(` → nothing (crude but good enough for simple patterns)
+	result = strings.ReplaceAll(result, "(?:", "")
+	result = strings.ReplaceAll(result, "(", "")
+	result = strings.ReplaceAll(result, ")", "")
+	result = strings.ReplaceAll(result, "|", "")
+
+	// If the result has no wildcards but had regex anchors, the user was
+	// matching a suffix/prefix — add implied wildcards.
+	// e.g. `.go` (from `\.go$`) → `*.go`
+	//      `foo` (from `^foo`) → `foo*`
+	if !strings.ContainsAny(result, "*?[") {
+		if hadAnchorStart {
+			result = result + "*"
+		}
+		if hadAnchorEnd {
+			result = "*" + result
+		}
+	}
+
+	return result
 }
 
 // truncateLine truncates a single line at 1000 chars to prevent context poisoning.

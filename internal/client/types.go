@@ -132,15 +132,20 @@ type FunctionDefinition struct {
 	Parameters  json.RawMessage `json:"parameters,omitempty"`
 }
 
+type StreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
 type ChatCompletionRequest struct {
-	Model       string           `json:"model,omitempty"`
-	Messages    []ChatMessage    `json:"messages"`
-	Temperature float64          `json:"temperature,omitempty"`
-	Stream      bool             `json:"stream,omitempty"`
-	Stop        []string         `json:"stop,omitempty"`
-	Tools       []ToolDefinition `json:"tools,omitempty"`
-	ToolChoice  any              `json:"tool_choice,omitempty"`
-	ExtraBody   map[string]any   `json:"extra_body,omitempty"`
+	Model         string           `json:"model,omitempty"`
+	Messages      []ChatMessage    `json:"messages"`
+	Temperature   float64          `json:"temperature,omitempty"`
+	Stream        bool             `json:"stream,omitempty"`
+	StreamOptions *StreamOptions   `json:"stream_options,omitempty"`
+	Stop          []string         `json:"stop,omitempty"`
+	Tools         []ToolDefinition `json:"tools,omitempty"`
+	ToolChoice    any              `json:"tool_choice,omitempty"`
+	ExtraBody     map[string]any   `json:"extra_body,omitempty"`
 }
 
 type ChatCompletionResponse struct {

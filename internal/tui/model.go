@@ -17,9 +17,12 @@ func NewModel(root common.Orchestrator, renderer *glamour.TermRenderer) Model {
 	ti := textarea.New()
 	ti.Placeholder = "Ask Late anything..."
 	ti.Focus()
-	ti.CharLimit = 2000
+	ti.CharLimit = 100000 // Allow pasting large code blocks
 	ti.SetWidth(72)
-	ti.SetHeight(InputHeight - 2)
+	ti.DynamicHeight = true
+	ti.MinHeight = 1
+	ti.MaxHeight = 4
+	ti.SetHeight(1)
 	ti.ShowLineNumbers = false
 	ti.Prompt = ""    // Remove the line prompt characters
 	ti.SetValue("> ") // Set initial "fake" prompt to force background render logic on first line
@@ -44,10 +47,17 @@ func NewModel(root common.Orchestrator, renderer *glamour.TermRenderer) Model {
 	// Initialize with 0, so that the first WindowSizeMsg sets correct dimensions
 	// This prevents the "50% width" issue if the default 60 is too small for a large terminal
 	vp := viewport.New(viewport.WithWidth(0), viewport.WithHeight(0))
-	vp.SetContent("Welcome to Late. Type your prompt below.")
+	vp.MouseWheelDelta = 6 // Lines per wheel tick; default 3 feels slow on chat history
+	// VTE-based terminals: set explicit background on the viewport so its
+	// internal padding cells don't become transparent after ANSI resets.
+	vp.Style = lipgloss.NewStyle().Background(appBgColor)
+	// Initial welcome is set to empty; updateViewport in view.go renders
+	// the rich welcome when history is empty using renderWelcomeMessage().
+	vp.SetContent("")
 
 	// Determine active state
 	initialState := StateIdle
+	cwd, _ := os.Getwd()
 	if root.History() != nil && len(root.History()) > 0 {
 		last := root.History()[len(root.History())-1]
 		if last.Role == "assistant" && len(last.ToolCalls) > 0 {
@@ -68,14 +78,19 @@ func NewModel(root common.Orchestrator, renderer *glamour.TermRenderer) Model {
 		AgentStates:         make(map[string]*AppState),
 		InspectingTool:      false,
 		Spinner:             spinner.New(spinner.WithSpinner(spinner.Dot)),
+		InputHistory:        make([]string, 0),
+		HistoryIndex:        -1,
+		CWD:                 cwd,
+		ShowCWD:             true,
 		cachedRendererWidth: -1, // Force first creation
+		Pastes:              make(map[string]string),
 	}
 
 	fp := filepicker.New()
 	fp.FileAllowed = true
 	fp.DirAllowed = false
 	fp.ShowHidden = true
-	cwd, _ := os.Getwd()
+	cwd, _ = os.Getwd()
 	fp.CurrentDirectory = cwd
 	fp.AutoHeight = false
 	fp.SetHeight(m.Height - 2)

@@ -238,7 +238,25 @@ func RunLoop(
 		}
 
 		if acc.FinishReason == "length" {
-			return "", fmt.Errorf("exceeds the available context size")
+			// Determine if this is real context exhaustion or just output truncation
+			// (e.g. max_tokens cap set on the server side).
+			ctxSize := sess.Client().ContextSize()
+			isContextExhausted := ctxSize > 0 && acc.Usage.TotalTokens > 0 &&
+				float64(acc.Usage.TotalTokens) >= float64(ctxSize)*0.95
+
+			if isContextExhausted {
+				return "", fmt.Errorf("exceeds the available context size")
+			}
+
+			// Output was truncated but context is not full — save partial
+			// response and ask the model to continue more concisely.
+			if err := sess.AddAssistantMessageWithTools(acc.Content, acc.Reasoning, nil); err != nil {
+				return "", fmt.Errorf("failed to save history: %w", err)
+			}
+			if err := sess.AddUserMessage("[Output truncated due to length limit. Please continue, but be more concise.]"); err != nil {
+				return "", fmt.Errorf("failed to save history: %w", err)
+			}
+			continue
 		}
 
 		// If stopped, the last tool call might be partially streamed and thus invalid JSON.

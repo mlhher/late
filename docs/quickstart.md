@@ -4,6 +4,19 @@
 
 This guide gets you productive in Late in under 5 minutes.
 
+## Contents
+- [Setup](#setup)
+- [Interface](#interface)
+- [Giving Good Instructions](#giving-good-instructions)
+- [Tool Approval](#tool-approval)
+- [Configuration](#configuration)
+- [MCP Integration](#mcp-integration)
+- [Agent Skills](#agent-skills)
+- [File Exclusions](#file-exclusions)
+- [Common Flags](#common-flags)
+- [Sessions](#sessions)
+- [Git Worktrees](#git-worktrees)
+
 ## Setup
 
 **1. Set your endpoint** (any OpenAI-compatible API, e.g. llama.cpp, [DeepSeek](https://api-docs.deepseek.com/), [Google](https://ai.google.dev/gemini-api/docs/openai), [Anthropic](https://platform.claude.com/docs/en/api/openai-sdk), [OpenRouter](https://openrouter.ai/docs/quickstart)): 
@@ -56,11 +69,25 @@ Late is a terminal UI with three areas: the **chat viewport** (scrollable histor
 | `Tab` | Switch between agent tabs (orchestrator ↔ subagents) |
 | `Ctrl+A` | Open the file picker to attach files |
 | `Ctrl+X` | Clear all attached files |
+| `Ctrl+H` | Show keyboard help overlay |
 | `Esc` / `Ctrl+G` | Stop the current agent (cancel generation) |
 | `Ctrl+D` / `Ctrl+C` | Quit Late |
 | `Double-click` | Copy message to clipboard |
 
-> **Tip:** Late supports standard terminal editing like `Alt+Arrows` (word jump), `Ctrl+A/E` (start/end), and `Alt+Backspace/Del` (delete word).
+> **Tip:** Late supports standard terminal editing like `Alt+Arrows` (word jump), and `Alt+Backspace/Del` (delete word).
+
+### Slash Commands
+
+Type `/` into the input box to bring up a command picker. You can navigate through the available commands with the `Up`/`Down` arrow keys and select one by pressing `Enter`. You do not have to type out the full command.
+
+| Command | Description |
+| --- | --- |
+| `/clear` | Clear current session. |
+| `/rewind` | Open a visual history of your messages to rewind the conversation to an earlier point. |
+| `/compose` | Open your system's default external editor (`$EDITOR`) to draft long or complex instructions. |
+| `/log` | Open the Git commit log viewer. |
+| `/help` | Show default keybindings. |
+| `/quit` | Exit Late. |
 
 ### File Attachments
 
@@ -82,7 +109,7 @@ The status bar at the bottom shows which agent you're currently viewing and its 
 
 > **Tip:** If a subagent seems stuck, switch to it with `Tab` to see what it's doing. You can stop it with `Esc` or `Ctrl+G` without affecting the orchestrator.
 
-## How to Give Good Instructions
+## Giving Good Instructions
 
 Late works best with clear, specific instructions. Some examples:
 
@@ -194,7 +221,13 @@ Late supports the Model Context Protocol. Add your MCP servers to one of the fol
 * **Global (Windows):** `%APPDATA%\late\skills\`
 * **Project:** `.late/skills/`
 
-There is no further setup required. Just add your skills to the directories and they will be discovered automatically.
+There is no further setup required. Just add your skills to the directories and they will be discovered automatically. Late also supports automatic skill reference discovery.
+
+## File Exclusions
+
+Late's native search tool respects your project's `.gitignore` automatically, saving LLM context by excluding vendor and build directories. 
+
+You can also create an `.llmignore` file alongside your `.gitignore` to specifically hide files from the agent (e.g., secrets, large binaries, test fixtures, or generated code) without affecting your git tracking.
 
 ## Common Flags
 
@@ -202,9 +235,11 @@ There is no further setup required. Just add your skills to the directories and 
 | --- | --- |
 | `--help` | Show all flags and commands |
 | `--version` | Show version information |
+| `--continue` | Resume the previous session |
 | `--gemma-thinking` | Inject thinking tokens for Gemma 4 models |
 | `--subagent-max-turns <n>` | Set max turns per subagent (default: 500) |
 | `--append-system-prompt "..."` | Append text to the system prompt (e.g. further instructions) |
+| `--enable-images` | Treat models as supporting images (for none llama.cpp servers) |
 
 ## Sessions
 
