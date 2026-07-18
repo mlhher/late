@@ -3,7 +3,23 @@ package common
 import (
 	"late/internal/client"
 	"testing"
+
+	"github.com/pkoukk/tiktoken-go"
 )
+
+// canonicalTokens returns the true cl100k_base token count for text, used as
+// the ground truth the package's EstimateTokenCount must match.
+func canonicalTokens(t *testing.T, text string) int {
+	t.Helper()
+	if text == "" {
+		return 0
+	}
+	enc, err := tiktoken.GetEncoding("cl100k_base")
+	if err != nil {
+		t.Fatalf("failed to load canonical encoder: %v", err)
+	}
+	return len(enc.Encode(text, nil, nil))
+}
 
 func TestReplacePlaceholders(t *testing.T) {
 	tests := []struct {
@@ -37,24 +53,22 @@ func TestReplacePlaceholders(t *testing.T) {
 }
 
 func TestEstimateTokenCount(t *testing.T) {
-	tests := []struct {
-		text     string
-		expected int
-	}{
-		{"", 0},
-		{"a", 0},              // 1/3.5 = 0.28 -> 0
-		{"abcd", 1},           // 4/3.5 = 1.14 -> 1
-		{"abcde", 1},          // 5/3.5 = 1.42 -> 1
-		{"12345678", 2},       // 8/3.5 = 2.28 -> 2
-		{"123456789", 2},      // 9/3.5 = 2.57 -> 2
-		{"1234567890", 2},     // 10/3.5 = 2.85 -> 2
-		{"this is a test", 4}, // 14/3.5 = 4.0 -> 4
+	tests := []string{
+		"",
+		"a",
+		"abcd",
+		"12345678",
+		"this is a test",
+		"Hello, world!",
+		"def main():\n    return 42",
+		"The quick brown fox jumps over the lazy dog.",
 	}
 
 	for _, tt := range tests {
-		result := EstimateTokenCount(tt.text)
-		if result != tt.expected {
-			t.Errorf("EstimateTokenCount(%q) = %d; want %d", tt.text, result, tt.expected)
+		got := EstimateTokenCount(tt)
+		want := canonicalTokens(t, tt)
+		if got != want {
+			t.Errorf("EstimateTokenCount(%q) = %d; want %d", tt, got, want)
 		}
 	}
 }
@@ -74,16 +88,14 @@ func TestEstimateMessageTokens(t *testing.T) {
 		},
 	}
 
-	// "Hello" = 5 chars -> 1 token
-	// "Thinking..." = 11 chars -> 3 tokens
-	// "test_tool" = 9 chars -> 2 tokens
-	// `{"arg1": "val1"}` = 16 chars -> 4 tokens
-	// Message overhead = 4 tokens
-	// Total = 1 + 3 + 2 + 4 + 4 = 14 tokens
-	expected := 14
-	result := EstimateMessageTokens(msg)
-	if result != expected {
-		t.Errorf("EstimateMessageTokens() = %d; want %d", result, expected)
+	// Expected = sum of real BPE counts for each text field + 4 msg overhead.
+	want := EstimateTokenCount("Hello") +
+		EstimateTokenCount("Thinking...") +
+		EstimateTokenCount("test_tool") +
+		EstimateTokenCount(`{"arg1": "val1"}`) + 4
+
+	if got := EstimateMessageTokens(msg); got != want {
+		t.Errorf("EstimateMessageTokens() = %d; want %d", got, want)
 	}
 }
 
@@ -93,13 +105,9 @@ func TestEstimateEventTokens(t *testing.T) {
 		ReasoningContent: "Reason",
 	}
 
-	// "Part1" = 5 chars -> 1 token
-	// "Reason" = 6 chars -> 1 token
-	// Total = 1 + 1 = 2 tokens
-	expected := 2
-	result := EstimateEventTokens(event)
-	if result != expected {
-		t.Errorf("EstimateEventTokens() = %d; want %d", result, expected)
+	want := EstimateTokenCount("Part1") + EstimateTokenCount("Reason")
+	if got := EstimateEventTokens(event); got != want {
+		t.Errorf("EstimateEventTokens() = %d; want %d", got, want)
 	}
 }
 
@@ -109,14 +117,14 @@ func TestCalculateHistoryTokens(t *testing.T) {
 		history      []client.ChatMessage
 		systemPrompt string
 		tools        []client.ToolDefinition
-		expected     int
+		want         int
 	}{
 		{
 			name:         "empty history with system prompt",
 			history:      []client.ChatMessage{},
 			systemPrompt: "You are an assistant",
 			tools:        nil,
-			expected:     15, // "You are an assistant" = 20 chars -> 5 tokens + 10 overhead = 15
+			want:         EstimateTokenCount("You are an assistant") + 10,
 		},
 		{
 			name: "single user message",
@@ -128,15 +136,15 @@ func TestCalculateHistoryTokens(t *testing.T) {
 			},
 			systemPrompt: "",
 			tools:        nil,
-			expected:     15, // System overhead (10) + msg content (1) + msg overhead (4) = 15
+			want:         10 + EstimateMessageTokens(client.ChatMessage{Role: "user", Content: client.TextContent("Hello")}),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := CalculateHistoryTokens(tt.history, tt.systemPrompt, tt.tools)
-			if result != tt.expected {
-				t.Errorf("CalculateHistoryTokens() = %d; want %d", result, tt.expected)
+			got := CalculateHistoryTokens(tt.history, tt.systemPrompt, tt.tools)
+			if got != tt.want {
+				t.Errorf("CalculateHistoryTokens() = %d; want %d", got, tt.want)
 			}
 		})
 	}

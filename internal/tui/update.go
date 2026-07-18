@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"late/internal/common"
 	"late/internal/git"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -134,21 +136,8 @@ func (m Model) updateInternal(msg tea.Msg) (Model, tea.Cmd) {
 			text := pasteMsg.Content
 			lineCount := strings.Count(text, "\n") + 1
 			if lineCount > 3 {
-				placeholder := fmt.Sprintf("[Pasted #%d lines]", lineCount)
-				if m.Pastes == nil {
-					m.Pastes = make(map[string]string)
-				}
-				placeholderWithIndex := placeholder
-				counter := 1
-				for {
-					if _, exists := m.Pastes[placeholderWithIndex]; !exists {
-						break
-					}
-					placeholderWithIndex = fmt.Sprintf("[Pasted #%d lines (%d)]", lineCount, counter)
-					counter++
-				}
-				m.Pastes[placeholderWithIndex] = text
-				m.Input.InsertString(placeholderWithIndex)
+				placeholder := m.newPasteToken(lineCount, text)
+				m.Input.InsertString(placeholder)
 
 				m.ToastMessage = fmt.Sprintf("pasted %d lines (%d chars)", lineCount, len(text))
 				m.ToastExpireTime = time.Now().UnixMilli() + 2500
@@ -205,23 +194,10 @@ func (m Model) updateInternal(msg tea.Msg) (Model, tea.Cmd) {
 			lineCount := strings.Count(pastedText, "\n") + 1
 			charCount := currentLen - m.lastInputLen
 			if lineCount > 3 {
-				placeholder := fmt.Sprintf("[Pasted #%d lines]", lineCount)
-				if m.Pastes == nil {
-					m.Pastes = make(map[string]string)
-				}
-				placeholderWithIndex := placeholder
-				counter := 1
-				for {
-					if _, exists := m.Pastes[placeholderWithIndex]; !exists {
-						break
-					}
-					placeholderWithIndex = fmt.Sprintf("[Pasted #%d lines (%d)]", lineCount, counter)
-					counter++
-				}
-				m.Pastes[placeholderWithIndex] = pastedText
+				placeholder := m.newPasteToken(lineCount, pastedText)
 
 				beforePaste := m.Input.Value()[:m.lastInputLen]
-				m.Input.SetValue(beforePaste + placeholderWithIndex)
+				m.Input.SetValue(beforePaste + placeholder)
 				m.Input.CursorEnd()
 
 				m.ToastMessage = fmt.Sprintf("pasted %d lines (%d chars)", lineCount, charCount)
@@ -741,11 +717,10 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 				}
 			}
 
-			// Replace pasted placeholders with original content
-			expandedInput := input
-			for placeholder, original := range m.Pastes {
-				expandedInput = strings.ReplaceAll(expandedInput, placeholder, original)
-			}
+			// Replace pasted placeholders with original content. Use a
+			// single left-to-right pass so a paste whose content contains
+			// another paste's placeholder token is never corrupted.
+			expandedInput := expandPastes(input, m.Pastes)
 
 			if err := m.Focused.Submit(expandedInput, m.AttachedFiles); err != nil {
 				m.Err = err
@@ -1120,18 +1095,114 @@ func (m Model) interruptFocusedAgent() (Model, tea.Cmd) {
 	return m, nil
 }
 
+// newPasteToken returns a human-readable placeholder for a multi-line paste
+// (e.g. "[Pasted #5 lines 9f3a2c]") with a unique, collision-resistant suffix,
+// records the mapping in m.Pastes, and returns the token. The random suffix
+// makes it practically impossible for pasted content to contain a placeholder
+// string, which previously caused the submit-time expansion to clobber one
+// paste with another ("paste-placeholder collision on submit").
+func (m *Model) newPasteToken(lineCount int, text string) string {
+	if m.Pastes == nil {
+		m.Pastes = make(map[string]string)
+	}
+	base := fmt.Sprintf("[Pasted #%d lines", lineCount)
+	token := fmt.Sprintf("%s %08x]", base, rand.Uint32())
+	for counter := 2; ; counter++ {
+		if _, exists := m.Pastes[token]; !exists {
+			break
+		}
+		token = fmt.Sprintf("%s %08x-%d]", base, rand.Uint32(), counter)
+	}
+	m.Pastes[token] = text
+	return token
+}
+
+// expandPastes replaces each paste placeholder token in input with its
+// original content. It scans left-to-right and only expands tokens that
+// appear literally in input, never re-scanning already-expanded content, so a
+// paste whose content itself contains a placeholder token (or any text that
+// looks like one) is left untouched.
+func expandPastes(input string, pastes map[string]string) string {
+	if len(pastes) == 0 {
+		return input
+	}
+	var b strings.Builder
+	b.Grow(len(input))
+	i := 0
+	for i < len(input) {
+		expanded := false
+		for ph, orig := range pastes {
+			if strings.HasPrefix(input[i:], ph) {
+				b.WriteString(orig)
+				i += len(ph)
+				expanded = true
+				break
+			}
+		}
+		if !expanded {
+			b.WriteByte(input[i])
+			i++
+		}
+	}
+	return b.String()
+}
+
+// isBinary reports whether the given bytes look like binary rather than
+// text that should be injected into the chat input.
+//
+// A paste is treated as binary when any of the following hold:
+//   - it contains a NUL byte (definitive binary signal),
+//   - it is not valid UTF-8 (images, gzip blobs, encodings, etc.),
+//   - more than ~10% of its (non-multibyte) bytes are raw control
+//     characters other than benign whitespace.
+//
+// The whole slice is validated for UTF-8 (cheap, allocation-free) so a
+// truncated multibyte sequence at the 8 KiB sampling boundary cannot
+// produce a false positive. Control-char scanning is bounded to the
+// first 8 KiB for performance on very large pastes.
 func isBinary(data []byte) bool {
 	if len(data) == 0 {
 		return false
 	}
+
+	// Valid UTF-8 text is never binary, regardless of length.
+	if !utf8.Valid(data) {
+		return true
+	}
+
 	limit := len(data)
 	if limit > 8192 {
 		limit = 8192
 	}
+
+	// NUL byte is a definitive binary signal.
 	for i := 0; i < limit; i++ {
 		if data[i] == 0 {
 			return true
 		}
 	}
+
+	// Count raw control bytes (excluding benign whitespace) to catch binary
+	// blobs that happen to be valid UTF-8. Only ASCII-range bytes can be raw
+	// control characters; multibyte UTF-8 bytes (>= 0x80) are left alone.
+	control := 0
+	for i := 0; i < limit; i++ {
+		b := data[i]
+		if b >= 0x80 {
+			continue
+		}
+		switch b {
+		case '\t', '\n', '\r', '\v', '\f', ' ':
+			// Benign whitespace — not a binary signal.
+		default:
+			if b < 0x20 || b == 0x7f {
+				control++
+			}
+		}
+	}
+	if float64(control)/float64(limit) > 0.10 {
+		return true
+	}
+
 	return false
 }

@@ -588,9 +588,14 @@ func searchByNames(ctx context.Context, searchPath, pattern, include, exclude, o
 // coerceRegexToGlob converts common regex patterns to glob equivalents so
 // agents who reflexively pass `\.go$` or `_test\.go$` still get results
 // when using search_names:true.
+//
+// Glob semantics here follow Go's filepath.Match, which supports `*`, `?`,
+// `[...]` character classes, and `[^...]`/`[!...]` negation — but NOT brace
+// expansion `{}` or alternation. Patterns that rely on features glob cannot
+// express are coerced as best-effort rather than silently corrupted.
 func coerceRegexToGlob(pattern string) string {
 	// Already looks like a simple glob (no regex metacharacters) — pass through
-	hasMeta := strings.ContainsAny(pattern, `\$^()+?|[]{}`)
+	hasMeta := strings.ContainsAny(pattern, `\$^()+?|[]{}\`)
 	if !hasMeta {
 		// Also check for unescaped .* or .+ which indicate regex intent
 		if strings.Contains(pattern, ".*") || strings.Contains(pattern, ".+") {
@@ -607,6 +612,14 @@ func coerceRegexToGlob(pattern string) string {
 
 	result := pattern
 
+	// Alternation groups like (foo|bar) cannot be expressed as a single glob.
+	// Replace each such group with a wildcard rather than deleting the `|`
+	// (which would silently concatenate the alternatives into a bogus literal
+	// like `foobar`). This over-matches instead of corrupting.
+	if strings.Contains(result, "|") {
+		result = regexp.MustCompile(`\(([^()]*\|[^()]*)+\)`).ReplaceAllString(result, "*")
+	}
+
 	// Strip anchors: ^foo → foo, foo$ → foo
 	result = strings.TrimPrefix(result, "^")
 	result = strings.TrimSuffix(result, "$")
@@ -620,21 +633,23 @@ func coerceRegexToGlob(pattern string) string {
 	// Convert `.+` → `*`
 	result = strings.ReplaceAll(result, `.+`, "*")
 
-	// Convert `(?:` and `(` → nothing (crude but good enough for simple patterns)
+	// Remove remaining grouping parentheses (non-alternation groups, e.g. (?:foo)).
 	result = strings.ReplaceAll(result, "(?:", "")
 	result = strings.ReplaceAll(result, "(", "")
 	result = strings.ReplaceAll(result, ")", "")
-	result = strings.ReplaceAll(result, "|", "")
 
-	// If the result has no wildcards but had regex anchors, the user was
-	// matching a suffix/prefix — add implied wildcards.
-	// e.g. `.go` (from `\.go$`) → `*.go`
-	//      `foo` (from `^foo`) → `foo*`
+	// Infer wildcards from regex anchors when the glob has none:
+	//   ^foo   → foo*   (prefix match)
+	//   foo$   → *foo   (suffix match)
+	//   ^foo$  → foo    (EXACT match — do NOT add wildcards, or a fully
+	//                     anchored name silently degrades into a substring match)
 	if !strings.ContainsAny(result, "*?[") {
-		if hadAnchorStart {
+		switch {
+		case hadAnchorStart && hadAnchorEnd:
+			// exact match — leave result untouched
+		case hadAnchorStart:
 			result = result + "*"
-		}
-		if hadAnchorEnd {
+		case hadAnchorEnd:
 			result = "*" + result
 		}
 	}

@@ -271,6 +271,11 @@ func (t *ShellTool) WrapError(ctx context.Context, err error) error {
 		return err
 	}
 
+	// Passthrough cd errors — they are about directory navigation, not file writing/modification.
+	if strings.Contains(err.Error(), "change directories") {
+		return err
+	}
+
 	orchestratorID := common.GetOrchestratorID(ctx)
 
 	var errorMsg string

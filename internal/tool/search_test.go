@@ -998,3 +998,97 @@ func TestSearchTool_ContentModeMultipleFiles(t *testing.T) {
 		t.Errorf("expected func B in results, got: %q", result)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Unit tests: coerceRegexToGlob (regex → glob coercion for search_names)
+// ---------------------------------------------------------------------------
+
+func TestCoerceRegexToGlob(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		want    string
+	}{
+		// Dual-anchor MUST remain an exact match, not a substring match.
+		{"fully anchored exact", "^main\\.go$", "main.go"},
+		{"fully anchored exact (no meta dot)", "^main.go$", "main.go"},
+		// Single-anchor infers the correct wildcard direction.
+		{"suffix anchor", "\\.go$", "*.go"},
+		{"prefix anchor", "^foo", "foo*"},
+		// Common agent reflex patterns.
+		{"trailing go", "_test\\.go$", "*_test.go"},
+		{"any suffix", "foo.*", "foo*"},
+		{"any plus", "foo.+", "foo*"},
+		// Alternation cannot be expressed as a single glob: collapse to wildcard
+		// instead of silently concatenating into a bogus literal.
+		{"alternation", "(foo|bar)\\.go", "*.go"},
+		{"non-capturing alternation", "(?:foo|bar)\\.go", "*.go"},
+		{"multi alternation", "(a|b|c)\\.go", "*.go"},
+		// Non-alternation groups keep their contents (no corruption).
+		{"plain group", "(foo)", "foo"},
+		// Already-valid globs and literals pass through untouched.
+		{"glob passthrough", "*.go", "*.go"},
+		{"literal passthrough", "main.go", "main.go"},
+		// Negated character classes ARE valid Go glob syntax — keep them.
+		{"negated class", "[^abc]*", "[^abc]*"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := coerceRegexToGlob(tt.pattern); got != tt.want {
+				t.Errorf("coerceRegexToGlob(%q) = %q, want %q", tt.pattern, got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Integration tests: search_names with anchored patterns
+// ---------------------------------------------------------------------------
+
+func TestSearchTool_NamesFullyAnchoredExact(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("package main\n"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "xmain.go"), []byte("package x\n"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "main.gox"), []byte("package x\n"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "src_main.go"), []byte("package s\n"), 0644)
+
+	tool := &SearchTool{}
+	// A fully-anchored regex must match ONLY the exact filename, not a substring.
+	args := json.RawMessage(`{"pattern": "^main\\.go$", "path": "` + tmpDir + `", "search_names": true}`)
+	result, err := tool.Execute(context.Background(), args)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(result, "main.go") {
+		t.Errorf("expected main.go in results, got: %q", result)
+	}
+	if strings.Contains(result, "xmain.go") {
+		t.Errorf("xmain.go should NOT match exact ^main\\.go$, got: %q", result)
+	}
+	if strings.Contains(result, "main.gox") {
+		t.Errorf("main.gox should NOT match exact ^main\\.go$, got: %q", result)
+	}
+	if strings.Contains(result, "src_main.go") {
+		t.Errorf("src_main.go should NOT match exact ^main\\.go$, got: %q", result)
+	}
+}
+
+func TestSearchTool_NamesAlternation(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.WriteFile(filepath.Join(tmpDir, "a.go"), []byte("package a\n"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "b.go"), []byte("package b\n"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "c.py"), []byte("print(1)\n"), 0644)
+
+	tool := &SearchTool{}
+	// (go|py) cannot be a single glob, so it coerces to a wildcard and the
+	// agent still gets results instead of a corrupt "gopy" literal.
+	args := json.RawMessage(`{"pattern": "(go|py)$", "path": "` + tmpDir + `", "search_names": true}`)
+	result, err := tool.Execute(context.Background(), args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, "a.go") || !strings.Contains(result, "b.go") || !strings.Contains(result, "c.py") {
+		t.Errorf("alternation coercion should still match all files, got: %q", result)
+	}
+}

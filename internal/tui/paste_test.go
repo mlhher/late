@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"late/internal/client"
 	"late/internal/common"
@@ -61,17 +62,23 @@ func TestPastePlaceholderReplacement(t *testing.T) {
 	res, _ := model.Update(msg)
 	model = res.(Model)
 
-	// Verify placeholder is inserted
-	expectedPlaceholder := "[Pasted #5 lines]"
+	// Verify placeholder is inserted (token is unique: [Pasted #5 lines <id>])
 	inputVal := model.Input.Value()
-	if !strings.Contains(inputVal, expectedPlaceholder) {
-		t.Errorf("Expected input to contain %q, got %q", expectedPlaceholder, inputVal)
+	if !strings.Contains(inputVal, "[Pasted #5 lines") {
+		t.Errorf("Expected input to contain a [Pasted #5 lines placeholder, got %q", inputVal)
 	}
-
-	// Verify paste text is stored in mapping
-	original, exists := model.Pastes[expectedPlaceholder]
-	if !exists || original != pasteText {
-		t.Errorf("Expected mapping from %q to %q, exists: %t, got %q", expectedPlaceholder, pasteText, exists, original)
+	if len(model.Pastes) != 1 {
+		t.Fatalf("Expected exactly 1 paste mapping, got %d", len(model.Pastes))
+	}
+	var placeholder, original string
+	for k, v := range model.Pastes {
+		placeholder, original = k, v
+	}
+	if original != pasteText {
+		t.Errorf("Expected mapping value %q, got %q", pasteText, original)
+	}
+	if !strings.Contains(inputVal, placeholder) {
+		t.Errorf("Expected input %q to contain generated placeholder %q", inputVal, placeholder)
 	}
 
 	// Simulate pressing enter/submitting
@@ -111,6 +118,67 @@ func TestPasteBinaryIgnored(t *testing.T) {
 	}
 	if strings.Contains(model.Input.Value(), "line1") || strings.Contains(model.Input.Value(), "line2") {
 		t.Errorf("Expected binary paste to be ignored, but input contains pasted content: %q", model.Input.Value())
+	}
+}
+
+func TestPastePlaceholderSubmitNoCollision(t *testing.T) {
+	orch := &mockOrchestrator{}
+	model := NewModel(orch, nil)
+
+	// Two multi-line pastes. The second paste's CONTENT contains a string
+	// that looks exactly like a placeholder; it must survive submission
+	// verbatim and never be expanded into the first paste's content.
+	first := "alpha\nbeta\ngamma\ndelta\nepsilon"
+	second := "one\ntwo\nthree\nfour\nfive [Pasted #5 lines 000000] end"
+
+	for _, p := range []string{first, second} {
+		res, _ := model.Update(tea.PasteMsg{Content: p})
+		model = res.(Model)
+	}
+
+	if len(model.Pastes) != 2 {
+		t.Fatalf("Expected 2 paste mappings, got %d", len(model.Pastes))
+	}
+
+	res, _ := model.Update(mockKey{code: '\r', text: "enter"})
+	model = res.(Model)
+
+	want := first + second
+	if orch.submittedText != want {
+		t.Errorf("Paste collision on submit.\n got %q\nwant %q", orch.submittedText, want)
+	}
+	if len(model.Pastes) != 0 {
+		t.Errorf("Expected pastes cleared after submit, got %d", len(model.Pastes))
+	}
+}
+
+func TestIsBinary(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+		want bool
+	}{
+		{"empty", []byte(""), false},
+		{"plain text", []byte("hello\nworld"), false},
+		// Existing NUL-byte behavior must still hold.
+		{"nul byte", []byte("line1\nline2\x00\nline3"), true},
+		// Invalid UTF-8 (e.g. a pasted image/gzip blob) is now rejected.
+		{"invalid utf8", []byte{0xff, 0xfe, 0x41, 0x42}, true},
+		// Valid multibyte UTF-8 must NOT be treated as binary.
+		{"utf8 multibyte", []byte("héllo 世界\n"), false},
+		// Base64 of binary is valid ASCII text and should pass through.
+		{"base64 ascii", []byte("aGVsbG8gd29ybGQgdGhpcyBpcyBvbmx5IHRleHQ="), false},
+		// Control-heavy content (>>10% raw control bytes) is binary.
+		{"control heavy", append(bytes.Repeat([]byte("\x01\x02"), 60), []byte("ab")...), true},
+		// Mostly-text with a few incidental control bytes stays text.
+		{"sparse control", append([]byte("normal text here\x01\x02"), bytes.Repeat([]byte("x"), 200)...), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isBinary(tt.data); got != tt.want {
+				t.Errorf("isBinary(%q) = %v, want %v", tt.data, got, tt.want)
+			}
+		})
 	}
 }
 

@@ -783,3 +783,24 @@ func TestBashTool_LargeSingleLineOutput(t *testing.T) {
 		t.Error("Expected output to contain truncation message")
 	}
 }
+
+func TestBashTool_WrapError(t *testing.T) {
+	tool := ShellTool{}
+
+	// Test cd command error passthrough
+	cdErr := fmt.Errorf("Do not use `cd` to change directories. Use the `cwd` parameter in the shell tool instead.")
+	wrappedCdErr := tool.WrapError(context.Background(), cdErr)
+	if wrappedCdErr.Error() != cdErr.Error() {
+		t.Errorf("Expected WrapError for cd command to return original error %q, got %q", cdErr.Error(), wrappedCdErr.Error())
+	}
+
+	// Test non-cd error wrapping for non-coder orchestrator
+	otherErr := fmt.Errorf("some other error")
+	ctx := context.WithValue(context.Background(), common.OrchestratorIDKey, "planner")
+	wrappedOtherErr := tool.WrapError(ctx, otherErr)
+	expectedOtherStr := "You are an architect/planner agent. You cannot write files. To modify files, you must spawn a coder subagent using `spawn_subagent` tool. some other error"
+	if wrappedOtherErr.Error() != expectedOtherStr {
+		t.Errorf("Expected wrapped non-cd error to match %q, got %q", expectedOtherStr, wrappedOtherErr.Error())
+	}
+}
+

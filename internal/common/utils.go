@@ -13,13 +13,22 @@ func ReplacePlaceholders(text string, placeholders map[string]string) string {
 	return text
 }
 
-// EstimateTokenCount estimates the number of tokens in text.
-// Uses a refined approximation: 1 token ≈ 3.5 characters (more accurate for code/English mix).
+// EstimateTokenCount returns the true cl100k_base BPE token count for text.
+// cl100k_base is the de-facto reference tokenizer used by OpenAI-compatible
+// APIs, so the displayed count matches what the model's context window sees.
+// It falls back to a character heuristic only if the embedded vocab fails to
+// load (it should not).
 func EstimateTokenCount(text string) int {
 	if text == "" {
 		return 0
 	}
-	return int(float64(len(text)) / 3.5)
+	enc, err := bpe()
+	if err != nil || enc == nil {
+		// Defensive fallback: ~3.5 chars/token. Only reached if the embedded
+		// vocabulary is unavailable.
+		return int(float64(len(text)) / 3.5)
+	}
+	return len(enc.Encode(text, nil, nil))
 }
 
 // EstimateToolDefinitionTokens estimates tokens used by tool definitions.

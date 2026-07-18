@@ -1,103 +1,138 @@
-<h1 align="center">Late: The AI Coding Agent That Just Works</h1>
+<h1 align="center">Late</h1>
 
 <p align="center">
   <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-> Every other coding agent floods its own context with edits, retries and implementation details until the model loses the thread. Late delegates all of that to ephemeral subagents — isolated contexts that execute one task and are destroyed. The orchestrator sees only plans and outcomes, never the mess. 
+<p align="center">
+  <b>Stop degrading your model's reasoning.</b><br><br>
+  A minimal, zero-config AI coding agent.<br>
+  Enforced ephemeral subagents retain model intelligence and keep context pure.<br>
+  From tiny local models up to Sol, Fable, and Kimi K3.<br>
+Get real work done with any LLM.
+</p>
+
+<p align="center">
+  <a href="https://github.com/mlhher/homebrew-late"><img src="https://img.shields.io/badge/Homebrew-tap-blue.svg?style=for-the-badge" alt="Homebrew"></a>
+  <a href="https://github.com/mlhher/late-cli/releases"><img src="https://img.shields.io/github/v/release/mlhher/late-cli?style=for-the-badge&color=green" alt="Release"></a>
+  <a href="https://deepwiki.com/mlhher/late-cli"><img src="https://img.shields.io/badge/DeepWiki-docs-blue.svg?style=for-the-badge" alt="DeepWiki"></a>
+</p>
+
+> [Outperforming Claude Code and Codex for Local LLM Workflows](https://agentnativedev.medium.com/outperforming-claude-code-and-codex-for-local-llm-workflows-5de0e2b1add5) — Agent Native
 >
-> Single static binary, zero dependencies, any model.
+> *"Late-CLI is mindblowing... I'm shocked that the token usage is so minimal, I keep expecting a big bill from DeepSeek's API."* — GitHub Discussions
+>
+> *"The same model feels smarter with Late."* — Reddit
+>
+> **Built with Late:** Late is primarily developed inside Late itself.
 
 <div align="center">
-
-[![Release](https://img.shields.io/github/v/release/mlhher/late-cli)](https://github.com/mlhher/late-cli/releases) [![Homebrew](https://img.shields.io/badge/Homebrew-tap-brightgreen.svg)](https://github.com/mlhher/homebrew-late) [![DeepWiki](https://img.shields.io/badge/DeepWiki-docs-blue.svg)](https://deepwiki.com/mlhher/late-cli)
-
-**Get to your first prompt in less than 10 seconds.**
-
-**Stop burning tokens on noise.**
-
-**Solve real problems with small local models or use big cloud models.**
-
-
-![Late Orchestrator planning a multi-phase implementation and spawning the first subagent](assets/late-subagent-handoff.png)
-*Lead Architect forming a plan and spawning multiple atomic subagents for surgical edits.*
-
-<br/>
-
+  <br/>
+  <img src="assets/late-subagent-handoff.png" alt="Late Orchestrator planning a multi-phase implementation and spawning the first subagent">
+  <br/>
+  <i>Late Orchestrator forming a plan and spawning atomic subagents for surgical edits.</i>
+  <br/><br/>
 </div>
 
+## 10-Second Quickstart
+
+A single, statically compiled binary. Zero dependencies. No Python venvs, no NodeJS.
+
 ```bash
-# Linux / macOS
+# macOS / Linux (Homebrew)
 brew tap mlhher/late && brew install late
 
 # Universal Fallback (Linux / macOS / Windows WSL)
 curl -sfL https://raw.githubusercontent.com/mlhher/late-cli/main/install.sh | bash
 
+# Run instantly in any project
 cd your-project
 late
 ```
 
-> **Other Installation Methods**
-> - **Arch Linux:** `yay -S late-cli-bin`
-> - **Linux / macOS / Native Windows:** Download the [latest binary](https://github.com/mlhher/late-cli/releases) and drop it in your PATH. *(macOS manual download: if blocked, run `xattr -d com.apple.quarantine /path/to/late`)*
-> 
-> **Connecting to Cloud Models?**
-> Local models (llama.cpp on `:8080`, the default for llama-server) work out-of-the-box. No configuration required. For cloud providers (DeepSeek, Claude, Gemini, OpenRouter), set your `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` environment variables.
+*(Arch Linux: `yay -S late-cli-bin` | [Manual Binaries (incl. native Windows)](https://github.com/mlhher/late-cli/releases))*
+
+## The Architectural Bottleneck
+
+**The Problem:** Standard coding agents try to do everything inside a single, shared context window. Every compile error, lint failure, and even file write piles up in the KV cache. As the context fills with garbage, the model's intelligence actively degrades. You blame the model, but it's an architecture failure.
+
+**The Late Solution:** Late splits the brain. It enforces a strict boundary between planning and execution and actively compartmentalizes agents identities and objectives.
+
+```text
+                              [ User Prompt ]
+                                    │
+                                    ▼
+┌──────────────────────────────────────────────────────────────────┐
+│    MAIN ORCHESTRATOR (~1,000 Token System Prompt)                │
+│ Always planning. Analyzes intent, maps layout, forms master plan.│
+│ Context window remains 100% pure (Signal Only).                  │
+└──────┬────────────────────────────────────────────────────┬──────┘
+       │ (Spawns)                                           │ (Spawns)
+       ▼                                                    ▼
+┌────────────────────────────────┐           ┌────────────────────────────────┐
+│ EPHEMERAL SUBAGENT: Coding     │           │ EPHEMERAL SUBAGENT: Research   │
+│ - Executes exact-match diffs   │           │ - Scrapes & synthesizes data   │
+│ - Absorbs lint/write/retry     │           │ - Absorbs raw data bloat       │
+└──────────────┬─────────────────┘           └────────────────┬───────────────┘
+               │                                              │
+               ▼                                              ▼
+      [ CONTEXT DESTROYED ]                          [ CONTEXT DESTROYED ]
+               │                                              │
+               └───────────► [ Returns Outcomes ] ◄───────────┘
+                                      │
+                                      ▼
+                    ( 🔄 Orchestrator plans & continues )
+
+```
+
+The orchestrator’s context grows only from what actually matters: your exact instructions and the definitive results. Everything the subagent did to get there is wiped from memory. **The same model feels smarter in Late because it reasons purely from signal, never noise.**
+
+## The Feature Matrix
 
 |  | Late | Claude Code | OpenCode | The Weekly Clone |
 | --- | --- | --- | --- | --- |
 | **Workflow** | **Autonomous Orchestration** | Manual toggling | Manual toggling | Blind execution/Manual toggling |
-| **Implementations** | **Ephemeral subagents (Context destroyed)** | Floods main context window | Floods main context window | Floods main context window |
-| **KV-Cache** | **Ruthless KV cache management** | Brute-force context dumping | Brute-force context dumping | Brute-force context dumping |
-| **System Prompt** | **~1,000 tokens (Always planning workflow)** | 10,000+ tokens | 10,000+ tokens | ~300-1000+ tokens (No-workflow lobotomy) |
+| **Implementations** | **Ephemeral coder subagents (Wiped)** | Floods main context | Floods main context | Floods main context window |
+| **Research / Exploration** | **Ephemeral researcher subagents (Wiped)** | Floods main context | Floods main context | Floods main context window |
+| **KV-Cache** | **Ruthless KV-cache management (No prompt-reprocessing)** | Brute-force dumping | Brute-force dumping | Brute-force context dumping |
+| **System Prompt** | **~1,000 tokens (Always planning)** | 10,000+ tokens | 10,000+ tokens | ~300-1000+ tokens (No workflow) |
 | **Dependencies** | **Zero-dependency static binary** | Node.js | Node.js | Python / Node.js |
-| **Setup required** | **None (OOTB `llama-server` support)** | Anthropic OAuth / Sign-in | Mandatory JSON tweaking | Flavor of the week JSON/YAML/TOML configs |
+| **Setup Required** | **None (OOTB `llama-server` support)** | Anthropic OAuth | Mandatory JSON tweaks | Endless YAML/TOML configs |
 | **Built For** | **Builders wanting 10x throughput** | Enterprise expense accounts | Tinkering with settings | Chasing GitHub stars |
 
-> *"The same model feels smarter with Late."* — Reddit
 
-> *"Late-CLI is mindblowing... I'm shocked that the token usage is so minimal, I keep expecting a big bill from DeepSeek's API."* — GitHub Discussions
+## Model Connectivity
 
-> [Outperforming Claude Code and Codex for Local LLM Workflows](https://agentnativedev.medium.com/outperforming-claude-code-and-codex-for-local-llm-workflows-5de0e2b1add5) — Agent Native
+Late is hardware and model-agnostic.
 
-> **Built with Late:** Late is primarily developed inside Late itself.
+**Local Models (Zero Config):**
+Works out-of-the-box. Late targets `llama.cpp` on port `:8080` (the default for `llama-server`) with zero configuration required.
 
-Works with **Claude, DeepSeek, Qwen, Gemma (including thinking support for Gemma)**, and any OpenAI-compatible API. See the [Quickstart Guide](docs/quickstart.md) for hybrid model routing, keybindings, MCP setup, Skills and more.
+**Cloud Providers (DeepSeek, Claude, GPT, Kimi, GLM, OpenRouter):**
 
----
+```bash
+export OPENAI_BASE_URL="your-api-url"
+export OPENAI_API_KEY="your-api-key"
+export OPENAI_MODEL="model-name"
+```
 
-## How It Works
 
-Standard coding agents do all their work, whether it's planning, implementing, retrying failed edits, or self-healing, in one shared context window. Every retry, every failed implementation, every repair loop pollutes the context the model reasons from. It degrades. You blame the model. The model is fine.
+📖 **[Read the Quickstart Guide](./docs/quickstart.md)** to find out how to persist these settings and for MCP setup, Agent Skills, Git Worktrees, Keybindings and more.
 
-Late separates concerns. A lean orchestrator (~1,000 token system prompt) reads your codebase, forms a plan, and delegates individual implementation tasks to ephemeral subagents. Each subagent gets a fresh isolated context containing only its one task and nothing else. When it completes, that context is destroyed. The orchestrator only ever sees outcomes.
+## More Features
 
-Late manages the KV cache and context window carefully, leaving more room for reasoning. The orchestrator's context grows only from what matters: your instructions and the agent's decisions. Everything the subagent did to get there is gone with it. This is why the same model feels sharper in Late. It reasons from signal, not noise.
-
----
-
-## Features
-
-- **Hybrid Model Routing:** Architect the plan with a massive reasoning model (e.g., DeepSeek V4), then spawn subagents to execute it using blazing-fast, cheap local models (e.g., Gemma 4).
-- **Exact-Match Diffs:** Strict `search`/`replace` blocks with autonomous self-healing on mismatch. Edits fail loud. We never silently corrupt your files.
-- **Human-in-the-Loop:** Read-only commands are auto-approved for velocity. Mutations hard-stop for `[y/N]`. Features Session, Project, and Global trust scopes with TTL decay.
-- **Stateful Resilience:** The Orchestrator maintains continuous session history on disk. Close your terminal, reboot your machine, and pick up exactly where you left off.
-- **MCP Integration:** Natively map external Model Context Protocol servers directly into Late via standard I/O.
-- **Agent Skills:** Drop in reusable sets of instructions and scripts. Zero configuration or boilerplate required.
-- **Git Worktree Support:** Run independent, parallel agent instances across multiple branches without context bleeding.
-- **Context-Aware Search:** Native search tool that automatically respects `.gitignore` and `.llmignore` to prevent flooding the context window with irrelevant files.
-- **Rich Terminal UI:** Slash commands, input history, commit log viewer, and an interactive keyboard help overlay (`Ctrl+H`).
-- **Rewind & Compose:** Jump back in history to undo actions with `/rewind`, or write complex prompts in an external editor using `/compose`.
-- **Gemma 4 Thinking Mode:** Standard wrappers just pipe text to an API, which means they can't trigger Gemma's reasoning. Late includes a dedicated flag to inject the exact tokens required to actually make it think.
-
----
+* **Hybrid Model Routing:** Architect the plan with a massive reasoning model (e.g., GPT 5.6, Kimi K3, GLM 5.2), then automatically spawn subagents to execute the implementation using fast, cheap local models (e.g., Gemma 4).
+* **Exact-Match Diffs:** Strict `search`/`replace` blocks with autonomous self-healing on mismatch. Edits fail loud. We never silently corrupt your files.
+* **Agent Skills Support:** Extend Late's capabilities by using third party Agent Skills. No configuration required.
+* **MCP Integration:** Natively map external Model Context Protocol servers directly into Late via standard I/O.
+* **Context-Aware Search:** Native search tool that automatically respects `.gitignore` and `.llmignore` to prevent flooding the context window with irrelevant files.
+* **Stateful Resilience:** The Orchestrator maintains continuous session history on disk. Close your terminal, reboot your machine, and pick up exactly where you left off.
+* **Git Worktree Support:** Run independent, parallel agent instances across multiple branches without context bleeding.
+* **Human-in-the-Loop:** Read-only commands are auto-approved for velocity. Mutations hard-stop for `[y/N]`. Features Session, Project, and Global trust scopes with TTL decay.
 
 ## License
 
 Built to create engineering leverage, not to supply free infrastructure for AI startups.
 
-**Free for builders:** Use Late freely to write code for any project, including commercial ones. Your output is yours.
-
-**Commercial restrictions:** You may not monetize Late itself. Wrapping the orchestration engine into a paid service or deploying it as enterprise infrastructure requires a commercial agreement.
-
-Late converts to GPLv2 on February 21, 2030. Full license in [LICENSE](LICENSE).
+* **Free for Builders:** Use Late freely to write code for any project, including commercial ones. Your generated output is yours.
+* **Commercial Infrastructure:** You may not monetize Late itself. Wrapping the orchestration engine into a paid service requires a commercial agreement. *(Converts to GPLv2 on Feb 21, 2030).*
