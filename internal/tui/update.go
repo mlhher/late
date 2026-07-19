@@ -381,7 +381,7 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 					m.updateViewport()
 				}
 				return m, nil
-			case "enter", "esc":
+			case "enter":
 				// Save choices to AppConfig
 				if m.AppConfig != nil {
 					if m.AppConfig.AgentModels == nil {
@@ -435,6 +435,13 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 				m.updateLayout()
 				m.updateViewport()
 				return m, clearCmd
+
+			case "esc":
+				m.Mode = ViewChat
+				focusedState.RenderedHistory = nil
+				m.updateLayout()
+				m.updateViewport()
+				return m, nil
 			}
 			return m, nil
 		}

@@ -54,8 +54,9 @@ func (m Model) View() tea.View {
 	if m.Mode == ViewModelPicker {
 		hUpDn := lipgloss.JoinHorizontal(lipgloss.Left, statusKeyStyle.Render("↑/↓"), statusTextStyle.Render(" Select Agent "))
 		hLfRt := lipgloss.JoinHorizontal(lipgloss.Left, statusKeyStyle.Render("←/→"), statusTextStyle.Render(" Choose Model "))
-		hEnter := lipgloss.JoinHorizontal(lipgloss.Left, statusKeyStyle.Render("Enter/Esc"), statusTextStyle.Render(" Save & Close "))
-		pickerHints := lipgloss.JoinHorizontal(lipgloss.Left, hUpDn, statusBg("  "), hLfRt, statusBg("  "), hEnter)
+		hEnter := lipgloss.JoinHorizontal(lipgloss.Left, statusKeyStyle.Render("Enter"), statusTextStyle.Render(" Save "))
+		hEsc := lipgloss.JoinHorizontal(lipgloss.Left, statusKeyStyle.Render("Esc"), statusTextStyle.Render(" Cancel "))
+		pickerHints := lipgloss.JoinHorizontal(lipgloss.Left, hUpDn, statusBg("  "), hLfRt, statusBg("  "), hEnter, statusBg("  "), hEsc)
 
 		iStr = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder(), true, false, false, false).
@@ -322,7 +323,7 @@ func (m *Model) statusBarView() string {
 			status = lipgloss.NewStyle().Foreground(primaryColor).Background(appBgColor).Bold(true).Render("✓ " + m.ToastMessage)
 		}
 
-		rightSection := lipgloss.NewStyle().Foreground(subtextColor).Background(appBgColor).Render("esc/enter Save & Close")
+		rightSection := lipgloss.NewStyle().Foreground(subtextColor).Background(appBgColor).Render("enter Save • esc Cancel")
 
 		usableW := w - 2
 		leftWidth := lipgloss.Width(leftSection)
@@ -1474,7 +1475,7 @@ func (m *Model) renderModelPickerView() {
 		Foreground(subtextColor).
 		Background(appBgColor).
 		PaddingLeft(2).
-		Render("Press [Enter] or [Esc] to save and exit.")
+		Render("Press [Enter] to save, [Esc] to cancel.")
 	lines = append(lines, footer)
 
 	paddedContent := lipgloss.NewStyle().
