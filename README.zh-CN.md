@@ -39,7 +39,7 @@
 单一的静态编译二进制文件。零依赖。不需要 Python 虚拟环境，不需要 NodeJS。
 
 ```bash
-# macOS / Linux (Homebrew)
+# Linux / macOS (Homebrew)
 brew tap mlhher/late && brew install late
 
 # 通用备用方案 (Linux / macOS / Windows WSL)
@@ -91,17 +91,17 @@ late
 |  | Late | Claude Code | OpenCode | The Weekly Clone |
 | --- | --- | --- | --- | --- |
 | **工作流** | **自主编排** | 手动切换 | 手动切换 | 盲目执行 / 手动切换 |
-| **代码实现** | **临时编程子智能体 (自动抹除)** | 充斥主上下文 | 充斥主上下文 | 充斥主上下文窗口 |
-| **研究 / 探索** | **临时研究子智能体 (自动抹除)** | 充斥主上下文 | 充斥主上下文 | 充斥主上下文窗口 |
-| **KV-Cache** | **严苛的 KV 缓存管理 (无重复的提示词处理)** | 暴力堆砌 | 暴力堆砌 | 暴力上下文堆砌 |
+| **代码实现** | **临时编程子智能体 (自动抹除)** | 充斥主上下文 | 充斥主上下文 | 充斥主上下文 |
+| **探索** | **临时研究子智能体 (自动抹除)** | 充斥主上下文 | 充斥主上下文 | 充斥主上下文 |
+| **KV-Cache** | **严苛的 KV 缓存管理 (无重复的提示词处理)** | 暴力堆砌 | 暴力堆砌 | 暴力堆砌 |
 | **系统提示词** | **~1,000 tokens (始终处于规划状态)** | 10,000+ tokens | 10,000+ tokens | ~300-1000+ tokens (无工作流) |
 | **依赖** | **零依赖静态二进制文件** | Node.js | Node.js | Python / Node.js |
-| **安装要求** | **无 (原生支持 `llama-server`)** | Anthropic OAuth | 强制 JSON 调整 | 无尽的 YAML/TOML 配置 |
+| **安装要求** | **无 (原生支持 `llama-server`)** | Anthropic OAuth | 强制 JSON 调整 | 无尽的 YAML/TOML/JSON 配置 |
 | **设计初衷** | **追求 10 倍效率的开发者** | 企业级报销大户 | 摆弄各种设置 | 追求 GitHub Stars |
 
 ## 模型连接
 
-Late 适配任何硬件与模型。
+Late 适配任何模型。
 
 **本地模型 (零配置):**
 开箱即用。Late 默认指向运行在 `:8080` 端口的 `llama.cpp` (`llama-server` 的默认端口)，无需任何额外配置。

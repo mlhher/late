@@ -39,7 +39,7 @@ Get real work done with any LLM.
 A single, statically compiled binary. Zero dependencies. No Python venvs, no NodeJS.
 
 ```bash
-# macOS / Linux (Homebrew)
+# Linux / macOS (Homebrew)
 brew tap mlhher/late && brew install late
 
 # Universal Fallback (Linux / macOS / Windows WSL)
@@ -92,18 +92,18 @@ The orchestrator’s context grows only from what actually matters: your exact i
 |  | Late | Claude Code | OpenCode | The Weekly Clone |
 | --- | --- | --- | --- | --- |
 | **Workflow** | **Autonomous Orchestration** | Manual toggling | Manual toggling | Blind execution/Manual toggling |
-| **Implementations** | **Ephemeral coder subagents (Wiped)** | Floods main context | Floods main context | Floods main context window |
-| **Research / Exploration** | **Ephemeral researcher subagents (Wiped)** | Floods main context | Floods main context | Floods main context window |
-| **KV-Cache** | **Ruthless KV-cache management (No prompt-reprocessing)** | Brute-force dumping | Brute-force dumping | Brute-force context dumping |
+| **Implementations** | **Ephemeral coder subagents (Wiped)** | Floods main context | Floods main context | Floods main context |
+| **Explorations** | **Ephemeral researcher subagents (Wiped)** | Floods main context | Floods main context | Floods main context |
+| **KV-Cache** | **Ruthless KV-cache management (No prompt-reprocessing)** | Brute-force dumping | Brute-force dumping | Brute-force dumping |
 | **System Prompt** | **~1,000 tokens (Always planning)** | 10,000+ tokens | 10,000+ tokens | ~300-1000+ tokens (No workflow) |
 | **Dependencies** | **Zero-dependency static binary** | Node.js | Node.js | Python / Node.js |
-| **Setup Required** | **None (OOTB `llama-server` support)** | Anthropic OAuth | Mandatory JSON tweaks | Endless YAML/TOML configs |
+| **Setup Required** | **None (OOTB `llama-server` support)** | Anthropic OAuth | Mandatory JSON tweaks | Endless YAML/TOML/JSON configs |
 | **Built For** | **Builders wanting 10x throughput** | Enterprise expense accounts | Tinkering with settings | Chasing GitHub stars |
 
 
 ## Model Connectivity
 
-Late is hardware and model-agnostic.
+Late is model-agnostic.
 
 **Local Models (Zero Config):**
 Works out-of-the-box. Late targets `llama.cpp` on port `:8080` (the default for `llama-server`) with zero configuration required.

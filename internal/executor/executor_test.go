@@ -154,7 +154,7 @@ func TestExecuteToolCalls_Denied(t *testing.T) {
 	sess := session.New(c, histPath, nil, "", true)
 
 	// Register bash tool which requires confirmation
-	RegisterTools(sess.Registry, nil, false)
+	RegisterTools(sess.Registry, nil)
 
 	toolCalls := []client.ToolCall{
 		{ID: "tc_1", Function: client.FunctionCall{Name: "bash", Arguments: `{"command":"echo hi"}`}},
@@ -186,7 +186,7 @@ func TestExecuteToolCalls_NoMiddlewareFailsClosed(t *testing.T) {
 	histPath := filepath.Join(t.TempDir(), "history.json")
 	sess := session.New(c, histPath, nil, "", true)
 
-	RegisterTools(sess.Registry, map[string]bool{"bash": true}, false)
+	RegisterTools(sess.Registry, map[string]bool{"bash": true})
 
 	toolCalls := []client.ToolCall{
 		{ID: "tc_1", Function: client.FunctionCall{Name: "bash", Arguments: `{"command":"echo hi"}`}},
@@ -266,7 +266,7 @@ func TestRegisterTools(t *testing.T) {
 		"target_edit": true,
 		"bash":        false,
 	}
-	RegisterTools(sess.Registry, enabledTools, false)
+	RegisterTools(sess.Registry, enabledTools)
 
 	expected := []string{"read_file", "write_file", "target_edit"}
 	for _, name := range expected {
@@ -290,7 +290,7 @@ func TestRegisterTools_WithBash(t *testing.T) {
 	enabledTools := map[string]bool{
 		"bash": true,
 	}
-	RegisterTools(sess.Registry, enabledTools, false)
+	RegisterTools(sess.Registry, enabledTools)
 
 	if sess.Registry.Get("bash") == nil {
 		t.Error("bash should be registered when enableBash is true")
@@ -305,7 +305,7 @@ func TestRegisterTools_WithReadFile(t *testing.T) {
 	enabledTools := map[string]bool{
 		"read_file": true,
 	}
-	RegisterTools(sess.Registry, enabledTools, false)
+	RegisterTools(sess.Registry, enabledTools)
 
 	// Verify ReadFileTool is still there (implied by default check), but maybe check its description/params if needed?
 	// For now, just ensuring no error is thrown during registration is good enough.
@@ -320,11 +320,12 @@ func TestRegisterTools_Planning(t *testing.T) {
 	sess := session.New(c, histPath, nil, "", false)
 
 	enabledTools := map[string]bool{
-		"read_file":  true,
-		"write_file": true,
-		"bash":       true,
+		"read_file":                 true,
+		"write_file":                false,
+		"bash":                      true,
+		"write_implementation_plan": true,
 	}
-	RegisterTools(sess.Registry, enabledTools, true)
+	RegisterTools(sess.Registry, enabledTools)
 
 	// In planning mode, write_file should NOT be registered
 	if sess.Registry.Get("write_file") != nil {

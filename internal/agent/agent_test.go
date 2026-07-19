@@ -148,3 +148,31 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+// TestNewSubagentOrchestratorID verifies that the created subagent ID contains its agent type
+func TestNewSubagentOrchestratorID(t *testing.T) {
+	cfg := client.Config{BaseURL: "http://localhost:8080"}
+	c := client.NewClient(cfg)
+	mockSession := session.New(c, "/tmp/mock-session.json", []client.ChatMessage{}, "mock system prompt", true)
+	parent := orchestrator.NewBaseOrchestrator("parent", mockSession, nil, 100)
+
+	child, err := NewSubagentOrchestrator(
+		c,
+		"test goal",
+		[]string{},
+		"coder",
+		map[string]bool{"bash": true},
+		false,
+		false,
+		100,
+		parent,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("Failed to create subagent: %v", err)
+	}
+
+	if !strings.Contains(child.ID(), "coder") {
+		t.Errorf("Expected child ID to contain 'coder', got %s", child.ID())
+	}
+}

@@ -240,8 +240,17 @@ func main() {
 		enabledTools["bash"] = false
 	}
 
+	// Main agent is a planner: explicitly enable planner tools and disable coding tools
+	mainTools := make(map[string]bool)
+	for k, v := range enabledTools {
+		mainTools[k] = v
+	}
+	mainTools["write_implementation_plan"] = true
+	mainTools["write_file"] = false
+	mainTools["target_edit"] = false
+
 	sess := session.New(c, historyPath, history, systemPrompt, *useToolsReq)
-	executor.RegisterTools(sess.Registry, enabledTools, true)
+	executor.RegisterTools(sess.Registry, mainTools)
 
 	// Register MCP tools into the session registry.
 	// MCP tool names are now namespaced as "{server}:{tool}" (e.g. "graph-rag:list_files").

@@ -115,12 +115,11 @@ func ExecuteToolCalls(ctx context.Context, sess *session.Session, toolCalls []cl
 // RegisterTools registers the common tool set on a session's registry.
 // If isPlanning is true, it only registers read-only tools and the planning tool.
 // Otherwise, it registers the full set of coding tools.
-func RegisterTools(reg *tool.Registry, enabledTools map[string]bool, isPlanning bool) {
+func RegisterTools(reg *tool.Registry, enabledTools map[string]bool) {
 	if enabledTools == nil {
 		enabledTools = make(map[string]bool)
 	}
 
-	// Always register read-only and base tools
 	if enabledTools["read_file"] {
 		reg.Register(tool.NewReadFileTool())
 	}
@@ -130,18 +129,14 @@ func RegisterTools(reg *tool.Registry, enabledTools map[string]bool, isPlanning 
 	if enabledTools["bash"] {
 		reg.Register(&tool.ShellTool{})
 	}
-
-	if isPlanning {
-		// Planning-only tools
+	if enabledTools["write_implementation_plan"] {
 		reg.Register(tool.WriteImplementationPlanTool{})
-	} else {
-		// Coding-only tools
-		if enabledTools["write_file"] {
-			reg.Register(tool.WriteFileTool{})
-		}
-		if enabledTools["target_edit"] {
-			reg.Register(tool.NewTargetEditTool())
-		}
+	}
+	if enabledTools["write_file"] {
+		reg.Register(tool.WriteFileTool{})
+	}
+	if enabledTools["target_edit"] {
+		reg.Register(tool.NewTargetEditTool())
 	}
 
 	// Register Skills
