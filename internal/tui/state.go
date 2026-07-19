@@ -3,6 +3,7 @@ package tui
 import (
 	"late/internal/client"
 	"late/internal/common"
+	"late/internal/config"
 	"late/internal/git"
 
 	"charm.land/bubbles/v2/filepicker"
@@ -36,6 +37,7 @@ const (
 	ViewFilePicker
 	ViewCommitLog
 	ViewRewind
+	ViewModelPicker
 )
 
 // Fixed layout heights (crush-style)
@@ -51,6 +53,7 @@ var AvailableCommands = []string{
 	"/compose",
 	"/help",
 	"/log",
+	"/model",
 	"/quit",
 	"/rewind",
 }
@@ -144,6 +147,15 @@ type Model struct {
 	SubagentInfo string // Subagent model/config description, empty if same as main
 	CWD          string // Current working directory, shown in status bar
 	ShowCWD      bool   // Whether to show current working directory in status bar
+
+	// Configuration
+	AppConfig *config.Config
+
+	// Model picker fields
+	ModelPickerAgents          []string
+	ModelPickerModels          []string
+	ModelPickerAgentIndex      int
+	ModelPickerAgentSelections map[string]int
 
 	// Esc confirmation
 	EscConfirmPending bool   // Show "are you sure?" when Esc pressed at main view

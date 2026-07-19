@@ -52,7 +52,7 @@ func (k mockKey) Key() tea.Key {
 
 func TestPastePlaceholderReplacement(t *testing.T) {
 	orch := &mockOrchestrator{}
-	model := NewModel(orch, nil)
+	model := NewModel(orch, nil, nil)
 
 	// Simulate PasteMsg of 5 lines
 	pasteText := "line1\nline2\nline3\nline4\nline5"
@@ -99,7 +99,7 @@ func TestPastePlaceholderReplacement(t *testing.T) {
 
 func TestPasteBinaryIgnored(t *testing.T) {
 	orch := &mockOrchestrator{}
-	model := NewModel(orch, nil)
+	model := NewModel(orch, nil, nil)
 
 	// Set initial state
 	model.Input.SetValue("> hello")
@@ -123,7 +123,7 @@ func TestPasteBinaryIgnored(t *testing.T) {
 
 func TestPastePlaceholderSubmitNoCollision(t *testing.T) {
 	orch := &mockOrchestrator{}
-	model := NewModel(orch, nil)
+	model := NewModel(orch, nil, nil)
 
 	// Two multi-line pastes. The second paste's CONTENT contains a string
 	// that looks exactly like a placeholder; it must survive submission

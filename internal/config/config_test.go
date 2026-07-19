@@ -527,3 +527,40 @@ func TestResolveSubagentSettings(t *testing.T) {
 		})
 	}
 }
+
+func TestConfig_GetModelForAgent(t *testing.T) {
+	cfg := &Config{
+		Models: []ModelSetting{
+			{URL: "http://localhost:8080", Key: "key-1", Model: "model-1"},
+			{URL: "http://localhost:9090", Key: "key-2", Model: "model-2"},
+		},
+		AgentModels: map[string]string{
+			"orchestrator": "model-1",
+			"coder":        "model-2",
+			"unknown":      "model-3",
+		},
+	}
+
+	tests := []struct {
+		agentType string
+		wantModel string
+		wantOk    bool
+	}{
+		{"orchestrator", "model-1", true},
+		{"coder", "model-2", true},
+		{"unknown", "", false},
+		{"missing", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.agentType, func(t *testing.T) {
+			got, ok := cfg.GetModelForAgent(tt.agentType)
+			if ok != tt.wantOk {
+				t.Errorf("GetModelForAgent(%q) ok = %v, want %v", tt.agentType, ok, tt.wantOk)
+			}
+			if ok && got.Model != tt.wantModel {
+				t.Errorf("GetModelForAgent(%q) got model = %q, want %q", tt.agentType, got.Model, tt.wantModel)
+			}
+		})
+	}
+}

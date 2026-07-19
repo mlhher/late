@@ -216,6 +216,13 @@ func main() {
 		Model:        resolvedOpenAIConfig.Model,
 		EnableImages: *enableImagesReq,
 	}
+	if appConfig != nil {
+		if setting, ok := appConfig.GetModelForAgent("orchestrator"); ok {
+			resolvedClientConfig.BaseURL = setting.URL
+			resolvedClientConfig.APIKey = setting.Key
+			resolvedClientConfig.Model = setting.Model
+		}
+	}
 	c := client.NewClient(resolvedClientConfig)
 	c.DiscoverBackend(context.Background())
 
@@ -286,16 +293,30 @@ func main() {
 	// We'll add middlewares later once the program is started
 	rootAgent := orchestrator.NewBaseOrchestrator("main", sess, nil, 0)
 
-	model := tui.NewModel(rootAgent, renderer)
-	model.ModelName = resolvedOpenAIConfig.Model
-	model.ShowCWD = *showCWDReq
+	model := tui.NewModel(rootAgent, renderer, appConfig)
+	if appConfig != nil {
+		if orchestratorModel, ok := appConfig.AgentModels["orchestrator"]; ok {
+			model.ModelName = orchestratorModel
+		} else {
+			model.ModelName = resolvedOpenAIConfig.Model
+		}
 
-	// Detect if subagents use a different model/backend
-	if resolvedSubagentConfig.BaseURL != resolvedOpenAIConfig.BaseURL ||
-		resolvedSubagentConfig.APIKey != resolvedOpenAIConfig.APIKey ||
-		resolvedSubagentConfig.Model != resolvedOpenAIConfig.Model {
+		var subagentInfos []string
+		for _, sub := range assets.GetSubagents() {
+			if m, ok := appConfig.AgentModels[sub.Name]; ok {
+				subagentInfos = append(subagentInfos, fmt.Sprintf("%s:%s", sub.Name, m))
+			}
+		}
+		if len(subagentInfos) > 0 {
+			model.SubagentInfo = strings.Join(subagentInfos, ", ")
+		} else {
+			model.SubagentInfo = resolvedSubagentConfig.Model
+		}
+	} else {
+		model.ModelName = resolvedOpenAIConfig.Model
 		model.SubagentInfo = resolvedSubagentConfig.Model
 	}
+	model.ShowCWD = *showCWDReq
 
 	p := tea.NewProgram(model)
 
@@ -322,7 +343,23 @@ func main() {
 
 	if *enableSubagentsReq {
 		runner := func(ctx context.Context, goal string, ctxFiles []string, agentType string) (string, error) {
-			child, err := agent.NewSubagentOrchestrator(subagentClient, goal, ctxFiles, agentType, enabledTools, *injectCWDReq, *gemmaThinkingReq, *subagentMaxTurns, rootAgent, p)
+			var currentSubagentClient *client.Client
+			if appConfig != nil {
+				if setting, ok := appConfig.GetModelForAgent(agentType); ok {
+					currentSubagentClient = client.NewClient(client.Config{
+						BaseURL:      setting.URL,
+						APIKey:       setting.Key,
+						Model:        setting.Model,
+						EnableImages: *enableImagesReq,
+					})
+					currentSubagentClient.DiscoverBackend(ctx)
+				}
+			}
+			if currentSubagentClient == nil {
+				currentSubagentClient = subagentClient
+			}
+
+			child, err := agent.NewSubagentOrchestrator(currentSubagentClient, goal, ctxFiles, agentType, enabledTools, *injectCWDReq, *gemmaThinkingReq, *subagentMaxTurns, rootAgent, p)
 			if err != nil {
 				return "", err
 			}

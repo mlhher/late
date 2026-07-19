@@ -25,6 +25,12 @@ type SubagentSettings struct {
 	Model   string
 }
 
+type ModelSetting struct {
+	URL   string `json:"url"`
+	Key   string `json:"key"`
+	Model string `json:"model"`
+}
+
 const (
 	configDirPerm  os.FileMode = 0o700
 	configFilePerm os.FileMode = 0o600
@@ -46,6 +52,9 @@ type Config struct {
 	SubagentModel   string `json:"subagent_model,omitempty"`
 
 	SkillsDir string `json:"skills_dir,omitempty"`
+
+	Models      []ModelSetting    `json:"models,omitempty"`
+	AgentModels map[string]string `json:"agent_models,omitempty"`
 }
 
 func defaultConfig() Config {
@@ -239,4 +248,39 @@ func tightenPermission(path string, required os.FileMode) error {
 	}
 
 	return os.Chmod(path, required)
+}
+
+// GetModelForAgent returns the ModelSetting for a given agent type.
+// If not found, it returns false.
+func (cfg *Config) GetModelForAgent(agentType string) (ModelSetting, bool) {
+	if cfg == nil || cfg.AgentModels == nil || cfg.Models == nil {
+		return ModelSetting{}, false
+	}
+	modelName, exists := cfg.AgentModels[agentType]
+	if !exists {
+		return ModelSetting{}, false
+	}
+	for _, m := range cfg.Models {
+		if m.Model == modelName {
+			return m, true
+		}
+	}
+	return ModelSetting{}, false
+}
+
+// SaveConfig writes the configuration back to config.json.
+func SaveConfig(cfg *Config) error {
+	lateConfigDir, err := pathutil.LateConfigDir()
+	if err != nil {
+		return err
+	}
+	configPath := filepath.Join(lateConfigDir, "config.json")
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(configPath, data, configFilePerm); err != nil {
+		return err
+	}
+	return ensureSecureConfigPermissions(lateConfigDir, configPath)
 }
