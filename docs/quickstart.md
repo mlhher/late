@@ -82,7 +82,7 @@ Type `/` into the input box to bring up a command picker. You can navigate throu
 
 | Command | Description |
 | --- | --- |
-| `/clear` | Clear current session. |
+| `/new` | Start a new session/chat. |
 | `/rewind` | Open a visual history of your messages to rewind the conversation to an earlier point. |
 | `/compose` | Open your system's default external editor (`$EDITOR`) to draft long or complex instructions. |
 | `/log` | Open the Git commit log viewer. |

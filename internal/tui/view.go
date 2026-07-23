@@ -116,23 +116,32 @@ func (m *Model) autocompleteView() string {
 	var lines []string
 	for i, item := range m.AutocompleteItems {
 		prefix := "  "
-		style := lipgloss.NewStyle().
+		nameStyle := lipgloss.NewStyle().
 			Foreground(subtextColor).
 			Background(thoughtBgColor).
-			Width(w - 4).
 			PaddingLeft(2)
+
+		descStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
+			Background(thoughtBgColor)
 
 		if i == m.AutocompleteIndex {
 			prefix = "▸ "
-			style = lipgloss.NewStyle().
-				Foreground(primaryColor).
-				Background(thoughtBgColor).
-				Width(w - 4).
-				PaddingLeft(2).
-				Bold(true)
+			nameStyle = nameStyle.Foreground(primaryColor).Bold(true)
+			descStyle = descStyle.Foreground(subtextColor)
 		}
 
-		lines = append(lines, style.Render(prefix+item))
+		nameStr := nameStyle.Render(fmt.Sprintf("%s%-9s", prefix, item.Name))
+		
+		descWidth := (w - 4) - lipgloss.Width(nameStr)
+		if descWidth < 0 {
+			descWidth = 0
+		}
+		descStyle = descStyle.Width(descWidth)
+
+		descStr := descStyle.Render(" " + item.Description)
+
+		lines = append(lines, nameStr+descStr)
 	}
 
 	box := lipgloss.NewStyle().
