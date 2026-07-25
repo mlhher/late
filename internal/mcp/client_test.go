@@ -81,7 +81,18 @@ func TestToolAdapterName_WithServerName(t *testing.T) {
 		mcpTool:    &sdkmcp.Tool{Name: "list_files"},
 		serverName: "graph-rag",
 	}
-	want := "graph-rag:list_files"
+	want := "graph-rag__list_files"
+	if got := adapter.Name(); got != want {
+		t.Errorf("Name() = %q, want %q", got, want)
+	}
+}
+
+func TestToolAdapterName_WithInvalidChars(t *testing.T) {
+	adapter := &ToolAdapter{
+		mcpTool:    &sdkmcp.Tool{Name: "query:docs.v1"},
+		serverName: "context.7",
+	}
+	want := "context_7__query_docs_v1"
 	if got := adapter.Name(); got != want {
 		t.Errorf("Name() = %q, want %q", got, want)
 	}
@@ -126,7 +137,7 @@ func TestToolAdapterNameCollisionPrevention(t *testing.T) {
 
 // TestBareNameDoesNotMatchNamespacedKey verifies that a legacy allowed_tools.json
 // entry keyed by bare name ("list_files") does not match the namespaced key
-// ("graph-rag:list_files"), so users are prompted for re-approval after upgrading.
+// ("graph-rag__list_files"), so users are prompted for re-approval after upgrading.
 func TestBareNameDoesNotMatchNamespacedKey(t *testing.T) {
 	adapter := &ToolAdapter{
 		mcpTool:    &sdkmcp.Tool{Name: "list_files"},

@@ -55,15 +55,28 @@ type ToolAdapter struct {
 	serverName string // the MCP server name from mcp_config.json
 }
 
-// Name returns the namespaced tool name in the form "{server}:{tool}".
+// Name returns the namespaced tool name in the form "{server}__{tool}".
 // Namespacing prevents allowed_tools.json collisions when multiple MCP
 // servers expose tools with the same bare name.
 func (t *ToolAdapter) Name() string {
 	if t.serverName != "" {
-		return t.serverName + ":" + t.mcpTool.Name
+		return sanitizeToolName(t.serverName) + "__" + sanitizeToolName(t.mcpTool.Name)
 	}
-	return t.mcpTool.Name
+	return sanitizeToolName(t.mcpTool.Name)
 }
+
+func sanitizeToolName(s string) string {
+	var sb strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			sb.WriteRune(r)
+		} else {
+			sb.WriteRune('_')
+		}
+	}
+	return sb.String()
+}
+
 
 // BareName returns the bare (unnamespaced) tool name as reported by the MCP
 // server. Used by the tool-enable config check for backwards compatibility
@@ -143,7 +156,7 @@ func (t *ToolAdapter) CallString(args json.RawMessage) string {
 
 // Connect establishes a connection to an MCP server using the shared SDK client.
 // serverName is stored on each ToolAdapter so that tool names are namespaced
-// as "{server}:{tool}" in allowed_tools.json, preventing collisions between
+// as "{server}__{tool}" in allowed_tools.json, preventing collisions between
 // servers that expose tools with the same bare name.
 func (c *Client) Connect(ctx context.Context, transport mcp.Transport, serverName string) error {
 	session, err := c.sdkClient.Connect(ctx, transport, nil)

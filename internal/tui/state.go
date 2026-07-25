@@ -47,15 +47,21 @@ const (
 	AppPadding      = 0
 )
 
+// CommandDef defines a slash command and its description.
+type CommandDef struct {
+	Name        string
+	Description string
+}
+
 // AvailableCommands lists all slash commands available in the TUI.
-var AvailableCommands = []string{
-	"/clear",
-	"/compose",
-	"/help",
-	"/log",
-	"/model",
-	"/quit",
-	"/rewind",
+var AvailableCommands = []CommandDef{
+	{Name: "/new", Description: "Start a new session/chat"},
+	{Name: "/compose", Description: "Compose a message with an editor"},
+	{Name: "/help", Description: "Show help and shortcuts"},
+	{Name: "/log", Description: "View git commit log"},
+	{Name: "/model", Description: "Select AI model for agents"},
+	{Name: "/quit", Description: "Exit the application"},
+	{Name: "/rewind", Description: "Rewind conversation history"},
 }
 
 // RenderBlock represents the line bounds of a rendered block in the viewport.
@@ -181,7 +187,7 @@ type Model struct {
 
 	// Slash-command autocomplete
 	ShowAutocomplete  bool
-	AutocompleteItems []string
+	AutocompleteItems []CommandDef
 	AutocompleteIndex int
 
 	// Performance caches
