@@ -64,6 +64,15 @@ func (o *BaseOrchestrator) SetContext(ctx context.Context) {
 	o.ctx = ctx
 }
 
+// resetContextIfCancelled makes a completed run context usable again without
+// discarding configuration values attached to it (for example, the
+// unsupervised-execution flag and TUI input provider).
+func (o *BaseOrchestrator) resetContextIfCancelled() {
+	if o.ctx.Err() != nil {
+		o.ctx = context.WithoutCancel(o.ctx)
+	}
+}
+
 func (o *BaseOrchestrator) SetMaxTurns(maxTurns int) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -156,10 +165,8 @@ func (o *BaseOrchestrator) Submit(text string, images []string) error {
 	o.isRunning = true
 	// Clear any old cancellation state so a new run isn't instantly aborted
 	o.cancel = nil
-	// Reset the base context if it was already cancelled
-	if o.ctx.Err() != nil {
-		o.ctx = context.Background()
-	}
+	// Reset the base context if it was already cancelled.
+	o.resetContextIfCancelled()
 	o.mu.Unlock()
 
 	if err := o.sess.AddMessage(msg); err != nil {
@@ -182,9 +189,7 @@ func (o *BaseOrchestrator) Execute(text string) (string, error) {
 		return "", fmt.Errorf("orchestrator is already running")
 	}
 	o.isRunning = true
-	if o.ctx.Err() != nil {
-		o.ctx = context.Background()
-	}
+	o.resetContextIfCancelled()
 	ctx, cancel := context.WithCancel(o.ctx)
 	o.cancel = cancel
 	o.ctx = ctx // Set the Context for this execution
@@ -269,9 +274,7 @@ func (o *BaseOrchestrator) Execute(text string) (string, error) {
 
 func (o *BaseOrchestrator) run() {
 	o.mu.Lock()
-	if o.ctx.Err() != nil {
-		o.ctx = context.Background()
-	}
+	o.resetContextIfCancelled()
 	ctx, cancel := context.WithCancel(o.ctx)
 	o.cancel = cancel
 	o.ctx = ctx // Set the context so Execute/RunLoop can share the cancelable context safely
@@ -466,7 +469,6 @@ func (o *BaseOrchestrator) Rewind(index int) error {
 	}
 	return nil
 }
-
 
 func (o *BaseOrchestrator) AddChild(child common.Orchestrator) {
 	o.mu.Lock()

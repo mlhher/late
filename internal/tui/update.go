@@ -65,7 +65,7 @@ func (m Model) updateInternal(msg tea.Msg) (Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" || msg.String() == "ctrl+d" {
 			return m, tea.Quit
 		}
-		if msg.String() == "ctrl+a" {
+		if msg.String() == "ctrl+o" {
 			m.ShowFilePicker = !m.ShowFilePicker
 			if m.ShowFilePicker {
 				m.Mode = ViewFilePicker

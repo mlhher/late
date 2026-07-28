@@ -580,7 +580,7 @@ func (m *Model) updateViewport() {
 
 Here is a list of available keyboard shortcuts:
 
-  **ctrl+a**        Toggle File Picker (attach files to prompt)
+  **ctrl+o**        Toggle File Picker (attach files to prompt)
   **ctrl+x**        Clear attached files
   **ctrl+g** / **esc**   Interrupt / stop active agent
   **tab**           Switch focus between active subagents

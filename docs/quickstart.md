@@ -67,7 +67,7 @@ Late is a terminal UI with three areas: the **chat viewport** (scrollable histor
 | `Home` / `End` | Move cursor to line start/end (scrolls chat viewport if input is empty) |
 | `Shift+Home/End` | Scroll chat viewport to top/bottom |
 | `Tab` | Switch between agent tabs (orchestrator ↔ subagents) |
-| `Ctrl+A` | Open the file picker to attach files |
+| `Ctrl+O` | Open the file picker to attach files |
 | `Ctrl+X` | Clear all attached files |
 | `Ctrl+H` | Show keyboard help overlay |
 | `Esc` / `Ctrl+G` | Stop the current agent (cancel generation) |
@@ -91,7 +91,7 @@ Type `/` into the input box to bring up a command picker. You can navigate throu
 
 ### File Attachments
 
-Press `Ctrl+A` to open the file picker. Navigate with arrow keys, press `Enter` to select a file or enter a folder, `Backspace` to go up, and `Esc` to cancel.
+Press `Ctrl+O` to open the file picker. Navigate with arrow keys, press `Enter` to select a file or enter a folder, `Backspace` to go up, and `Esc` to cancel.
 
 - **Text files** (source code, configs, logs, etc.) are attached as inline content and work with all models.
 - **Images** (PNG, JPEG, etc.) are only allowed if the model supports vision. Late checks the actual file content (not the extension) to determine the file type. If you try to attach an image to a model without vision support, Late will reject it with an error.

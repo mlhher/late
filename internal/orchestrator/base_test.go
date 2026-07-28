@@ -1,12 +1,33 @@
 package orchestrator
 
 import (
+	"context"
 	"late/internal/client"
+	"late/internal/common"
 	"late/internal/session"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestBaseOrchestrator_ResetContextIfCancelledPreservesConfiguration(t *testing.T) {
+	o := NewBaseOrchestrator("test-orch", nil, nil, 10)
+
+	ctx, cancel := context.WithCancel(context.WithValue(
+		context.Background(), common.SkipConfirmationKey, true,
+	))
+	cancel()
+	o.ctx = ctx
+
+	o.resetContextIfCancelled()
+
+	if err := o.ctx.Err(); err != nil {
+		t.Fatalf("reset context is still cancelled: %v", err)
+	}
+	if skip, ok := o.ctx.Value(common.SkipConfirmationKey).(bool); !ok || !skip {
+		t.Fatal("reset context lost SkipConfirmationKey")
+	}
+}
 
 func TestBaseOrchestrator_Rewind(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "late-orchestrator-test-*")
