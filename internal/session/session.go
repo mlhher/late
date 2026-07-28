@@ -9,11 +9,13 @@ import (
 	"late/internal/tool"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
 // Session manages the chat state and interacts with the LLM client.
 type Session struct {
+	clientMu     sync.RWMutex
 	client       *client.Client
 	HistoryPath  string
 	History      []client.ChatMessage
@@ -161,7 +163,7 @@ func (s *Session) StartStream(ctx context.Context, extraBody map[string]any) (<-
 		req.Tools = s.GetToolDefinitions()
 	}
 
-	streamOut, streamErr := s.client.ChatCompletionStream(ctx, req)
+	streamOut, streamErr := s.Client().ChatCompletionStream(ctx, req)
 
 	go func() {
 		defer close(outCh)
@@ -229,7 +231,7 @@ func (s *Session) Impersonate(ctx context.Context) (string, error) {
 		N_Predict: 50,
 	}
 
-	resp, err := s.client.Completion(ctx, req)
+	resp, err := s.Client().Completion(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -304,9 +306,19 @@ func (s *Session) saveAndNotify() error {
 }
 
 func (s *Session) Client() *client.Client {
+	s.clientMu.RLock()
+	defer s.clientMu.RUnlock()
 	return s.client
 }
 
+// SetClient replaces the client used for subsequent model requests.
+// In-flight requests continue using the client they started with.
+func (s *Session) SetClient(c *client.Client) {
+	s.clientMu.Lock()
+	defer s.clientMu.Unlock()
+	s.client = c
+}
+
 func (s *Session) IsLlamaCPP() bool {
-	return s.client.IsLlamaCPP()
+	return s.Client().IsLlamaCPP()
 }

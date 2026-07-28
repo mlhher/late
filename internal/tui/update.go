@@ -429,11 +429,21 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 					}
 
 					// Update ModelName and SubagentInfo dynamically
-					if model, ok := m.AppConfig.AgentModels["orchestrator"]; ok {
-						m.ModelName = model
+					if setting, ok := m.AppConfig.GetModelForAgent("orchestrator"); ok {
+						m.ModelName = setting.Model
+						if m.ApplyOrchestratorModel != nil {
+							m.ApplyOrchestratorModel(setting)
+						}
 					} else {
 						resolvedOpenAIConfig := config.ResolveOpenAISettings(m.AppConfig)
 						m.ModelName = resolvedOpenAIConfig.Model
+						if m.ApplyOrchestratorModel != nil {
+							m.ApplyOrchestratorModel(config.ModelSetting{
+								URL:   resolvedOpenAIConfig.BaseURL,
+								Key:   resolvedOpenAIConfig.APIKey,
+								Model: resolvedOpenAIConfig.Model,
+							})
+						}
 					}
 
 					var subagentInfos []string

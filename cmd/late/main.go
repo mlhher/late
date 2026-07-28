@@ -230,9 +230,9 @@ func main() {
 	resolvedSubagentConfig := appconfig.ResolveSubagentSettings(appConfig, resolvedOpenAIConfig)
 
 	subagentClient := c
-	if resolvedSubagentConfig.BaseURL != resolvedOpenAIConfig.BaseURL ||
-		resolvedSubagentConfig.APIKey != resolvedOpenAIConfig.APIKey ||
-		resolvedSubagentConfig.Model != resolvedOpenAIConfig.Model {
+	if resolvedSubagentConfig.BaseURL != resolvedClientConfig.BaseURL ||
+		resolvedSubagentConfig.APIKey != resolvedClientConfig.APIKey ||
+		resolvedSubagentConfig.Model != resolvedClientConfig.Model {
 		subagentClient = client.NewClient(client.Config{
 			BaseURL:      resolvedSubagentConfig.BaseURL,
 			APIKey:       resolvedSubagentConfig.APIKey,
@@ -294,6 +294,14 @@ func main() {
 	rootAgent := orchestrator.NewBaseOrchestrator("main", sess, nil, 0)
 
 	model := tui.NewModel(rootAgent, renderer, appConfig)
+	model.ApplyOrchestratorModel = func(setting appconfig.ModelSetting) {
+		sess.SetClient(client.NewClient(client.Config{
+			BaseURL:      setting.URL,
+			APIKey:       setting.Key,
+			Model:        setting.Model,
+			EnableImages: *enableImagesReq,
+		}))
+	}
 	if appConfig != nil {
 		if orchestratorModel, ok := appConfig.AgentModels["orchestrator"]; ok {
 			model.ModelName = orchestratorModel

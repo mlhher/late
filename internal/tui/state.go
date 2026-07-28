@@ -155,7 +155,8 @@ type Model struct {
 	ShowCWD      bool   // Whether to show current working directory in status bar
 
 	// Configuration
-	AppConfig *config.Config
+	AppConfig              *config.Config
+	ApplyOrchestratorModel func(config.ModelSetting)
 
 	// Model picker fields
 	ModelPickerAgents          []string
