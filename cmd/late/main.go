@@ -295,12 +295,7 @@ func main() {
 
 	model := tui.NewModel(rootAgent, renderer, appConfig)
 	model.ApplyOrchestratorModel = func(setting appconfig.ModelSetting) {
-		sess.SetClient(client.NewClient(client.Config{
-			BaseURL:      setting.URL,
-			APIKey:       setting.Key,
-			Model:        setting.Model,
-			EnableImages: *enableImagesReq,
-		}))
+		sess.SetClient(newModelClient(context.Background(), setting, *enableImagesReq))
 	}
 	if appConfig != nil {
 		if orchestratorModel, ok := appConfig.AgentModels["orchestrator"]; ok {
@@ -393,6 +388,17 @@ func main() {
 		fmt.Printf("Unspecified error: %v", err)
 		os.Exit(1)
 	}
+}
+
+func newModelClient(ctx context.Context, setting appconfig.ModelSetting, enableImages bool) *client.Client {
+	c := client.NewClient(client.Config{
+		BaseURL:      setting.URL,
+		APIKey:       setting.Key,
+		Model:        setting.Model,
+		EnableImages: enableImages,
+	})
+	c.DiscoverBackend(ctx)
+	return c
 }
 
 // handleSessionCommand processes session subcommands
