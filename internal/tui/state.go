@@ -147,6 +147,7 @@ type Model struct {
 	LastClickTime   int64
 	ToastMessage    string
 	ToastExpireTime int64
+	ToastWarning    bool
 
 	// Model and config info (set from main.go after creation)
 	ModelName    string // Active model name
@@ -211,6 +212,15 @@ func (m *Model) GetAgentState(id string) *AppState {
 	}
 	m.AgentStates[id] = s
 	return s
+}
+
+func (m *Model) hasActiveAgent() bool {
+	for _, state := range m.AgentStates {
+		if state.State != StateIdle && state.State != StateContextWarning {
+			return true
+		}
+	}
+	return false
 }
 
 // Messenger is an interface for sending messages to the TUI (implemented by tea.Program)

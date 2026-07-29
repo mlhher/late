@@ -148,7 +148,7 @@ func (m *Model) autocompleteView() string {
 		}
 
 		nameStr := nameStyle.Render(fmt.Sprintf("%s%-9s", prefix, item.Name))
-		
+
 		descWidth := (w - 4) - lipgloss.Width(nameStr)
 		if descWidth < 0 {
 			descWidth = 0
@@ -329,7 +329,11 @@ func (m *Model) statusBarView() string {
 		status := lipgloss.NewStyle().Foreground(subtextColor).Background(appBgColor).Render("Configuring active agent models")
 		hasToast := m.ToastMessage != "" && time.Now().UnixMilli() < m.ToastExpireTime
 		if hasToast {
-			status = lipgloss.NewStyle().Foreground(primaryColor).Background(appBgColor).Bold(true).Render("✓ " + m.ToastMessage)
+			if m.ToastWarning {
+				status = statusWarningStyle.Render("⚠ " + m.ToastMessage)
+			} else {
+				status = lipgloss.NewStyle().Foreground(primaryColor).Background(appBgColor).Bold(true).Render("✓ " + m.ToastMessage)
+			}
 		}
 
 		rightSection := lipgloss.NewStyle().Foreground(subtextColor).Background(appBgColor).Render("enter Save • esc Cancel")
@@ -408,7 +412,11 @@ func (m *Model) statusBarView() string {
 	var status string
 	hasToast := m.ToastMessage != "" && time.Now().UnixMilli() < m.ToastExpireTime
 	if hasToast {
-		status = lipgloss.NewStyle().Foreground(primaryColor).Background(appBgColor).Bold(true).Render("✓ " + m.ToastMessage)
+		if m.ToastWarning {
+			status = statusWarningStyle.Render("⚠ " + m.ToastMessage)
+		} else {
+			status = lipgloss.NewStyle().Foreground(primaryColor).Background(appBgColor).Bold(true).Render("✓ " + m.ToastMessage)
+		}
 	} else if statusText != "" && statusText != "Working..." && statusText != "Ready" && statusText != "Closed" {
 		if s.State == StateConfirmTool {
 			status = statusWarningStyle.Render(statusText)
@@ -489,8 +497,14 @@ func (m *Model) statusBarView() string {
 				maxStatusW = 0
 			}
 			if hasToast {
-				truncated := m.truncateWithEllipsis("✓ "+m.ToastMessage, maxStatusW)
-				status = lipgloss.NewStyle().Foreground(primaryColor).Background(appBgColor).Bold(true).Render(truncated)
+				prefix := "✓ "
+				style := lipgloss.NewStyle().Foreground(primaryColor).Background(appBgColor).Bold(true)
+				if m.ToastWarning {
+					prefix = "⚠ "
+					style = statusWarningStyle
+				}
+				truncated := m.truncateWithEllipsis(prefix+m.ToastMessage, maxStatusW)
+				status = style.Render(truncated)
 			} else {
 				truncated := m.truncateWithEllipsis(statusText, maxStatusW)
 				if s.State == StateConfirmTool {
@@ -1283,7 +1297,6 @@ func (m *Model) renderRewindView() {
 		Render(strings.Join(lines, "\n"))
 	m.Viewport.SetContent(paddedContent)
 }
-
 
 // overlayCentered places the dialog string centered over the background string,
 // matching the viewport dimensions. The dialog is sized to fit its content.
