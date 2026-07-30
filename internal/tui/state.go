@@ -157,7 +157,7 @@ type Model struct {
 
 	// Configuration
 	AppConfig              *config.Config
-	ApplyOrchestratorModel func(config.ModelSetting)
+	ApplyOrchestratorModel func(config.ModelSetting) tea.Cmd
 
 	// Model picker fields
 	ModelPickerAgents          []string

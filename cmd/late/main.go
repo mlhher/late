@@ -294,8 +294,13 @@ func main() {
 	rootAgent := orchestrator.NewBaseOrchestrator("main", sess, nil, 0)
 
 	model := tui.NewModel(rootAgent, renderer, appConfig)
-	model.ApplyOrchestratorModel = func(setting appconfig.ModelSetting) {
-		sess.SetClient(newModelClient(context.Background(), setting, *enableImagesReq))
+	model.ApplyOrchestratorModel = func(setting appconfig.ModelSetting) tea.Cmd {
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			sess.SetClient(newModelClient(ctx, setting, *enableImagesReq))
+			return nil
+		}
 	}
 	if appConfig != nil {
 		if orchestratorModel, ok := appConfig.AgentModels["orchestrator"]; ok {

@@ -423,6 +423,8 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 					return m, clearCmd
 				}
 
+				var applyModelCmd tea.Cmd
+
 				// Save choices to AppConfig
 				if m.AppConfig != nil {
 					stagedConfig := *m.AppConfig
@@ -450,13 +452,13 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 					if setting, ok := m.AppConfig.GetModelForAgent("orchestrator"); ok {
 						m.ModelName = setting.Model
 						if m.ApplyOrchestratorModel != nil {
-							m.ApplyOrchestratorModel(setting)
+							applyModelCmd = m.ApplyOrchestratorModel(setting)
 						}
 					} else {
 						resolvedOpenAIConfig := config.ResolveOpenAISettings(m.AppConfig)
 						m.ModelName = resolvedOpenAIConfig.Model
 						if m.ApplyOrchestratorModel != nil {
-							m.ApplyOrchestratorModel(config.ModelSetting{
+							applyModelCmd = m.ApplyOrchestratorModel(config.ModelSetting{
 								URL:   resolvedOpenAIConfig.BaseURL,
 								Key:   resolvedOpenAIConfig.APIKey,
 								Model: resolvedOpenAIConfig.Model,
@@ -489,7 +491,7 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 				focusedState.RenderedHistory = nil
 				m.updateLayout()
 				m.updateViewport()
-				return m, clearCmd
+				return m, tea.Batch(clearCmd, applyModelCmd)
 
 			case "esc":
 				m.Mode = ViewChat

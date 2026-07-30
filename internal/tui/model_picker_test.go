@@ -5,6 +5,8 @@ import (
 	"late/internal/pathutil"
 	"os"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestModelPickerAppliesOrchestratorModelImmediately(t *testing.T) {
@@ -33,8 +35,9 @@ func TestModelPickerAppliesOrchestratorModelImmediately(t *testing.T) {
 	model.ModelPickerAgentSelections = map[string]int{"orchestrator": 1}
 
 	var applied config.ModelSetting
-	model.ApplyOrchestratorModel = func(setting config.ModelSetting) {
+	model.ApplyOrchestratorModel = func(setting config.ModelSetting) tea.Cmd {
 		applied = setting
+		return nil
 	}
 
 	updated, _ := model.updateChat(mockKey{code: '\r', text: "enter"})
@@ -83,8 +86,9 @@ func TestModelPickerDoesNotSaveWhileAgentBecomesActive(t *testing.T) {
 	model.GetAgentState("active-child").State = StateStreaming
 
 	applied := false
-	model.ApplyOrchestratorModel = func(config.ModelSetting) {
+	model.ApplyOrchestratorModel = func(config.ModelSetting) tea.Cmd {
 		applied = true
+		return nil
 	}
 
 	updated, _ := model.updateChat(mockKey{code: '\r', text: "enter"})
@@ -123,8 +127,9 @@ func TestModelPickerPublishesOnlyAfterSaveSucceeds(t *testing.T) {
 	model.ModelPickerAgentSelections = map[string]int{"orchestrator": 1}
 
 	applied := false
-	model.ApplyOrchestratorModel = func(config.ModelSetting) {
+	model.ApplyOrchestratorModel = func(config.ModelSetting) tea.Cmd {
 		applied = true
+		return nil
 	}
 
 	updated, _ := model.updateChat(mockKey{code: '\r', text: "enter"})
