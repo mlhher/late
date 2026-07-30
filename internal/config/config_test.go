@@ -564,3 +564,21 @@ func TestConfig_GetModelForAgent(t *testing.T) {
 		})
 	}
 }
+
+func TestConfig_GetModelForAgentUsesStableID(t *testing.T) {
+	cfg := &Config{
+		Models: []ModelSetting{
+			{ID: "provider-a", URL: "https://a.example/v1", Model: "shared-model"},
+			{ID: "provider-b", URL: "https://b.example/v1", Model: "shared-model"},
+		},
+		AgentModels: map[string]string{"orchestrator": "provider-b"},
+	}
+
+	got, ok := cfg.GetModelForAgent("orchestrator")
+	if !ok {
+		t.Fatal("expected model setting to resolve")
+	}
+	if got.URL != "https://b.example/v1" {
+		t.Fatalf("resolved URL = %q, want provider B", got.URL)
+	}
+}

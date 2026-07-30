@@ -303,16 +303,16 @@ func main() {
 		}
 	}
 	if appConfig != nil {
-		if orchestratorModel, ok := appConfig.AgentModels["orchestrator"]; ok {
-			model.ModelName = orchestratorModel
+		if setting, ok := appConfig.GetModelForAgent("orchestrator"); ok {
+			model.ModelName = setting.Model
 		} else {
 			model.ModelName = resolvedOpenAIConfig.Model
 		}
 
 		var subagentInfos []string
 		for _, sub := range assets.GetSubagents() {
-			if m, ok := appConfig.AgentModels[sub.Name]; ok {
-				subagentInfos = append(subagentInfos, fmt.Sprintf("%s:%s", sub.Name, m))
+			if setting, ok := appConfig.GetModelForAgent(sub.Name); ok {
+				subagentInfos = append(subagentInfos, fmt.Sprintf("%s:%s", sub.Name, setting.Model))
 			}
 		}
 		if len(subagentInfos) > 0 {

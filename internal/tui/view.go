@@ -1444,8 +1444,19 @@ func (m *Model) renderModelPickerView() {
 			var modelChoices []string
 			selectedIdx := m.ModelPickerAgentSelections[agentName]
 
-			for mIdx, modelName := range m.ModelPickerModels {
-				modelLabel := modelName
+			for mIdx, modelRef := range m.ModelPickerModels {
+				modelLabel := modelRef
+				if modelRef != "default" && m.AppConfig != nil {
+					for _, setting := range m.AppConfig.Models {
+						if setting.Reference() == modelRef {
+							modelLabel = setting.Model
+							if setting.ID != "" {
+								modelLabel += " (" + setting.ID + ")"
+							}
+							break
+						}
+					}
+				}
 
 				var optStr string
 				if mIdx == selectedIdx {

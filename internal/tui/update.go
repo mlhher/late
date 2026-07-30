@@ -429,16 +429,16 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 				if m.AppConfig != nil {
 					stagedConfig := *m.AppConfig
 					stagedConfig.AgentModels = make(map[string]string, len(m.AppConfig.AgentModels))
-					for agent, modelName := range m.AppConfig.AgentModels {
-						stagedConfig.AgentModels[agent] = modelName
+					for agent, modelRef := range m.AppConfig.AgentModels {
+						stagedConfig.AgentModels[agent] = modelRef
 					}
 					for _, agent := range m.ModelPickerAgents {
 						selIdx := m.ModelPickerAgentSelections[agent]
-						modelName := m.ModelPickerModels[selIdx]
-						if modelName == "default" {
+						modelRef := m.ModelPickerModels[selIdx]
+						if modelRef == "default" {
 							delete(stagedConfig.AgentModels, agent)
 						} else {
-							stagedConfig.AgentModels[agent] = modelName
+							stagedConfig.AgentModels[agent] = modelRef
 						}
 					}
 					// Write config to disk
@@ -468,8 +468,8 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 
 					var subagentInfos []string
 					for _, sub := range assets.GetSubagents() {
-						if model, ok := m.AppConfig.AgentModels[sub.Name]; ok {
-							subagentInfos = append(subagentInfos, fmt.Sprintf("%s:%s", sub.Name, model))
+						if setting, ok := m.AppConfig.GetModelForAgent(sub.Name); ok {
+							subagentInfos = append(subagentInfos, fmt.Sprintf("%s:%s", sub.Name, setting.Model))
 						}
 					}
 					if len(subagentInfos) > 0 {
@@ -794,11 +794,11 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 					m.ModelPickerAgents = append(m.ModelPickerAgents, sub.Name)
 				}
 
-				// Populate model names
+				// Populate stable model references.
 				m.ModelPickerModels = []string{"default"}
 				if m.AppConfig != nil {
 					for _, model := range m.AppConfig.Models {
-						m.ModelPickerModels = append(m.ModelPickerModels, model.Model)
+						m.ModelPickerModels = append(m.ModelPickerModels, model.Reference())
 					}
 				}
 
@@ -807,14 +807,13 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 
 				// Load current selections
 				for _, agentName := range m.ModelPickerAgents {
-					selectedModel := ""
+					selectedModelRef := ""
 					if m.AppConfig != nil && m.AppConfig.AgentModels != nil {
-						selectedModel = m.AppConfig.AgentModels[agentName]
+						selectedModelRef = m.AppConfig.AgentModels[agentName]
 					}
-					// Find in ModelPickerModels
 					foundIdx := 0 // default to 0 ("default")
-					for idx, modelName := range m.ModelPickerModels {
-						if modelName == selectedModel {
+					for idx, modelRef := range m.ModelPickerModels {
+						if modelRef == selectedModelRef {
 							foundIdx = idx
 							break
 						}

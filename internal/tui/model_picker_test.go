@@ -53,6 +53,42 @@ func TestModelPickerAppliesOrchestratorModelImmediately(t *testing.T) {
 	}
 }
 
+func TestModelPickerPersistsStableModelID(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", configHome)
+	t.Setenv("APPDATA", configHome)
+
+	lateConfigDir, err := pathutil.LateConfigDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(lateConfigDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Models: []config.ModelSetting{
+			{ID: "provider-a", URL: "https://a.example/v1", Model: "shared-model"},
+			{ID: "provider-b", URL: "https://b.example/v1", Model: "shared-model"},
+		},
+	}
+	model := NewModel(&mockOrchestrator{}, nil, cfg)
+	model.Mode = ViewModelPicker
+	model.ModelPickerAgents = []string{"orchestrator"}
+	model.ModelPickerModels = []string{"default", "provider-a", "provider-b"}
+	model.ModelPickerAgentSelections = map[string]int{"orchestrator": 2}
+
+	updated, _ := model.updateChat(mockKey{code: '\r', text: "enter"})
+
+	if got := cfg.AgentModels["orchestrator"]; got != "provider-b" {
+		t.Fatalf("configured model reference = %q, want provider-b", got)
+	}
+	if updated.ModelName != "shared-model" {
+		t.Fatalf("displayed model = %q, want shared-model", updated.ModelName)
+	}
+}
+
 func TestModelPickerUnavailableWhileAgentIsActive(t *testing.T) {
 	model := NewModel(&mockOrchestrator{}, nil, &config.Config{})
 	model.GetAgentState("active-child").State = StateThinking

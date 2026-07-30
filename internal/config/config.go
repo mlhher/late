@@ -26,9 +26,19 @@ type SubagentSettings struct {
 }
 
 type ModelSetting struct {
+	ID    string `json:"id,omitempty"`
 	URL   string `json:"url"`
 	Key   string `json:"key"`
 	Model string `json:"model"`
+}
+
+// Reference returns the stable value stored in agent_models. Model is retained
+// as a fallback for configurations created before model IDs were introduced.
+func (m ModelSetting) Reference() string {
+	if m.ID != "" {
+		return m.ID
+	}
+	return m.Model
 }
 
 const (
@@ -256,12 +266,20 @@ func (cfg *Config) GetModelForAgent(agentType string) (ModelSetting, bool) {
 	if cfg == nil || cfg.AgentModels == nil || cfg.Models == nil {
 		return ModelSetting{}, false
 	}
-	modelName, exists := cfg.AgentModels[agentType]
+	modelRef, exists := cfg.AgentModels[agentType]
 	if !exists {
 		return ModelSetting{}, false
 	}
+	// Prefer stable IDs so providers exposing the same model name remain
+	// distinguishable.
 	for _, m := range cfg.Models {
-		if m.Model == modelName {
+		if m.ID != "" && m.ID == modelRef {
+			return m, true
+		}
+	}
+	// Backward compatibility for existing name-based agent_models entries.
+	for _, m := range cfg.Models {
+		if m.Model == modelRef {
 			return m, true
 		}
 	}
