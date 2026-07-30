@@ -1,7 +1,7 @@
 # Binaries
 bin/
 build/
-late
+/late
 *.test
 *.out
 *.prof
