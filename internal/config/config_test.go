@@ -582,3 +582,51 @@ func TestConfig_GetModelForAgentUsesStableID(t *testing.T) {
 		t.Fatalf("resolved URL = %q, want provider B", got.URL)
 	}
 }
+
+func TestSaveConfigAtomicallyReplacesFile(t *testing.T) {
+	configRoot := t.TempDir()
+	setUserConfigEnv(t, configRoot)
+
+	if _, err := LoadConfig(); err != nil {
+		t.Fatal(err)
+	}
+	configPath := lateConfigPath(t)
+	before, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &Config{OpenAIModel: "replacement-model"}
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	after, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && os.SameFile(before, after) {
+		t.Fatal("config file was modified in place instead of atomically replaced")
+	}
+	if runtime.GOOS != "windows" && after.Mode().Perm() != configFilePerm {
+		t.Fatalf("config file permissions = %o, want %o", after.Mode().Perm(), configFilePerm)
+	}
+
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.OpenAIModel != "replacement-model" {
+		t.Fatalf("saved model = %q, want replacement-model", loaded.OpenAIModel)
+	}
+
+	entries, err := os.ReadDir(filepath.Dir(configPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) == ".tmp" {
+			t.Fatalf("temporary config was not cleaned up: %s", entry.Name())
+		}
+	}
+}

@@ -286,19 +286,56 @@ func (cfg *Config) GetModelForAgent(agentType string) (ModelSetting, bool) {
 	return ModelSetting{}, false
 }
 
-// SaveConfig writes the configuration back to config.json.
+// SaveConfig atomically writes the configuration back to config.json.
 func SaveConfig(cfg *Config) error {
 	lateConfigDir, err := pathutil.LateConfigDir()
 	if err != nil {
 		return err
 	}
+	if err := tightenConfigDirPermission(lateConfigDir); err != nil {
+		return err
+	}
+
 	configPath := filepath.Join(lateConfigDir, "config.json")
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(configPath, data, configFilePerm); err != nil {
-		return err
+
+	tmpFile, err := os.CreateTemp(lateConfigDir, ".config-*.json.tmp")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary config: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	if err := tmpFile.Chmod(configFilePerm); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("failed to secure temporary config: %w", err)
+	}
+	if _, err := tmpFile.Write(data); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("failed to write temporary config: %w", err)
+	}
+	if err := tmpFile.Sync(); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("failed to sync temporary config: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("failed to close temporary config: %w", err)
+	}
+	if err := os.Rename(tmpPath, configPath); err != nil {
+		return fmt.Errorf("failed to replace config: %w", err)
 	}
 	return ensureSecureConfigPermissions(lateConfigDir, configPath)
+}
+
+func tightenConfigDirPermission(configDir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	if err := tightenPermission(configDir, configDirPerm); err != nil {
+		return fmt.Errorf("failed to set config directory permissions: %w", err)
+	}
+	return nil
 }
