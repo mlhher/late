@@ -1190,7 +1190,7 @@ func (m *Model) updateLayout() {
 
 	availableWidth := m.Width
 	if m.ShowTodoPane && m.Width >= 85 {
-		availableWidth = m.Width - 34
+		availableWidth = m.Width - 38
 	} else if m.ShowTodoPane && m.Width < 85 {
 		m.ShowTodoPane = false
 	}

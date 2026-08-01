@@ -1526,10 +1526,44 @@ func (m *Model) renderModelPickerView() {
 	m.Viewport.SetContent(paddedContent)
 }
 
+func wrapTodoText(text string, maxLen int) []string {
+	if maxLen <= 0 {
+		return []string{""}
+	}
+	var lines []string
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return []string{""}
+	}
+	current := ""
+	for _, word := range words {
+		for len(word) > maxLen {
+			if current != "" {
+				lines = append(lines, current)
+				current = ""
+			}
+			lines = append(lines, word[:maxLen])
+			word = word[maxLen:]
+		}
+		if current == "" {
+			current = word
+		} else if len(current)+1+len(word) <= maxLen {
+			current += " " + word
+		} else {
+			lines = append(lines, current)
+			current = word
+		}
+	}
+	if current != "" {
+		lines = append(lines, current)
+	}
+	return lines
+}
+
 func (m Model) todoPaneView(height int) string {
-	paneWidth := 34
-	innerWidth := paneWidth - 2 // 1 left border, 1 right border
-	innerHeight := height - 2   // 1 top border, 1 bottom border
+	paneWidth := 38
+	innerWidth := paneWidth - 1 // 1 left border
+	innerHeight := height       // No top or bottom border
 	if innerHeight < 1 {
 		innerHeight = 1
 	}
@@ -1552,7 +1586,7 @@ func (m Model) todoPaneView(height int) string {
 		emptyMsg := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#4A4B50")).
 			Italic(true).
-			Render("No todos created yet.\nWaiting for plan...")
+			Render("  No todos created yet.\n  Waiting for plan...")
 		lines = append(lines, strings.Split(emptyMsg, "\n")...)
 	} else {
 		for i, td := range todos {
@@ -1564,16 +1598,30 @@ func (m Model) todoPaneView(height int) string {
 					Foreground(lipgloss.Color("#43BF6D")).
 					Strikethrough(true)
 			}
-			text := td.Text
-			maxTextLen := innerWidth - 8 // allow space for "1. [✓] "
-			if maxTextLen < 5 {
-				maxTextLen = 5
+			prefix := fmt.Sprintf(" %2d. %s ", i+1, icon)
+			maxLen := innerWidth - len(prefix)
+			if maxLen < 5 {
+				maxTextLen := innerWidth - 8
+				if maxTextLen < 5 {
+					maxTextLen = 5
+				}
+				text := td.Text
+				if len(text) > maxTextLen {
+					text = text[:maxTextLen-1] + "…"
+				}
+				lines = append(lines, fmt.Sprintf("%2d. %s %s", i+1, icon, itemStyle.Render(text)))
+				continue
 			}
-			if len(text) > maxTextLen {
-				text = text[:maxTextLen-1] + "…"
+
+			wrapped := wrapTodoText(td.Text, maxLen)
+			for idx, w := range wrapped {
+				if idx == 0 {
+					lines = append(lines, fmt.Sprintf("%s%s", prefix, itemStyle.Render(w)))
+				} else {
+					indent := strings.Repeat(" ", len(prefix))
+					lines = append(lines, fmt.Sprintf("%s%s", indent, itemStyle.Render(w)))
+				}
 			}
-			line := fmt.Sprintf("%2d. %s %s", i+1, icon, itemStyle.Render(text))
-			lines = append(lines, line)
 		}
 	}
 
@@ -1583,23 +1631,21 @@ func (m Model) todoPaneView(height int) string {
 	}
 	if len(lines) > innerHeight {
 		lines = lines[:innerHeight]
-		if innerHeight >= 3 && len(todos) > innerHeight-2 {
-			moreCount := len(todos) - (innerHeight - 3)
-			if moreCount > 0 {
-				lines[innerHeight-1] = lipgloss.NewStyle().
-					Foreground(lipgloss.Color("#4A4B50")).
-					Italic(true).
-					Render(fmt.Sprintf("  ...and %d more", moreCount))
-			}
+		if innerHeight >= 3 && len(todos) > 0 {
+			lines[innerHeight-1] = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#4A4B50")).
+				Italic(true).
+				Render("  ...and more")
 		}
 	}
 
 	content := strings.Join(lines, "\n")
 	boxStyle := lipgloss.NewStyle().
 		Width(innerWidth).
-		MaxHeight(height).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#3E3E43")).
+		Height(innerHeight).
+		MaxHeight(innerHeight).
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(lipgloss.Color("#232329")).
 		Background(appBgColor)
 
 	return boxStyle.Render(content)
