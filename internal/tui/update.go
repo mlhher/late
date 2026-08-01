@@ -34,6 +34,9 @@ type composeFinishedMsg struct {
 	err     error
 }
 
+// StartPromptMsg submits a prompt as soon as the TUI is ready.
+type StartPromptMsg string
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	oldHeight := m.Input.Height()
 	oldShowAuto := m.ShowAutocomplete
@@ -49,6 +52,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateInternal(msg tea.Msg) (Model, tea.Cmd) {
+	if prompt, ok := msg.(StartPromptMsg); ok {
+		m.Input.SetValue("> " + string(prompt))
+		m.Input.CursorEnd()
+		return m, func() tea.Msg {
+			return tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter})
+		}
+	}
+
 	if _, ok := msg.(clearToastMsg); ok {
 		m.ToastMessage = ""
 		m.ToastWarning = false

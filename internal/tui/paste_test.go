@@ -20,25 +20,25 @@ func (m *mockOrchestrator) Submit(text string, images []string) error {
 	m.submittedText = text
 	return nil
 }
-func (m *mockOrchestrator) Execute(text string) (string, error) { return "", nil }
-func (m *mockOrchestrator) Reset() error                         { return nil }
-func (m *mockOrchestrator) Rewind(index int) error                { return nil }
-func (m *mockOrchestrator) Cancel()                              {}
-func (m *mockOrchestrator) IsStopRequested() bool                { return false }
-func (m *mockOrchestrator) Events() <-chan common.Event          { return nil }
-func (m *mockOrchestrator) History() []client.ChatMessage        { return nil }
-func (m *mockOrchestrator) Context() context.Context             { return context.Background() }
-func (m *mockOrchestrator) Middlewares() []common.ToolMiddleware { return nil }
-func (m *mockOrchestrator) Registry() *common.ToolRegistry       { return nil }
-func (m *mockOrchestrator) SystemPrompt() string                 { return "" }
+func (m *mockOrchestrator) Execute(text string) (string, error)      { return "", nil }
+func (m *mockOrchestrator) Reset() error                             { return nil }
+func (m *mockOrchestrator) Rewind(index int) error                   { return nil }
+func (m *mockOrchestrator) Cancel()                                  {}
+func (m *mockOrchestrator) IsStopRequested() bool                    { return false }
+func (m *mockOrchestrator) Events() <-chan common.Event              { return nil }
+func (m *mockOrchestrator) History() []client.ChatMessage            { return nil }
+func (m *mockOrchestrator) Context() context.Context                 { return context.Background() }
+func (m *mockOrchestrator) Middlewares() []common.ToolMiddleware     { return nil }
+func (m *mockOrchestrator) Registry() *common.ToolRegistry           { return nil }
+func (m *mockOrchestrator) SystemPrompt() string                     { return "" }
 func (m *mockOrchestrator) ToolDefinitions() []client.ToolDefinition { return nil }
-func (m *mockOrchestrator) Children() []common.Orchestrator      { return nil }
-func (m *mockOrchestrator) Parent() common.Orchestrator          { return nil }
-func (m *mockOrchestrator) SetMaxTurns(int)                      {}
-func (m *mockOrchestrator) RefreshContextSize(context.Context)   {}
-func (m *mockOrchestrator) MaxTokens() int                       { return 100 }
-func (m *mockOrchestrator) SupportsVision() bool                 { return false }
-func (m *mockOrchestrator) QueuedMessages() []string             { return nil }
+func (m *mockOrchestrator) Children() []common.Orchestrator          { return nil }
+func (m *mockOrchestrator) Parent() common.Orchestrator              { return nil }
+func (m *mockOrchestrator) SetMaxTurns(int)                          {}
+func (m *mockOrchestrator) RefreshContextSize(context.Context)       {}
+func (m *mockOrchestrator) MaxTokens() int                           { return 100 }
+func (m *mockOrchestrator) SupportsVision() bool                     { return false }
+func (m *mockOrchestrator) QueuedMessages() []string                 { return nil }
 
 type mockKey struct {
 	code rune
@@ -94,6 +94,27 @@ func TestPastePlaceholderReplacement(t *testing.T) {
 	// Verify pastes mapping was cleared
 	if len(model.Pastes) != 0 {
 		t.Errorf("Expected model.Pastes to be empty after submission, got %d items", len(model.Pastes))
+	}
+}
+
+func TestStartPromptMsgSubmitsPrompt(t *testing.T) {
+	orch := &mockOrchestrator{}
+	model := NewModel(orch, nil, nil)
+
+	res, cmd := model.Update(StartPromptMsg("fix the tests"))
+	model = res.(Model)
+	if cmd == nil {
+		t.Fatal("expected command to submit the startup prompt")
+	}
+
+	res, _ = model.Update(cmd())
+	model = res.(Model)
+
+	if orch.submittedText != "fix the tests" {
+		t.Fatalf("expected startup prompt to be submitted, got %q", orch.submittedText)
+	}
+	if model.Input.Value() != "> " {
+		t.Fatalf("expected input to be cleared after submission, got %q", model.Input.Value())
 	}
 }
 
@@ -181,4 +202,3 @@ func TestIsBinary(t *testing.T) {
 		})
 	}
 }
-

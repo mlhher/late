@@ -46,6 +46,7 @@ func main() {
 	enableImagesReq := flag.Bool("enable-images", false, "Force enable support for image attachments for unsupported servers.")
 	continueReq := flag.Bool("continue", false, "Load and start the latest session")
 	showCWDReq := flag.Bool("show-cwd", true, "Show current working directory in status bar")
+	promptReq := flag.String("prompt", "", "Start the agent immediately with the given prompt")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of late:\n")
@@ -350,6 +351,10 @@ func main() {
 
 		// Start forwarding events from the root agent to the TUI
 		ForwardOrchestratorEvents(p, rootAgent)
+
+		if *promptReq != "" {
+			p.Send(tui.StartPromptMsg(*promptReq))
+		}
 	}()
 
 	if *enableSubagentsReq {
