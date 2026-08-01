@@ -787,6 +787,9 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 					return m, clearCmd
 				}
 				m.ShowTodoPane = !m.ShowTodoPane
+				for _, s := range m.AgentStates {
+					s.RenderedHistory = nil
+				}
 				m.updateLayout()
 				return m, nil
 			}
@@ -1193,7 +1196,13 @@ func (m *Model) updateLayout() {
 	}
 	m.Input.SetWidth(m.Width - 2)
 
+	oldWidth := m.Viewport.Width()
 	m.Viewport.SetWidth(availableWidth)
+	if oldWidth != availableWidth {
+		for _, s := range m.AgentStates {
+			s.RenderedHistory = nil
+		}
+	}
 	vHeight := m.Height - (m.Input.Height() + 1) - StatusBarHeight - AppPadding
 	if m.Mode == ViewModelPicker {
 		vHeight = m.Height - 3 - StatusBarHeight - AppPadding

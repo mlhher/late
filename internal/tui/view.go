@@ -1597,8 +1597,7 @@ func (m Model) todoPaneView(height int) string {
 	content := strings.Join(lines, "\n")
 	boxStyle := lipgloss.NewStyle().
 		Width(innerWidth).
-		Height(innerHeight).
-		MaxHeight(innerHeight).
+		MaxHeight(height).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#3E3E43")).
 		Background(appBgColor)
