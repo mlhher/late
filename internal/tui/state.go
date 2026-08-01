@@ -142,10 +142,12 @@ type Model struct {
 	Spinner spinner.Model
 
 	// File Picker
-	FilePicker     filepicker.Model
-	AttachedFiles  []string
-	ShowFilePicker bool
-	ShowTodoPane   bool
+	FilePicker       filepicker.Model
+	AttachedFiles    []string
+	ShowFilePicker   bool
+	ShowTodoPane     bool
+	TodoPaneFocused  bool
+	TodoScrollOffset int
 
 	// Double-click copy & Toast tracking
 	LastClickX      int

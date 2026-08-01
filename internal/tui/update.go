@@ -90,6 +90,10 @@ func (m Model) updateInternal(msg tea.Msg) (Model, tea.Cmd) {
 			m.updateLayout()
 			return m, nil
 		}
+		if msg.String() == "ctrl+t" && m.ShowTodoPane && m.Mode == ViewChat {
+			m.TodoPaneFocused = !m.TodoPaneFocused
+			return m, nil
+		}
 	}
 
 	// Window Sizing
@@ -100,6 +104,61 @@ func (m Model) updateInternal(msg tea.Msg) (Model, tea.Cmd) {
 			s.RenderedHistory = nil
 		}
 		m.updateLayout()
+	}
+
+	// The todo pane has its own focus so its navigation keys never interfere
+	// with typing in the chat input.
+	if m.ShowTodoPane && m.Mode == ViewChat {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok && m.TodoPaneFocused {
+			pageSize := max(1, m.Viewport.Height()-3)
+			maxOffset := m.todoMaxScrollOffset(m.Viewport.Height())
+			switch keyMsg.String() {
+			case "esc", "ctrl+t":
+				m.TodoPaneFocused = false
+				return m, nil
+			case "up", "k":
+				m.TodoScrollOffset = max(0, m.TodoScrollOffset-1)
+				return m, nil
+			case "down", "j":
+				m.TodoScrollOffset = min(maxOffset, m.TodoScrollOffset+1)
+				return m, nil
+			case "pgup":
+				m.TodoScrollOffset = max(0, m.TodoScrollOffset-pageSize)
+				return m, nil
+			case "pgdown":
+				m.TodoScrollOffset = min(maxOffset, m.TodoScrollOffset+pageSize)
+				return m, nil
+			case "home", "g":
+				m.TodoScrollOffset = 0
+				return m, nil
+			case "end", "G":
+				m.TodoScrollOffset = maxOffset
+				return m, nil
+			}
+		}
+
+		if wheelMsg, ok := msg.(tea.MouseWheelMsg); ok {
+			mouse := wheelMsg.Mouse()
+			if mouse.X >= m.Width-todoPaneWidth && mouse.Y >= 0 && mouse.Y < m.Viewport.Height() {
+				maxOffset := m.todoMaxScrollOffset(m.Viewport.Height())
+				if mouse.Button == tea.MouseWheelUp {
+					m.TodoScrollOffset = max(0, m.TodoScrollOffset-3)
+				} else if mouse.Button == tea.MouseWheelDown {
+					m.TodoScrollOffset = min(maxOffset, m.TodoScrollOffset+3)
+				}
+				return m, nil
+			}
+		}
+
+		if clickMsg, ok := msg.(tea.MouseClickMsg); ok {
+			mouse := clickMsg.Mouse()
+			if mouse.Button == tea.MouseLeft &&
+				mouse.X >= m.Width-todoPaneWidth &&
+				mouse.Y >= 0 && mouse.Y < m.Viewport.Height() {
+				m.TodoPaneFocused = true
+				return m, nil
+			}
+		}
 	}
 
 	// Internal Messages
@@ -793,6 +852,8 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 					return m, clearCmd
 				}
 				m.ShowTodoPane = !m.ShowTodoPane
+				m.TodoPaneFocused = false
+				m.TodoScrollOffset = 0
 				for _, s := range m.AgentStates {
 					s.RenderedHistory = nil
 				}
@@ -1195,9 +1256,10 @@ func (m *Model) updateLayout() {
 
 	availableWidth := m.Width
 	if m.ShowTodoPane && m.Width >= 85 {
-		availableWidth = m.Width - 38
+		availableWidth = m.Width - todoPaneWidth
 	} else if m.ShowTodoPane && m.Width < 85 {
 		m.ShowTodoPane = false
+		m.TodoPaneFocused = false
 	}
 	m.Input.SetWidth(m.Width - 2)
 
@@ -1223,6 +1285,7 @@ func (m *Model) updateLayout() {
 		vHeight = 1
 	}
 	m.Viewport.SetHeight(vHeight)
+	m.TodoScrollOffset = min(m.TodoScrollOffset, m.todoMaxScrollOffset(vHeight))
 
 	// Ensure file picker also respects the layout height to prevent pushing the status bar off-screen
 	// We subtract StatusBarHeight. If we have a 2-line picker status bar, we subtract 3.
