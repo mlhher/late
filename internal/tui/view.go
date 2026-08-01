@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"late/internal/common"
+
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
@@ -20,11 +22,17 @@ func (m Model) View() tea.View {
 	}
 
 	// Force each component to its strict allocated height to prevent layout shifts
+	vpView := m.Viewport.View()
+	if m.ShowTodoPane && !m.ShowFilePicker && m.Mode == ViewChat && m.Width >= 85 {
+		todoView := m.todoPaneView(m.Viewport.Height())
+		vpView = lipgloss.JoinHorizontal(lipgloss.Top, vpView, todoView)
+	}
+
 	vStr := lipgloss.NewStyle().
 		Height(m.Viewport.Height()).
 		Width(m.Width).
 		Background(appBgColor).
-		Render(m.Viewport.View())
+		Render(vpView)
 
 	iStr := m.inputView()
 
@@ -1517,3 +1525,84 @@ func (m *Model) renderModelPickerView() {
 		Render(strings.Join(lines, "\n"))
 	m.Viewport.SetContent(paddedContent)
 }
+
+func (m Model) todoPaneView(height int) string {
+	paneWidth := 34
+	innerWidth := paneWidth - 2 // 1 left border, 1 right border
+	innerHeight := height - 2   // 1 top border, 1 bottom border
+	if innerHeight < 1 {
+		innerHeight = 1
+	}
+
+	var todos []common.TodoItem
+	if reg := m.Focused.Registry(); reg != nil {
+		if provider, ok := reg.Get("list_todos").(common.TodoProvider); ok {
+			todos = provider.GetTodos()
+		}
+	}
+
+	var lines []string
+	title := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#7D56F4")).
+		Render("  Todos")
+	lines = append(lines, title, "")
+
+	if len(todos) == 0 {
+		emptyMsg := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#4A4B50")).
+			Italic(true).
+			Render("No todos created yet.\nWaiting for plan...")
+		lines = append(lines, strings.Split(emptyMsg, "\n")...)
+	} else {
+		for i, td := range todos {
+			icon := "[ ]"
+			itemStyle := lipgloss.NewStyle().Foreground(textColor)
+			if td.Done {
+				icon = "[✓]"
+				itemStyle = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#43BF6D")).
+					Strikethrough(true)
+			}
+			text := td.Text
+			maxTextLen := innerWidth - 8 // allow space for "1. [✓] "
+			if maxTextLen < 5 {
+				maxTextLen = 5
+			}
+			if len(text) > maxTextLen {
+				text = text[:maxTextLen-1] + "…"
+			}
+			line := fmt.Sprintf("%2d. %s %s", i+1, icon, itemStyle.Render(text))
+			lines = append(lines, line)
+		}
+	}
+
+	// Pad or truncate lines to innerHeight
+	for len(lines) < innerHeight {
+		lines = append(lines, "")
+	}
+	if len(lines) > innerHeight {
+		lines = lines[:innerHeight]
+		if innerHeight >= 3 && len(todos) > innerHeight-2 {
+			moreCount := len(todos) - (innerHeight - 3)
+			if moreCount > 0 {
+				lines[innerHeight-1] = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#4A4B50")).
+					Italic(true).
+					Render(fmt.Sprintf("  ...and %d more", moreCount))
+			}
+		}
+	}
+
+	content := strings.Join(lines, "\n")
+	boxStyle := lipgloss.NewStyle().
+		Width(innerWidth).
+		Height(innerHeight).
+		MaxHeight(innerHeight).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#3E3E43")).
+		Background(appBgColor)
+
+	return boxStyle.Render(content)
+}
+

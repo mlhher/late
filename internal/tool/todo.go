@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"late/internal/common"
 )
 
 // Todo represents a single todo item with its completion status.
@@ -140,6 +142,32 @@ func (t ListTodosTool) Execute(ctx context.Context, args json.RawMessage) (strin
 func (t ListTodosTool) RequiresConfirmation(args json.RawMessage) bool { return false }
 func (t ListTodosTool) CallString(args json.RawMessage) string {
 	return "Listing todos..."
+}
+
+func (t ListTodosTool) GetTodos() []common.TodoItem {
+	var snapshot []Todo
+	if t.Mu != nil {
+		t.Mu.Lock()
+		if t.Todos != nil {
+			snapshot = make([]Todo, len(*t.Todos))
+			copy(snapshot, *t.Todos)
+		}
+		t.Mu.Unlock()
+	} else if t.Todos != nil {
+		snapshot = *t.Todos
+	}
+
+	if len(snapshot) == 0 {
+		return nil
+	}
+	result := make([]common.TodoItem, len(snapshot))
+	for i, td := range snapshot {
+		result[i] = common.TodoItem{
+			Text: td.Text,
+			Done: td.Done,
+		}
+	}
+	return result
 }
 
 // FinishTodoTool marks a todo as complete by exact string match.

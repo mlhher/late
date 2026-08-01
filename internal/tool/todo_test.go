@@ -264,3 +264,24 @@ func TestFinishTodoTrimSpace(t *testing.T) {
 	}
 }
 
+func TestListTodosGetTodos(t *testing.T) {
+	var mu sync.Mutex
+	todos := []Todo{
+		{Text: "Task A", Done: true},
+		{Text: "Task B", Done: false},
+	}
+	tool := ListTodosTool{Todos: &todos, Mu: &mu}
+
+	items := tool.GetTodos()
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	if items[0].Text != "Task A" || !items[0].Done {
+		t.Fatalf("unexpected item[0]: %+v", items[0])
+	}
+	if items[1].Text != "Task B" || items[1].Done {
+		t.Fatalf("unexpected item[1]: %+v", items[1])
+	}
+}
+
+

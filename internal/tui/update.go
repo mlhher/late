@@ -773,6 +773,23 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 				m.updateLayout()
 				return m, nil
 			}
+			if cmd == "/todos" {
+				m.Input.Reset()
+				m.Input.SetValue("> ")
+				if m.Width < 85 {
+					m.ToastMessage = "Terminal too narrow for side pane (need >= 85 cols)"
+					m.ToastWarning = true
+					m.ToastExpireTime = time.Now().UnixMilli() + 3000
+					clearCmd := tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
+						return clearToastMsg{}
+					})
+					m.updateViewport()
+					return m, clearCmd
+				}
+				m.ShowTodoPane = !m.ShowTodoPane
+				m.updateLayout()
+				return m, nil
+			}
 			if cmd == "/model" {
 				m.Input.Reset()
 				m.Input.SetValue("> ")
@@ -1169,7 +1186,12 @@ func (m *Model) updateLayout() {
 	}
 
 	availableWidth := m.Width
-	m.Input.SetWidth(availableWidth - 2)
+	if m.ShowTodoPane && m.Width >= 85 {
+		availableWidth = m.Width - 34
+	} else if m.ShowTodoPane && m.Width < 85 {
+		m.ShowTodoPane = false
+	}
+	m.Input.SetWidth(m.Width - 2)
 
 	m.Viewport.SetWidth(availableWidth)
 	vHeight := m.Height - (m.Input.Height() + 1) - StatusBarHeight - AppPadding

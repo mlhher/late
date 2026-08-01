@@ -62,6 +62,7 @@ var AvailableCommands = []CommandDef{
 	{Name: "/model", Description: "Select AI model for agents"},
 	{Name: "/quit", Description: "Exit the application"},
 	{Name: "/rewind", Description: "Rewind conversation history"},
+	{Name: "/todos", Description: "Toggle live todo progress pane"},
 }
 
 // RenderBlock represents the line bounds of a rendered block in the viewport.
@@ -140,6 +141,7 @@ type Model struct {
 	FilePicker     filepicker.Model
 	AttachedFiles  []string
 	ShowFilePicker bool
+	ShowTodoPane   bool
 
 	// Double-click copy & Toast tracking
 	LastClickX      int
