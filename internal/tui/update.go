@@ -259,6 +259,9 @@ func (m Model) updateInternal(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "pgup", "pgdown", "home", "end":
+			if msg.String() == "pgup" || msg.String() == "home" {
+				m.restoreFullHistoryForScroll()
+			}
 			forwardToViewport = true
 		default:
 			// Never forward character keys to the viewport to prevent conflicts with textarea input.
@@ -268,6 +271,9 @@ func (m Model) updateInternal(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.MouseWheelMsg:
 		// Wheel events forwarded to viewport for scroll handling.
 		// Bubbletea v2 dispatches these as a distinct type from MouseMsg.
+		if msg.Mouse().Button == tea.MouseWheelUp {
+			m.restoreFullHistoryForScroll()
+		}
 		forwardToViewport = true
 	case tea.MouseMsg:
 		forwardToViewport = true
@@ -1145,7 +1151,6 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 			default:
 				s.State = StateIdle
 				s.StatusText = "Ready"
-				s.RenderedHistory = nil
 				s.StreamingStyledCache = ""
 				s.StreamingChunkCount = 0
 			}

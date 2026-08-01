@@ -107,6 +107,10 @@ type AppState struct {
 	LastChunks           []string // Cached result of splitMarkdownChunks
 	LastTail             string   // Cached result of splitMarkdownChunks
 	LastTotalContent     string   // To avoid redundant Viewport.SetContent calls
+	CachedHistoryLines   []string // Completed history, split once for windowed streaming
+	CachedHistoryBlocks  []RenderBlock
+	StreamingWindow      bool // Viewport currently contains only the recent history window
+	StreamingWindowStart int  // Full-history line represented by viewport line zero
 
 	RenderBlocks []RenderBlock // Line ranges of rendered blocks
 

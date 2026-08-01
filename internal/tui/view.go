@@ -641,8 +641,12 @@ Press **ctrl+h** or **esc** to return to the chat.`
 	s.LastRenderTime = time.Now().UnixMilli()
 
 	// If history was reset or messages were removed, clear the cache
+	historyCacheChanged := false
 	if len(history) < len(s.RenderedHistory) {
 		s.RenderedHistory = nil
+		s.CachedHistoryLines = nil
+		s.CachedHistoryBlocks = nil
+		historyCacheChanged = true
 	}
 
 	// Render only new messages and add to cache
@@ -700,24 +704,26 @@ Press **ctrl+h** or **esc** to return to the chat.`
 		}
 		// We always append to keep cache in sync with history length
 		s.RenderedHistory = append(s.RenderedHistory, rendered)
+		historyCacheChanged = true
 	}
 
-	// Build the full block list from cached history + active content
-	var blocks []string
-	s.RenderBlocks = nil
-	currentLine := 0
-
-	for idx, r := range s.RenderedHistory {
-		if r != "" {
-			blocks = append(blocks, r)
+	// Rebuild completed-history line and copy metadata only when history
+	// changes. Streaming frames must not walk the entire completed chat.
+	if historyCacheChanged {
+		var historyBlocks []string
+		var historyRenderBlocks []RenderBlock
+		currentLine := 0
+		for idx, r := range s.RenderedHistory {
+			if r == "" {
+				continue
+			}
+			historyBlocks = append(historyBlocks, r)
 			linesCount := strings.Count(r, "\n") + 1
-
 			copyText := history[idx].Content.String()
 			if history[idx].Role == "user" {
 				copyText = history[idx].Content.UIString()
 			}
-
-			s.RenderBlocks = append(s.RenderBlocks, RenderBlock{
+			historyRenderBlocks = append(historyRenderBlocks, RenderBlock{
 				MessageIndex: idx,
 				Content:      copyText,
 				StartLine:    currentLine,
@@ -725,6 +731,50 @@ Press **ctrl+h** or **esc** to return to the chat.`
 			})
 			currentLine += linesCount
 		}
+		if len(historyBlocks) == 0 {
+			s.CachedHistoryLines = nil
+		} else {
+			s.CachedHistoryLines = strings.Split(strings.Join(historyBlocks, "\n"), "\n")
+		}
+		s.CachedHistoryBlocks = historyRenderBlocks
+	}
+
+	streaming := s.State == StateStreaming || s.State == StateThinking
+	if streaming && !s.StreamingWindow && !m.Viewport.AtBottom() {
+		// The user is reading older history. Keep that viewport stable and
+		// avoid rebuilding the full chat for every token. Streaming state
+		// continues to accumulate and catches up when they return to bottom.
+		return
+	}
+
+	// During streaming, keep only a few screens of completed history in the
+	// viewport. bubbles/viewport scans every supplied line on SetContent, so
+	// giving it the full chat on every token makes frame cost grow forever.
+	var blocks []string
+	s.RenderBlocks = nil
+	currentLine := 0
+	windowStart := 0
+	if streaming && (s.StreamingWindow || m.Viewport.AtBottom()) {
+		windowSize := max(m.Viewport.Height()*2, 40)
+		windowStart = max(0, len(s.CachedHistoryLines)-windowSize)
+		s.StreamingWindow = true
+		s.StreamingWindowStart = windowStart
+	} else {
+		s.StreamingWindow = false
+		s.StreamingWindowStart = 0
+	}
+	historyLines := s.CachedHistoryLines[windowStart:]
+	if len(historyLines) > 0 {
+		blocks = append(blocks, strings.Join(historyLines, "\n"))
+		currentLine = len(historyLines)
+	}
+	for _, block := range s.CachedHistoryBlocks {
+		if block.EndLine < windowStart {
+			continue
+		}
+		block.StartLine = max(block.StartLine-windowStart, 0)
+		block.EndLine -= windowStart
+		s.RenderBlocks = append(s.RenderBlocks, block)
 	}
 
 	// Render streaming content if active
@@ -733,7 +783,8 @@ Press **ctrl+h** or **esc** to return to the chat.`
 		var activeParts []string
 		if s.StreamingState.ReasoningContent != "" {
 			activeParts = append(activeParts, thoughtHeaderStyle.Width(msgWidth+1).Render("Thoughts:"))
-			activeParts = append(activeParts, thinkingStyle.Width(msgWidth-2).Render(s.StreamingState.ReasoningContent))
+			reasoning := streamingTextWindow(s.StreamingState.ReasoningContent, msgWidth, m.Viewport.Height()*3)
+			activeParts = append(activeParts, thinkingStyle.Width(msgWidth-2).Render(reasoning))
 		}
 		if s.StreamingState.Content != "" {
 			innerWidth := m.Viewport.Width() - AIMsgOverhead
@@ -766,6 +817,10 @@ Press **ctrl+h** or **esc** to return to the chat.`
 					s.StreamingStyledCache += "\n"
 				}
 				s.StreamingStyledCache += styled
+				s.StreamingStyledCache = lastRenderedLines(
+					s.StreamingStyledCache,
+					max(m.Viewport.Height()*2, 40),
+				)
 			}
 			s.StreamingChunkCount = len(chunks)
 
@@ -775,6 +830,7 @@ Press **ctrl+h** or **esc** to return to the chat.`
 				// Trim leading newlines from tail to prevent "jumping" when a new paragraph starts
 				t := strings.TrimLeft(tail, "\n")
 				if t != "" {
+					t = streamingTextWindow(t, msgWidth, m.Viewport.Height()*2)
 					// Pulsing Caret for streaming effect
 					ms := float64(time.Now().UnixNano()) / 1e6
 					caretOpacity := (math.Sin(ms/150.0) + 1.0) / 2.0
@@ -796,6 +852,7 @@ Press **ctrl+h** or **esc** to return to the chat.`
 				assembled = tailStyled
 			}
 			if assembled != "" {
+				assembled = lastRenderedLines(assembled, max(m.Viewport.Height()*2, 40))
 				activeParts = append(activeParts, assembled)
 			}
 		}
@@ -950,6 +1007,56 @@ Press **ctrl+h** or **esc** to return to the chat.`
 	if atBottom {
 		m.Viewport.GotoBottom()
 	}
+}
+
+// streamingTextWindow bounds styling work for an incomplete streaming block.
+// The complete source remains in StreamingState and is rendered normally when
+// the turn finishes.
+func streamingTextWindow(content string, width, lines int) string {
+	limit := max(width*lines, 4096)
+	if len(content) <= limit {
+		return content
+	}
+	start := len(content) - limit
+	for start < len(content) && start > 0 && content[start]&0xc0 == 0x80 {
+		start++
+	}
+	return "…\n" + content[start:]
+}
+
+// lastRenderedLines returns a suffix without splitting or copying every line
+// in a potentially very large ANSI-rendered response.
+func lastRenderedLines(content string, count int) string {
+	if count <= 0 {
+		return ""
+	}
+	end := len(content)
+	for i := 0; i < count; i++ {
+		pos := strings.LastIndexByte(content[:end], '\n')
+		if pos < 0 {
+			return content
+		}
+		end = pos
+	}
+	return content[end+1:]
+}
+
+func (m *Model) restoreFullHistoryForScroll() {
+	s := m.GetAgentState(m.Focused.ID())
+	if !s.StreamingWindow {
+		return
+	}
+	fullContent := strings.Join(s.CachedHistoryLines, "\n")
+	padded := lipgloss.NewStyle().
+		Width(m.Viewport.Width()).
+		Background(appBgColor).
+		Render(fullContent)
+	m.Viewport.SetContent(padded)
+	m.Viewport.GotoBottom()
+	s.StreamingWindow = false
+	s.StreamingWindowStart = 0
+	s.LastTotalContent = ""
+	s.RenderBlocks = append(s.RenderBlocks[:0], s.CachedHistoryBlocks...)
 }
 
 func (m *Model) renderAnimatedTag(text string, baseStyle lipgloss.Style, width int, active bool) string {
