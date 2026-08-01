@@ -76,6 +76,9 @@ func defaultConfig() Config {
 			"spawn_subagent": true,
 			"bash":           true,
 			"search_tool":    true,
+			"create_todos":   true,
+			"list_todos":     true,
+			"finish_todo":    true,
 		},
 	}
 }

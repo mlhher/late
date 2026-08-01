@@ -253,6 +253,9 @@ func main() {
 		mainTools[k] = v
 	}
 	mainTools["write_implementation_plan"] = true
+	mainTools["create_todos"] = true
+	mainTools["list_todos"] = true
+	mainTools["finish_todo"] = true
 	mainTools["write_file"] = false
 	mainTools["target_edit"] = false
 

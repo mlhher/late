@@ -68,7 +68,8 @@ func NewSubagentOrchestrator(
 		for _, t := range parent.Registry().All() {
 			// Skip spawn_subagent and write_implementation_plan to prevent recursion/confusion
 			name := t.Name()
-			if name == "spawn_subagent" || name == "write_implementation_plan" {
+			if name == "spawn_subagent" || name == "write_implementation_plan" ||
+				name == "create_todos" || name == "list_todos" || name == "finish_todo" {
 				continue
 			}
 			sess.Registry.Register(t)
