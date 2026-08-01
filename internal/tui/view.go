@@ -1050,17 +1050,36 @@ func (m *Model) restoreFullHistoryForScroll() {
 	if !s.StreamingWindow {
 		return
 	}
-	fullContent := strings.Join(s.CachedHistoryLines, "\n")
-	padded := lipgloss.NewStyle().
-		Width(m.Viewport.Width()).
-		Background(appBgColor).
-		Render(fullContent)
-	m.Viewport.SetContent(padded)
-	m.Viewport.GotoBottom()
+
+	// Expand the current window in place. In particular, retain the active
+	// streaming block: rebuilding from CachedHistoryLines alone drops it and
+	// moves the apparent bottom upward by the height of the active response.
+	windowStart := s.StreamingWindowStart
+	windowOffset := m.Viewport.YOffset()
+	windowContent := m.Viewport.GetContent()
+	fullContent := windowContent
+	if windowStart > 0 {
+		fullContent = strings.Join(s.CachedHistoryLines[:windowStart], "\n") +
+			"\n" + windowContent
+	}
+	m.Viewport.SetContent(fullContent)
+	m.Viewport.SetYOffset(windowStart + windowOffset)
+
+	// Completed blocks regain their full-history coordinates. Preserve active
+	// blocks from the window and translate them by the prepended line count.
+	fullRenderBlocks := append([]RenderBlock(nil), s.CachedHistoryBlocks...)
+	for _, block := range s.RenderBlocks {
+		if block.MessageIndex >= 0 {
+			continue
+		}
+		block.StartLine += windowStart
+		block.EndLine += windowStart
+		fullRenderBlocks = append(fullRenderBlocks, block)
+	}
+	s.RenderBlocks = fullRenderBlocks
 	s.StreamingWindow = false
 	s.StreamingWindowStart = 0
 	s.LastTotalContent = ""
-	s.RenderBlocks = append(s.RenderBlocks[:0], s.CachedHistoryBlocks...)
 }
 
 func (m *Model) renderAnimatedTag(text string, baseStyle lipgloss.Style, width int, active bool) string {

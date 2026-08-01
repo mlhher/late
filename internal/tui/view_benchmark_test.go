@@ -164,9 +164,22 @@ func TestStreamingViewportUsesBoundedHistoryWindow(t *testing.T) {
 func TestRestoreFullHistoryForScroll(t *testing.T) {
 	model, state := newViewportBenchmarkModel(benchmarkHistory(500))
 	state.State = StateStreaming
-	state.StreamingState = common.ContentEvent{ID: model.Focused.ID(), Content: "active response"}
+	const reasoningTail = "ACTIVE REASONING TAIL"
+	state.StreamingState = common.ContentEvent{
+		ID: model.Focused.ID(),
+		ReasoningContent: strings.Repeat(
+			"long active reasoning that spans many rendered lines ",
+			model.Viewport.Height()*10,
+		) + reasoningTail,
+	}
 	model.updateViewport()
 	windowedLines := strings.Count(model.Viewport.GetContent(), "\n") + 1
+	windowStart := state.StreamingWindowStart
+	windowedOffset := model.Viewport.YOffset()
+
+	if !strings.Contains(model.Viewport.GetContent(), reasoningTail) {
+		t.Fatal("test setup did not render the active reasoning tail")
+	}
 
 	model.restoreFullHistoryForScroll()
 
@@ -176,10 +189,16 @@ func TestRestoreFullHistoryForScroll(t *testing.T) {
 	if got := strings.Count(model.Viewport.GetContent(), "\n") + 1; got <= windowedLines {
 		t.Fatalf("restored viewport contains %d lines; expected more than windowed viewport's %d", got, windowedLines)
 	}
+	if !strings.Contains(model.Viewport.GetContent(), reasoningTail) {
+		t.Fatal("restoring full history dropped the active reasoning block")
+	}
+	if got, want := model.Viewport.YOffset(), windowStart+windowedOffset; got != want {
+		t.Fatalf("restoring full history moved the viewport to offset %d; want %d to preserve the visible position", got, want)
+	}
 
 	model.Viewport.ScrollUp(1)
 	before := model.Viewport.GetContent()
-	state.StreamingState.Content = "new content that arrived while reading history"
+	state.StreamingState.ReasoningContent += " new content that arrived while reading history"
 	model.updateViewport()
 	if got := model.Viewport.GetContent(); got != before {
 		t.Fatal("streaming update replaced the viewport while the user was reading older history")
