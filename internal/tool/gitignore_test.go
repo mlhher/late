@@ -437,10 +437,18 @@ func TestGetRepoRoot_CWDKeyedCache(t *testing.T) {
 
 	// Create two separate git repos with different .gitignore rules
 	repo1 := t.TempDir()
+	repo1, err = filepath.EvalSymlinks(repo1)
+	if err != nil {
+		t.Fatal(err)
+	}
 	os.MkdirAll(filepath.Join(repo1, ".git"), 0755)
 	os.WriteFile(filepath.Join(repo1, ".gitignore"), []byte("*.log\n"), 0644)
 
 	repo2 := t.TempDir()
+	repo2, err = filepath.EvalSymlinks(repo2)
+	if err != nil {
+		t.Fatal(err)
+	}
 	os.MkdirAll(filepath.Join(repo2, ".git"), 0755)
 	os.WriteFile(filepath.Join(repo2, ".gitignore"), []byte("*.tmp\n"), 0644)
 
