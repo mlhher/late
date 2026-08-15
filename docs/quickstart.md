@@ -242,6 +242,7 @@ You can also create an `.llmignore` file alongside your `.gitignore` to specific
 | `--subagent-max-turns <n>` | Set max turns per subagent (default: 500) |
 | `--append-system-prompt "..."` | Append text to the system prompt (e.g. further instructions) |
 | `--enable-images` | Treat models as supporting images (for none llama.cpp servers) |
+| `--save-subagent-histories` | Persist subagent conversation histories to disk. Off by default (subagent transcripts are large); can also be enabled via `save_subagent_histories` in the config file |
 
 ## Sessions
 
@@ -253,6 +254,8 @@ late session list -v       # Verbose listing with details
 late session load <id>     # Resume a previous session
 late session delete <id>   # Delete a session
 ```
+
+By default, subagent conversations are kept in memory and discarded. With `--save-subagent-histories` (or `"save_subagent_histories": true` in the config file), each subagent's history is saved under the session folder — `~/.local/share/late/sessions/<session-id>/subagents/<type>-subagent-<N>.json` — while the parent session files stay in place. `late session delete <id>` removes the subagent folder along with the session.
 
 ## Git Worktrees
 

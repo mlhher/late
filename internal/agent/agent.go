@@ -23,6 +23,8 @@ func NewSubagentOrchestrator(
 	injectCWD bool,
 	gemmaThinking bool,
 	maxTurns int,
+	parentSessionID string,
+	saveSubagentHistory bool,
 	parent common.Orchestrator,
 	messenger tui.Messenger,
 ) (common.Orchestrator, error) {
@@ -60,8 +62,27 @@ func NewSubagentOrchestrator(
 		systemPrompt = "<|think|>" + systemPrompt
 	}
 
-	// 2. Setup Subagent Session (Isolated History)
-	sess := session.New(c, "", []client.ChatMessage{}, systemPrompt, true)
+	// Mint the child ID up-front so it can be embedded in the subagent history path.
+	var id string
+	if p, ok := parent.(*orchestrator.BaseOrchestrator); ok {
+		id = p.NextChildID(agentType)
+	} else if parent != nil {
+		// Fallback for non-BaseOrchestrator parents (test fakes only).
+		id = fmt.Sprintf("%s-subagent-%d", agentType, len(parent.Children()))
+	} else {
+		id = fmt.Sprintf("%s-subagent-0", agentType)
+	}
+
+	// 2. Setup Subagent Session (Isolated History; persisted only when opted in)
+	var subagentHistoryPath string
+	if saveSubagentHistory && parentSessionID != "" {
+		path, err := session.SubagentHistoryPath(parentSessionID, id)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve subagent history path: %w", err)
+		}
+		subagentHistoryPath = path
+	}
+	sess := session.NewSubagentSession(c, subagentHistoryPath, []client.ChatMessage{}, systemPrompt)
 
 	// Inherit all tools from parent (including MCP tools)
 	if parent != nil && parent.Registry() != nil {
@@ -101,7 +122,6 @@ func NewSubagentOrchestrator(
 	}
 
 	// 4. Create Orchestrator
-	id := fmt.Sprintf("%s-subagent-%d", agentType, len(parent.Children()))
 	mws := parent.Middlewares()
 
 	if messenger != nil {

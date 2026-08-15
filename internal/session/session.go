@@ -21,6 +21,7 @@ type Session struct {
 	History      []client.ChatMessage
 	systemPrompt string
 	useTools     bool
+	skipMetadata bool // when true, no top-level .meta.json sidecar is written (subagents)
 	Registry     *tool.Registry
 }
 
@@ -33,6 +34,16 @@ func New(c *client.Client, historyPath string, history []client.ChatMessage, sys
 		useTools:     useTools,
 		Registry:     tool.NewRegistry(),
 	}
+}
+
+// NewSubagentSession creates a session for a subagent. History is persisted
+// to historyPath when non-empty (in-memory otherwise), but the session never
+// writes a top-level .meta.json sidecar, keeping the shared sessions
+// directory free of subagent entries.
+func NewSubagentSession(c *client.Client, historyPath string, history []client.ChatMessage, systemPrompt string) *Session {
+	s := New(c, historyPath, history, systemPrompt, true)
+	s.skipMetadata = true
+	return s
 }
 
 // ExecuteTool executes a tool call and returns the response as a string.
@@ -283,6 +294,9 @@ func (s *Session) GenerateSessionMeta() SessionMeta {
 
 // UpdateSessionMetadata updates the session metadata file
 func (s *Session) UpdateSessionMetadata() error {
+	if s.skipMetadata {
+		return nil
+	}
 	meta := s.GenerateSessionMeta()
 	return SaveSessionMeta(meta)
 }
@@ -326,7 +340,7 @@ func (s *Session) saveAndNotify() error {
 		return nil
 	}
 	if s.HistoryPath == "" {
-		return nil // Skip saving if no path provided (e.g., subagents)
+		return nil // Skip saving if no path provided (e.g., in-memory sessions, subagents without history opt-in)
 	}
 	if err := SaveHistory(s.HistoryPath, s.History); err != nil {
 		return err

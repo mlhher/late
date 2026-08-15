@@ -26,6 +26,9 @@ type BaseOrchestrator struct {
 	parent   common.Orchestrator
 	children []common.Orchestrator
 
+	// childSeq is a monotonic counter for minting child IDs; guarded by mu
+	childSeq int
+
 	// Running state tracker
 	isRunning   bool
 	pendingMsgs []client.ChatMessage
@@ -440,7 +443,9 @@ func (o *BaseOrchestrator) Registry() *common.ToolRegistry {
 func (o *BaseOrchestrator) Children() []common.Orchestrator {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
-	return o.children
+	out := make([]common.Orchestrator, len(o.children))
+	copy(out, o.children)
+	return out
 }
 
 func (o *BaseOrchestrator) Parent() common.Orchestrator {
@@ -467,6 +472,17 @@ func (o *BaseOrchestrator) Rewind(index int) error {
 		return o.sess.UpdateSessionMetadata()
 	}
 	return nil
+}
+
+// NextChildID atomically mints the next child ID under o.mu. The counter is
+// monotonic and independent of len(children), so concurrent spawns can never
+// produce duplicate IDs.
+func (o *BaseOrchestrator) NextChildID(agentType string) string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	id := fmt.Sprintf("%s-subagent-%d", agentType, o.childSeq)
+	o.childSeq++
+	return id
 }
 
 func (o *BaseOrchestrator) AddChild(child common.Orchestrator) {

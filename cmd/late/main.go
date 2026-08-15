@@ -39,6 +39,7 @@ func main() {
 	enableSubagentsReq := flag.Bool("enable-subagents", true, "Enable subagent usage")
 	gemmaThinkingReq := flag.Bool("gemma-thinking", false, "Prepend <|think|> token to system prompt for Gemma 4 models")
 	subagentMaxTurns := flag.Int("subagent-max-turns", 500, "Maximum number of turns for subagents (default: 500)")
+	saveSubagentHistoriesReq := flag.Bool("save-subagent-histories", false, "Persist subagent conversation histories to disk (default: off)")
 	enableSqzReq := flag.Bool("enable-sqz", false, "Enable sqz context compression (if available)")
 	appendSystemPromptReq := flag.String("append-system-prompt", "", "Append text to the system prompt after processing")
 	versionReq := flag.Bool("version", false, "Show version")
@@ -174,6 +175,12 @@ func main() {
 		historyPath = loadedHistoryPath
 	}
 
+	// Effective session ID for this run — derived from the FINAL history path so
+	// resumed sessions keep their original ID (the sessionID var above is a fresh
+	// timestamp even on resume). Used to place subagent histories under the right
+	// per-session folder.
+	effectiveSessionID := strings.TrimSuffix(filepath.Base(historyPath), ".json")
+
 	// Load existing history
 	history, err := session.LoadHistory(historyPath)
 	if err != nil {
@@ -208,6 +215,15 @@ func main() {
 			enabledTools[toolName] = enabled
 		}
 	}
+
+	// Resolve subagent history persistence opt-in (explicit CLI flag > config file).
+	saveSubagentHistoriesCLI := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "save-subagent-histories" {
+			saveSubagentHistoriesCLI = true
+		}
+	})
+	saveSubagentHistories := appconfig.ResolveSaveSubagentHistories(appConfig, saveSubagentHistoriesCLI, *saveSubagentHistoriesReq)
 
 	// Initialize Core Components
 	resolvedOpenAIConfig := appconfig.ResolveOpenAISettings(appConfig)
@@ -361,7 +377,7 @@ func main() {
 				currentSubagentClient = subagentClient
 			}
 
-			child, err := agent.NewSubagentOrchestrator(currentSubagentClient, goal, ctxFiles, agentType, enabledTools, *injectCWDReq, *gemmaThinkingReq, *subagentMaxTurns, rootAgent, p)
+			child, err := agent.NewSubagentOrchestrator(currentSubagentClient, goal, ctxFiles, agentType, enabledTools, *injectCWDReq, *gemmaThinkingReq, *subagentMaxTurns, effectiveSessionID, saveSubagentHistories, rootAgent, p)
 			if err != nil {
 				return "", err
 			}
@@ -545,6 +561,13 @@ func handleSessionDelete(id string) {
 	if err := os.Remove(meta.HistoryPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error deleting history: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Delete the session's subagent history folder (hierarchical layout). No-op for
+	// legacy flat sessions without a folder. Non-fatal: the session itself is already
+	// gone, so don't block the success message on leftover artifacts.
+	if err := session.RemoveSessionFolder(meta.ID); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to delete subagent history folder: %v\n", err)
 	}
 
 	fmt.Printf("Deleted session: %s\n", meta.Title)

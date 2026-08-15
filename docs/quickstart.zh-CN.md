@@ -240,6 +240,7 @@ Late 的原生搜索工具会自动遵循你的项目 `.gitignore`，通过排�
 | `--subagent-max-turns <n>` | 设置每个子智能体的最大交互轮数 (默认：500) |
 | `--append-system-prompt "..."` | 向系统提示词的末尾追加文本（例如自定义的补充说明） |
 | `--enable-images` | 将模型视为支持图像（适用于非 llama.cpp 的服务器） |
+| `--save-subagent-histories` | 将子智能体的对话历史记录持久化保存到磁盘。默认关闭（子智能体转录内容较大）；也可以在配置文件中通过 `save_subagent_histories` 开启 |
 
 ## 会话管理 (Sessions)
 
@@ -251,6 +252,8 @@ late session list -v       # 列出详细信息的会话记录
 late session load <id>     # 恢复指定的历史会话
 late session delete <id>   # 删除指定的会话
 ```
+
+默认情况下，子智能体的对话仅保存在内存中，结束后即被丢弃。使用 `--save-subagent-histories`（或在配置文件中设置 `"save_subagent_histories": true`）后，每个子智能体的对话历史记录都会被保存到会话文件夹下 —— `~/.local/share/late/sessions/<session-id>/subagents/<type>-subagent-<N>.json` —— 而父会话的原始文件位置保持不变。运行 `late session delete <id>` 删除会话时，子智能体文件夹也会随之被一并移除。
 
 ## Git 工作树 (Git Worktrees)
 

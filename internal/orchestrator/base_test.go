@@ -2,11 +2,13 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
 	"late/internal/client"
 	"late/internal/common"
 	"late/internal/session"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -131,5 +133,76 @@ func TestBaseOrchestrator_ResetStartsNewConversation(t *testing.T) {
 	}
 	if len(preserved) != 2 {
 		t.Fatalf("saving the new conversation changed original history: %#v", preserved)
+	}
+}
+
+func TestNextChildID_FormatAndMonotonic(t *testing.T) {
+	o := NewBaseOrchestrator("parent", session.New(nil, "", nil, "", false), nil, 0)
+
+	var got []string
+	for i := 0; i < 3; i++ {
+		got = append(got, o.NextChildID("researcher"))
+	}
+	got = append(got, o.NextChildID("coder"))
+
+	want := []string{
+		"researcher-subagent-0",
+		"researcher-subagent-1",
+		"researcher-subagent-2",
+		// The counter is global per parent, NOT per type.
+		"coder-subagent-3",
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("got %d IDs, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("ID %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestNextChildID_Concurrent(t *testing.T) {
+	o := NewBaseOrchestrator("parent", session.New(nil, "", nil, "", false), nil, 0)
+
+	const goroutines = 64
+	const perGoroutine = 16
+
+	var mu sync.Mutex
+	ids := make([]string, 0, goroutines*perGoroutine)
+
+	var wg sync.WaitGroup
+	for g := 0; g < goroutines; g++ {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < perGoroutine; i++ {
+				id := o.NextChildID("researcher")
+				mu.Lock()
+				ids = append(ids, id)
+				mu.Unlock()
+			}
+			// Interleave lightweight child registration to ensure concurrent
+			// AddChild calls don't interfere with ID minting.
+			o.AddChild(NewBaseOrchestrator(fmt.Sprintf("dummy-%d", g), nil, nil, 0))
+		}(g)
+	}
+	wg.Wait()
+
+	if len(ids) != goroutines*perGoroutine {
+		t.Fatalf("minted %d IDs, want %d", len(ids), goroutines*perGoroutine)
+	}
+
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if _, dup := seen[id]; dup {
+			t.Fatalf("duplicate ID minted: %q", id)
+		}
+		seen[id] = struct{}{}
+	}
+
+	if n := len(o.Children()); n != goroutines {
+		t.Errorf("Children() length = %d, want %d", n, goroutines)
 	}
 }
