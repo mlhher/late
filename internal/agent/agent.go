@@ -62,16 +62,14 @@ func NewSubagentOrchestrator(
 		systemPrompt = "<|think|>" + systemPrompt
 	}
 
-	// Mint the child ID up-front so it can be embedded in the subagent history path.
-	var id string
-	if p, ok := parent.(*orchestrator.BaseOrchestrator); ok {
-		id = p.NextChildID(agentType)
-	} else if parent != nil {
-		// Fallback for non-BaseOrchestrator parents (test fakes only).
-		id = fmt.Sprintf("%s-subagent-%d", agentType, len(parent.Children()))
-	} else {
-		id = fmt.Sprintf("%s-subagent-0", agentType)
+	// Mint the child ID up-front so it can be embedded in the subagent history
+	// path. The parent must be a *BaseOrchestrator: its mutex-protected counter
+	// is the only ID source that cannot collide under concurrent spawns.
+	baseParent, ok := parent.(*orchestrator.BaseOrchestrator)
+	if !ok {
+		return nil, fmt.Errorf("subagent parent must be a *orchestrator.BaseOrchestrator")
 	}
+	id := baseParent.NextChildID(agentType)
 
 	// 2. Setup Subagent Session (Isolated History; persisted only when opted in)
 	var subagentHistoryPath string

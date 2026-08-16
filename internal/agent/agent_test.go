@@ -350,6 +350,51 @@ func TestNewSubagentOrchestrator_PersistsWhenOptedIn(t *testing.T) {
 	}
 }
 
+// TestNewSubagentOrchestrator_RejectsUnsafeParentSessionID verifies that an
+// unsafe parentSessionID (e.g. "..") is rejected at history path resolution
+// before anything is written to the session directory (defense in depth;
+// Phase 2 makes this unreachable from production).
+func TestNewSubagentOrchestrator_RejectsUnsafeParentSessionID(t *testing.T) {
+	tmp := t.TempDir()
+	setSessionDirForTest(t, tmp)
+
+	cfg := client.Config{BaseURL: "http://localhost:8080"}
+	c := client.NewClient(cfg)
+
+	mockSession := session.New(c, "/tmp/mock-session.json", []client.ChatMessage{}, "mock system prompt", true)
+	parent := orchestrator.NewBaseOrchestrator("parent", mockSession, nil, 10)
+
+	const goal = "persist me"
+	_, err := NewSubagentOrchestrator(
+		c,
+		goal,
+		[]string{},
+		"coder",
+		map[string]bool{}, // enabledTools
+		false,             // injectCWD
+		false,             // gemmaThinking
+		10,                // maxTurns
+		"..",              // parentSessionID
+		true,              // saveSubagentHistory
+		parent,
+		nil, // messenger
+	)
+	if err == nil {
+		t.Fatalf("Expected error for unsafe parentSessionID, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to resolve subagent history path") {
+		t.Errorf("Expected error to contain %q, got: %v", "failed to resolve subagent history path", err)
+	}
+
+	entries, err := os.ReadDir(tmp)
+	if err != nil {
+		t.Fatalf("Failed to read temp sessions dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("Expected zero entries in temp sessions dir, got %d: %v", len(entries), entries)
+	}
+}
+
 // TestNewSubagentOrchestrator_InMemoryByDefault verifies that with
 // saveSubagentHistory=false the subagent session is fully in-memory: nothing
 // (not even a directory artifact) is written to the session directory.
