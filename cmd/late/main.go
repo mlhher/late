@@ -178,8 +178,10 @@ func main() {
 	// Effective session ID for this run — derived from the FINAL history path so
 	// resumed sessions keep their original ID (the sessionID var above is a fresh
 	// timestamp even on resume). Used to place subagent histories under the right
-	// per-session folder.
-	effectiveSessionID := strings.TrimSuffix(filepath.Base(historyPath), ".json")
+	// per-session folder. The helper falls back to "" for empty or unsafe IDs,
+	// which disables subagent history persistence (in-memory fallback) instead of
+	// writing files outside the session folder.
+	effectiveSessionID := deriveEffectiveSessionID(historyPath)
 
 	// Load existing history
 	history, err := session.LoadHistory(historyPath)
@@ -403,6 +405,19 @@ func main() {
 		fmt.Printf("Unspecified error: %v", err)
 		os.Exit(1)
 	}
+}
+
+// deriveEffectiveSessionID derives this run's session ID from the FINAL
+// history path so resumed sessions keep their original ID. It returns ""
+// for empty or unsafe results (a crafted meta file could claim an ID like
+// ".."), which disables subagent history persistence for the run
+// (in-memory fallback) instead of writing files outside the session folder.
+func deriveEffectiveSessionID(historyPath string) string {
+	id := strings.TrimSuffix(filepath.Base(historyPath), ".json")
+	if id == "" || id == "." || id == ".." {
+		return ""
+	}
+	return id
 }
 
 func mcpToolEnabled(t tool.Tool, enabledTools map[string]bool) bool {

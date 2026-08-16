@@ -126,3 +126,49 @@ func TestHandleSessionDelete_LegacyFlatSession(t *testing.T) {
 	assertFileGone(t, metaC)
 	assertFileGone(t, historyC)
 }
+
+func TestDeriveEffectiveSessionID(t *testing.T) {
+	tests := []struct {
+		name        string
+		historyPath string
+		want        string
+	}{
+		{
+			name:        "plain session history file",
+			historyPath: "session-20260815-123456.json",
+			want:        "session-20260815-123456",
+		},
+		{
+			name:        "full path uses base name",
+			historyPath: "/tmp/sessions/session-abc.json",
+			want:        "session-abc",
+		},
+		{
+			name:        "parent directory reference",
+			historyPath: "..",
+			want:        "",
+		},
+		{
+			name:        "full path ending in parent directory",
+			historyPath: "/some/dir/..",
+			want:        "",
+		},
+		{
+			name:        "current directory reference",
+			historyPath: ".",
+			want:        "",
+		},
+		{
+			name:        "json suffix only",
+			historyPath: ".json",
+			want:        "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := deriveEffectiveSessionID(tt.historyPath); got != tt.want {
+				t.Errorf("deriveEffectiveSessionID(%q) = %q, want %q", tt.historyPath, got, tt.want)
+			}
+		})
+	}
+}
