@@ -118,7 +118,7 @@ func TestRemoveSessionFolder_NoopForMissingAndUnsafeIDs(t *testing.T) {
 	}
 
 	// Unsafe IDs: no error, nothing deleted, no panic.
-	for _, unsafeID := range []string{"", "../evil", "a/b", "..\\windows-evil"} {
+	for _, unsafeID := range []string{"", ".", "..", "../evil", "a/b", "..\\windows-evil"} {
 		if err := RemoveSessionFolder(unsafeID); err != nil {
 			t.Errorf("Expected nil error for unsafe session ID %q, got %v", unsafeID, err)
 		}
@@ -134,5 +134,66 @@ func TestRemoveSessionFolder_NoopForMissingAndUnsafeIDs(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Errorf("Expected temp dir to remain empty, found %d entries: %v", len(entries), entries)
+	}
+}
+
+func TestSubagentHistoryPathRejectsUnsafeIDs(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "late-session-unsafe-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Mock SessionDir
+	oldSessionDir := SessionDir
+	SessionDir = func() (string, error) {
+		return tmpDir, nil
+	}
+	defer func() { SessionDir = oldSessionDir }()
+
+	for _, unsafeID := range []string{"", ".", "..", "../x", "a/b"} {
+		if _, err := SubagentHistoryDir(unsafeID); err == nil {
+			t.Errorf("Expected error from SubagentHistoryDir for unsafe session ID %q, got nil", unsafeID)
+		}
+		if _, err := SubagentHistoryPath(unsafeID, "coder"); err == nil {
+			t.Errorf("Expected error from SubagentHistoryPath for unsafe session ID %q, got nil", unsafeID)
+		}
+	}
+
+	if _, err := SubagentHistoryPath("session-x", ".."); err == nil {
+		t.Errorf("Expected error from SubagentHistoryPath for unsafe child ID %q, got nil", "..")
+	}
+
+	// Nothing may have been created on disk.
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to read temp dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("Expected temp dir to remain empty, found %d entries: %v", len(entries), entries)
+	}
+}
+
+func TestSubagentHistoryPathValidInputs(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "late-session-valid-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Mock SessionDir
+	oldSessionDir := SessionDir
+	SessionDir = func() (string, error) {
+		return tmpDir, nil
+	}
+	defer func() { SessionDir = oldSessionDir }()
+
+	gotPath, err := SubagentHistoryPath("session-x", "coder-subagent-0")
+	if err != nil {
+		t.Fatalf("SubagentHistoryPath returned error: %v", err)
+	}
+	wantPath := filepath.Join(tmpDir, "session-x", "subagents", "coder-subagent-0.json")
+	if gotPath != wantPath {
+		t.Errorf("Expected SubagentHistoryPath %q, got %q", wantPath, gotPath)
 	}
 }
