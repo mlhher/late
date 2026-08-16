@@ -255,7 +255,7 @@ late session load <id>     # Resume a previous session
 late session delete <id>   # Delete a session
 ```
 
-By default, subagent conversations are kept in memory and discarded. With `--save-subagent-histories` (or `"save_subagent_histories": true` in the config file), each subagent's history is saved under the session folder — `~/.local/share/late/sessions/<session-id>/subagents/<type>-subagent-<N>.json` — while the parent session files stay in place. `late session delete <id>` removes the subagent folder along with the session.
+By default, subagent conversations are kept in memory and discarded. With `--save-subagent-histories` (or `"save_subagent_histories": true` in the config file), each subagent's history is saved under the session folder — `~/.local/share/late/sessions/<session-id>/subagents/<type>-subagent-<N>.json` — while the parent session files stay in place. `late session delete <id>` removes the subagent folder along with the session. Note that saved transcripts may contain sensitive content (file contents, tool outputs); they are written with user-only permissions.
 
 ## Git Worktrees
 

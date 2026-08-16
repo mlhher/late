@@ -582,7 +582,7 @@ func handleSessionDelete(id string) {
 	// legacy flat sessions without a folder. Non-fatal: the session itself is already
 	// gone, so don't block the success message on leftover artifacts.
 	if err := session.RemoveSessionFolder(meta.ID); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to delete subagent history folder: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Warning: Failed to delete subagent history folder: %v\n", err)
 	}
 
 	fmt.Printf("Deleted session: %s\n", meta.Title)

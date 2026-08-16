@@ -476,7 +476,9 @@ func (o *BaseOrchestrator) Rewind(index int) error {
 
 // NextChildID atomically mints the next child ID under o.mu. The counter is
 // monotonic and independent of len(children), so concurrent spawns can never
-// produce duplicate IDs.
+// produce duplicate IDs. The counter is shared across agent types (e.g.,
+// `researcher-subagent-0`, then `coder-subagent-1`), matching the legacy
+// `len(children)` numbering scheme.
 func (o *BaseOrchestrator) NextChildID(agentType string) string {
 	o.mu.Lock()
 	defer o.mu.Unlock()
