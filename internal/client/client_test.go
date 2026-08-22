@@ -157,6 +157,18 @@ func TestChatCompletionStream_Termination(t *testing.T) {
 			wantChunks: 1,
 			wantErr:    false,
 		},
+		{
+			name:       "empty_data_line",
+			body:       sseChunks(sampleChunkHello, ""),
+			wantChunks: 1,
+			wantErr:    false,
+		},
+		{
+			name:       "only_empty_data_line",
+			body:       "data: \n",
+			wantChunks: 0,
+			wantErr:    false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -248,5 +260,82 @@ func TestChatCompletionStream_InvalidJSON(t *testing.T) {
 	// Should have 1 valid chunk (the invalid JSON was skipped).
 	if got := len(chunks); got != 1 {
 		t.Errorf("got %d chunks, want 1 (invalid JSON should be skipped)", got)
+	}
+}
+
+func TestChatCompletionStream_ContextCancellation(t *testing.T) {
+	st := newStreamTest(t)
+	defer st.Close()
+
+	// Separate channel to block the server handler. Using ctx.Done() here
+	// would create a race — we need to distinguish "client exited due to
+	// context cancel" from "client exited because server closed connection."
+	cancelled := make(chan struct{})
+	defer close(cancelled)
+
+	st.Handle(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// DiscoverBackend probes /props before the actual request. Return
+		// 404 for non-completions paths so those probes don't hang on <-cancelled.
+		if r.URL.Path != "/v1/chat/completions" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		flusher := w.(http.Flusher) // httptest.Server always implements Flusher
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, sseChunks(sampleChunkHello))
+		flusher.Flush()
+
+		// Block until test teardown closes the cancelled channel.
+		<-cancelled
+	}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	outCh, errCh := st.client.ChatCompletionStream(ctx, defaultRequest())
+
+	// Collect the first chunk — should arrive promptly before cancellation.
+	select {
+	case chunk := <-outCh:
+		if got := chunk.Choices[0].Delta.Content.String(); got != "Hello" {
+			t.Errorf("first chunk content = %q, want %q", got, "Hello")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for first chunk")
+	}
+
+	// Cancel the context to trigger cleanup.
+	cancel()
+
+	// Verify output channel closes after cancellation.
+	select {
+	case _, ok := <-outCh:
+		if ok {
+			t.Error("output channel should be closed after context cancellation")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("output channel not closed after context cancellation")
+	}
+
+	// Context cancellation interrupts the HTTP read, causing scanner.Err() to
+	// send a "stream interrupted" error on errCh before the deferred close fires.
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Error("expected error on errCh after context cancellation, got nil")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("error channel did not produce a value after context cancellation")
+	}
+
+	// Verify errCh is now closed.
+	select {
+	case _, ok := <-errCh:
+		if ok {
+			t.Error("error channel should be closed, but produced another value")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("error channel not closed after context cancellation")
 	}
 }
