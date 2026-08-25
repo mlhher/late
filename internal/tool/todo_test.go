@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"late/internal/common"
 )
 
 func TestCreateTodos(t *testing.T) {
@@ -284,4 +286,85 @@ func TestListTodosGetTodos(t *testing.T) {
 	}
 }
 
+func TestTodoToolsRejectSubagentOrchestrator(t *testing.T) {
+	ctx := context.WithValue(context.Background(), common.OrchestratorIDKey, "coder-subagent-0")
 
+	// create must be rejected and not modify the todo list
+	var createTodos []Todo
+	var createMu sync.Mutex
+	createResult, createErr := CreateTodosTool{Todos: &createTodos, Mu: &createMu}.Execute(ctx, json.RawMessage(`{"todos": ["A", "B"]}`))
+	if createErr != nil {
+		t.Fatalf("expected nil error from subagent guard, got: %v", createErr)
+	}
+	if !strings.Contains(createResult, "restricted to the main agent") {
+		t.Fatalf("expected subagent restriction message, got: %s", createResult)
+	}
+	if len(createTodos) != 0 {
+		t.Fatalf("expected todos to be unchanged, got: %v", createTodos)
+	}
+
+	// list must be rejected
+	var listTodos []Todo
+	var listMu sync.Mutex
+	listResult, listErr := ListTodosTool{Todos: &listTodos, Mu: &listMu}.Execute(ctx, json.RawMessage(`{}`))
+	if listErr != nil {
+		t.Fatalf("expected nil error from subagent guard, got: %v", listErr)
+	}
+	if !strings.Contains(listResult, "restricted to the main agent") {
+		t.Fatalf("expected subagent restriction message, got: %s", listResult)
+	}
+
+	// finish must be rejected and not modify the todo list
+	var finishTodos []Todo
+	var finishMu sync.Mutex
+	finishResult, finishErr := FinishTodoTool{Todos: &finishTodos, Mu: &finishMu}.Execute(ctx, json.RawMessage(`{"todo_text": "A"}`))
+	if finishErr != nil {
+		t.Fatalf("expected nil error from subagent guard, got: %v", finishErr)
+	}
+	if !strings.Contains(finishResult, "restricted to the main agent") {
+		t.Fatalf("expected subagent restriction message, got: %s", finishResult)
+	}
+	if len(finishTodos) != 0 {
+		t.Fatalf("expected todos to be unchanged, got: %v", finishTodos)
+	}
+}
+
+func TestTodoToolsAllowMainOrchestrator(t *testing.T) {
+	ctx := context.WithValue(context.Background(), common.OrchestratorIDKey, common.MainAgentID)
+
+	var todos []Todo
+	var mu sync.Mutex
+
+	// create should work for the main agent
+	createResult, err := CreateTodosTool{Todos: &todos, Mu: &mu}.Execute(ctx, json.RawMessage(`{"todos": ["Step 1", "Step 2"]}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(createResult, "Created 2 todo(s)") {
+		t.Fatalf("expected success message with count, got: %s", createResult)
+	}
+	if len(todos) != 2 {
+		t.Fatalf("expected 2 todos, got: %v", todos)
+	}
+
+	// finish should work for the main agent
+	finishResult, err := FinishTodoTool{Todos: &todos, Mu: &mu}.Execute(ctx, json.RawMessage(`{"todo_text": "Step 1"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(finishResult, "Completed: Step 1") {
+		t.Fatalf("expected completion message, got: %s", finishResult)
+	}
+	if !todos[0].Done {
+		t.Fatalf("expected first todo to be marked done, got: %v", todos[0])
+	}
+
+	// list should work for the main agent
+	listResult, err := ListTodosTool{Todos: &todos, Mu: &mu}.Execute(ctx, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(listResult, "# Todo List") {
+		t.Fatalf("expected header, got: %s", listResult)
+	}
+}

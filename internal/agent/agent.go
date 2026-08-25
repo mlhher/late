@@ -83,6 +83,12 @@ func NewSubagentOrchestrator(
 			subagentTools[t] = true
 		}
 	}
+
+	// Todo tools are orchestrator-only: never register them for subagents,
+	// even if a subagent config lists them in allowed_tools.
+	for _, name := range []string{"create_todos", "list_todos", "finish_todo"} {
+		delete(subagentTools, name)
+	}
 	executor.RegisterTools(sess.Registry, subagentTools)
 
 	// 3. Construct Initial Context

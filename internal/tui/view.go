@@ -12,13 +12,13 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"late/internal/common"
 	"late/internal/client"
+	"late/internal/common"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/rivo/uniseg"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/rivo/uniseg"
 )
 
 const todoPaneWidth = 44
@@ -1797,9 +1797,14 @@ func splitTodoWord(word string, maxWidth int) (string, string) {
 }
 
 func (m Model) todoItems() []common.TodoItem {
-	if reg := m.Focused.Registry(); reg != nil {
-		if provider, ok := reg.Get("list_todos").(common.TodoProvider); ok {
-			return provider.GetTodos()
+	// Always show the MAIN agent's todos. Subagents have no todo tools in
+	// their registries, so reading from the focused agent makes the list
+	// appear to reset whenever focus moves to a subagent.
+	if m.Root != nil {
+		if reg := m.Root.Registry(); reg != nil {
+			if provider, ok := reg.Get("list_todos").(common.TodoProvider); ok {
+				return provider.GetTodos()
+			}
 		}
 	}
 	return nil

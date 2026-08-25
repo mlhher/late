@@ -284,7 +284,7 @@ func main() {
 
 	// Create root orchestrator
 	// We'll add middlewares later once the program is started
-	rootAgent := orchestrator.NewBaseOrchestrator("main", sess, nil, 0)
+	rootAgent := orchestrator.NewBaseOrchestrator(common.MainAgentID, sess, nil, 0)
 
 	model := tui.NewModel(rootAgent, renderer, appConfig)
 	model.ApplyOrchestratorModel = func(setting appconfig.ModelSetting) tea.Cmd {

@@ -51,6 +51,10 @@ func (t CreateTodosTool) Parameters() json.RawMessage {
 	}`)
 }
 func (t CreateTodosTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
+	// Only the main agent may manage todos; subagents must never modify them.
+	if id := common.GetOrchestratorID(ctx); id != "" && id != common.MainAgentID {
+		return "Error: todo tools are restricted to the main agent; subagents cannot modify the todo list.", nil
+	}
 	var params struct {
 		Todos []string `json:"todos"`
 	}
@@ -113,6 +117,10 @@ func (t ListTodosTool) Parameters() json.RawMessage {
 	}`)
 }
 func (t ListTodosTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
+	// Only the main agent may manage todos; subagents must never modify them.
+	if id := common.GetOrchestratorID(ctx); id != "" && id != common.MainAgentID {
+		return "Error: todo tools are restricted to the main agent; subagents cannot modify the todo list.", nil
+	}
 	var snapshot []Todo
 	if t.Mu != nil {
 		t.Mu.Lock()
@@ -202,6 +210,10 @@ func (t FinishTodoTool) Parameters() json.RawMessage {
 	}`)
 }
 func (t FinishTodoTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
+	// Only the main agent may manage todos; subagents must never modify them.
+	if id := common.GetOrchestratorID(ctx); id != "" && id != common.MainAgentID {
+		return "Error: todo tools are restricted to the main agent; subagents cannot modify the todo list.", nil
+	}
 	var params struct {
 		TodoText string `json:"todo_text"`
 	}
