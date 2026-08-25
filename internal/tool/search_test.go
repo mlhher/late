@@ -58,6 +58,9 @@ func TestSearchTool_Parameters_HasRequiredFields(t *testing.T) {
 	if len(schema.Required) != 1 || schema.Required[0] != "pattern" {
 		t.Errorf("Required = %v, want [\"pattern\"]", schema.Required)
 	}
+	if property, ok := schema.Properties["include_gitignored"]; !ok || property.Type != "boolean" {
+		t.Errorf("include_gitignored property = %v, %v; want boolean property", property, ok)
+	}
 }
 
 func TestSearchTool_RequiresConfirmation(t *testing.T) {

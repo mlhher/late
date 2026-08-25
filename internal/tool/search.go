@@ -24,7 +24,7 @@ func (t *SearchTool) Name() string { return "search_tool" }
 func (t *SearchTool) Description() string {
 	return "PREFERRED over bash grep/find/rg. " +
 		"Search files by regex/literal pattern or by name glob. Returns {path, line, content}. " +
-		"Honors .gitignore, permission gates, and output caps. " +
+		"Honors .gitignore and .llmignore, permission gates, and output caps. " +
 		"Modes: files_with_matches (paths), content (lines+numbers), count (counts). " +
 		"Set search_names:true to match filenames by glob (e.g. '*.go') instead of searching contents."
 }
@@ -76,6 +76,10 @@ func (t *SearchTool) Parameters() json.RawMessage {
 			"recursive": {
 				"type": "boolean",
 				"description": "Search subdirectories (default: true)."
+			},
+			"include_gitignored": {
+				"type": "boolean",
+				"description": "If true, include files excluded by .gitignore (default: false). .llmignore and built-in exclusions remain enforced. Prefer a narrow path when enabling this."
 			}
 		},
 		"required": ["pattern"]
@@ -84,17 +88,18 @@ func (t *SearchTool) Parameters() json.RawMessage {
 
 func (t *SearchTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
-		Pattern       string `json:"pattern"`
-		Path          string `json:"path"`
-		Include       string `json:"include"`
-		Exclude       string `json:"exclude"`
-		OutputMode    string `json:"output_mode"`
-		CaseSensitive bool   `json:"case_sensitive"`
-		FixedStrings  bool   `json:"fixed_strings"`
-		SearchNames   bool   `json:"search_names"`
-		ContextLines  int    `json:"context_lines"`
-		MaxResults    int    `json:"max_results"`
-		Recursive     bool   `json:"recursive"`
+		Pattern           string `json:"pattern"`
+		Path              string `json:"path"`
+		Include           string `json:"include"`
+		Exclude           string `json:"exclude"`
+		OutputMode        string `json:"output_mode"`
+		CaseSensitive     bool   `json:"case_sensitive"`
+		FixedStrings      bool   `json:"fixed_strings"`
+		SearchNames       bool   `json:"search_names"`
+		ContextLines      int    `json:"context_lines"`
+		MaxResults        int    `json:"max_results"`
+		Recursive         bool   `json:"recursive"`
+		IncludeGitignored bool   `json:"include_gitignored"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return "", fmt.Errorf("invalid search parameters: %w", err)
@@ -136,8 +141,9 @@ func (t *SearchTool) Execute(ctx context.Context, args json.RawMessage) (string,
 		searchPath = params.Path
 	}
 
-	// Load .gitignore if available (cached per process from CWD)
-	gi, repoRoot := getGitIgnoreForPath(searchPath)
+	// Load the applicable ignore rules. include_gitignored bypasses only
+	// .gitignore; .llmignore remains enforced as an agent-specific policy.
+	gi, repoRoot := getIgnoreForPath(searchPath, params.IncludeGitignored)
 
 	// --- search_names: filename glob matching fast path ---
 	if params.SearchNames {

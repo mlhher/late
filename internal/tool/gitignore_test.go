@@ -366,6 +366,78 @@ func TestSearchTool_GitIgnoreDirectorySkipped(t *testing.T) {
 	}
 }
 
+func TestSearchTool_IncludeGitignored(t *testing.T) {
+	ResetGitIgnoreCache()
+
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
+	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("temp/\n"), 0644)
+	os.MkdirAll(filepath.Join(dir, "temp"), 0755)
+	os.WriteFile(filepath.Join(dir, "temp", "reference.go"), []byte("package reference\n"), 0644)
+
+	tool := &SearchTool{}
+	args := json.RawMessage(`{"pattern":"package","path":"` + filepath.Join(dir, "temp") + `","include_gitignored":true}`)
+	result, err := tool.Execute(context.Background(), args)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(result, "reference.go") {
+		t.Errorf("expected gitignored reference.go when include_gitignored is true, got: %q", result)
+	}
+}
+
+func TestSearchTool_IncludeGitignoredStillHonorsLlmIgnore(t *testing.T) {
+	ResetGitIgnoreCache()
+
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
+	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("temp/\n"), 0644)
+	os.WriteFile(filepath.Join(dir, ".llmignore"), []byte("temp/hidden.go\n"), 0644)
+	os.MkdirAll(filepath.Join(dir, "temp"), 0755)
+	os.WriteFile(filepath.Join(dir, "temp", "reference.go"), []byte("package reference\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "temp", "hidden.go"), []byte("package hidden\n"), 0644)
+
+	tool := &SearchTool{}
+	args := json.RawMessage(`{"pattern":"*.go","path":"` + filepath.Join(dir, "temp") + `","search_names":true,"include_gitignored":true}`)
+	result, err := tool.Execute(context.Background(), args)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(result, "reference.go") {
+		t.Errorf("expected gitignored reference.go in filename results, got: %q", result)
+	}
+	if strings.Contains(result, "hidden.go") {
+		t.Errorf("hidden.go should remain excluded by .llmignore, got: %q", result)
+	}
+}
+
+func TestSearchTool_IncludeGitignoredStillHonorsBuiltInExclusions(t *testing.T) {
+	ResetGitIgnoreCache()
+
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".git"), 0755)
+	os.MkdirAll(filepath.Join(dir, "node_modules", "dependency"), 0755)
+	os.WriteFile(filepath.Join(dir, ".git", "internal.txt"), []byte("search sentinel\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "node_modules", "dependency", "index.js"), []byte("search sentinel\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "visible.txt"), []byte("search sentinel\n"), 0644)
+
+	tool := &SearchTool{}
+	args := json.RawMessage(`{"pattern":"search sentinel","path":"` + dir + `","include_gitignored":true}`)
+	result, err := tool.Execute(context.Background(), args)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(result, "visible.txt") {
+		t.Errorf("expected visible.txt in results, got: %q", result)
+	}
+	if strings.Contains(result, "internal.txt") || strings.Contains(result, "index.js") {
+		t.Errorf("built-in exclusions should remain enforced, got: %q", result)
+	}
+}
+
 func TestSearchTool_NoGitIgnoreDir(t *testing.T) {
 	ResetGitIgnoreCache()
 
