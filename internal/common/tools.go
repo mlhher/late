@@ -57,3 +57,8 @@ type TodoProvider interface {
 	GetTodos() []TodoItem
 }
 
+// ConversationResetter clears tool state that must not carry into a new
+// conversation.
+type ConversationResetter interface {
+	ResetConversationState()
+}

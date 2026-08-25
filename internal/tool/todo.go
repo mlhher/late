@@ -22,6 +22,20 @@ type CreateTodosTool struct {
 	Mu    *sync.Mutex
 }
 
+func resetTodos(todos *[]Todo, mu *sync.Mutex) {
+	if mu != nil {
+		mu.Lock()
+		defer mu.Unlock()
+	}
+	if todos != nil {
+		*todos = nil
+	}
+}
+
+func (t CreateTodosTool) ResetConversationState() {
+	resetTodos(t.Todos, t.Mu)
+}
+
 func (t CreateTodosTool) Name() string { return "create_todos" }
 func (t CreateTodosTool) Description() string {
 	return `Create a list of todos to track your progress.
@@ -97,6 +111,10 @@ func (t CreateTodosTool) CallString(args json.RawMessage) string {
 type ListTodosTool struct {
 	Todos *[]Todo
 	Mu    *sync.Mutex
+}
+
+func (t ListTodosTool) ResetConversationState() {
+	resetTodos(t.Todos, t.Mu)
 }
 
 func (t ListTodosTool) Name() string { return "list_todos" }
@@ -182,6 +200,10 @@ func (t ListTodosTool) GetTodos() []common.TodoItem {
 type FinishTodoTool struct {
 	Todos *[]Todo
 	Mu    *sync.Mutex
+}
+
+func (t FinishTodoTool) ResetConversationState() {
+	resetTodos(t.Todos, t.Mu)
 }
 
 func (t FinishTodoTool) Name() string { return "finish_todo" }
