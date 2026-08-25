@@ -6,6 +6,8 @@ import (
 	"late/internal/common"
 	"strings"
 	"testing"
+
+	"charm.land/bubbles/v2/spinner"
 )
 
 // benchmarkOrchestrator supplies mutable history while reusing the test
@@ -18,6 +20,21 @@ type benchmarkOrchestrator struct {
 func (o *benchmarkOrchestrator) History() []client.ChatMessage {
 	return o.history
 }
+
+type focusTestOrchestrator struct {
+	mockOrchestrator
+	id       string
+	history  []client.ChatMessage
+	children []common.Orchestrator
+	parent   common.Orchestrator
+}
+
+func (o *focusTestOrchestrator) ID() string                    { return o.id }
+func (o *focusTestOrchestrator) History() []client.ChatMessage { return o.history }
+func (o *focusTestOrchestrator) Children() []common.Orchestrator {
+	return o.children
+}
+func (o *focusTestOrchestrator) Parent() common.Orchestrator { return o.parent }
 
 func benchmarkHistory(messageCount int) []client.ChatMessage {
 	history := make([]client.ChatMessage, 0, messageCount)
@@ -174,8 +191,6 @@ func TestRestoreFullHistoryForScroll(t *testing.T) {
 	}
 	model.updateViewport()
 	windowedLines := strings.Count(model.Viewport.GetContent(), "\n") + 1
-	windowStart := state.StreamingWindowStart
-	windowedOffset := model.Viewport.YOffset()
 
 	if !strings.Contains(model.Viewport.GetContent(), reasoningTail) {
 		t.Fatal("test setup did not render the active reasoning tail")
@@ -192,8 +207,8 @@ func TestRestoreFullHistoryForScroll(t *testing.T) {
 	if !strings.Contains(model.Viewport.GetContent(), reasoningTail) {
 		t.Fatal("restoring full history dropped the active reasoning block")
 	}
-	if got, want := model.Viewport.YOffset(), windowStart+windowedOffset; got != want {
-		t.Fatalf("restoring full history moved the viewport to offset %d; want %d to preserve the visible position", got, want)
+	if !model.Viewport.AtBottom() {
+		t.Fatal("restoring full history did not preserve the active response at the bottom")
 	}
 
 	model.Viewport.ScrollUp(1)
@@ -220,5 +235,121 @@ func TestIdleStatusKeepsRenderedHistoryCache(t *testing.T) {
 
 	if got := len(updated.GetAgentState(updated.Focused.ID()).RenderedHistory); got != cached {
 		t.Fatalf("idle status retained %d cached messages; want %d", got, cached)
+	}
+}
+
+func TestSwitchingToStreamingAgentWhileScrolledReplacesViewportContent(t *testing.T) {
+	root := &focusTestOrchestrator{
+		id:      "root",
+		history: benchmarkHistory(200),
+	}
+	root.history = append(root.history, client.ChatMessage{
+		Role:    "assistant",
+		Content: client.TextContent("ROOTHISTORYMARKER"),
+	})
+	child := &focusTestOrchestrator{
+		id: "child",
+		history: []client.ChatMessage{{
+			Role:    "assistant",
+			Content: client.TextContent("CHILDHISTORYMARKER"),
+		}},
+		parent: root,
+	}
+	root.children = []common.Orchestrator{child}
+
+	model := NewModel(root, nil, nil)
+	model.Width = 100
+	model.Height = 40
+	model.updateLayout()
+	model.updateViewport()
+	model.Viewport.ScrollUp(1)
+	if model.Viewport.AtBottom() {
+		t.Fatal("test setup failed to move the shared viewport away from the bottom")
+	}
+	if !strings.Contains(model.Viewport.GetContent(), "ROOTHISTORYMARKER") {
+		t.Fatal("test setup did not render the root history")
+	}
+
+	model.Focused = child
+	childState := model.GetAgentState(child.ID())
+	childState.State = StateStreaming
+	childState.StreamingState = common.ContentEvent{ID: child.ID(), Content: "child is streaming"}
+	model.updateViewport()
+
+	content := model.Viewport.GetContent()
+	if !strings.Contains(content, "CHILDHISTORYMARKER") {
+		t.Fatalf("focused child history was not installed in viewport; viewport still contains root history: %t",
+			strings.Contains(content, "ROOTHISTORYMARKER"))
+	}
+	if model.LastFocusedID != child.ID() {
+		t.Fatalf("last focused viewport ID is %q; want %q", model.LastFocusedID, child.ID())
+	}
+}
+
+func TestSpinnerTickRepaintsStreamingCaretWithoutNewContent(t *testing.T) {
+	model, state := newViewportBenchmarkModel(nil)
+	state.State = StateStreaming
+	state.StreamingState = common.ContentEvent{
+		ID:      model.Focused.ID(),
+		Content: "streaming response with an animated caret",
+	}
+	model.updateViewport()
+
+	// LastRenderTime is assigned by updateViewport, so resetting it gives us a
+	// deterministic way to detect whether the animation tick requested a frame.
+	state.LastRenderTime = 0
+	updated, _ := model.updateInternal(spinner.TickMsg{})
+	if got := updated.GetAgentState(updated.Focused.ID()).LastRenderTime; got == 0 {
+		t.Fatal("spinner tick did not repaint ordinary streaming content")
+	}
+}
+
+func TestRestoringHistoryKeepsEntireActiveStreamingResponse(t *testing.T) {
+	model, state := newViewportBenchmarkModel(benchmarkHistory(500))
+	state.State = StateStreaming
+
+	var lines []string
+	for i := 0; i < 500; i++ {
+		lines = append(lines, fmt.Sprintf("ACTIVELINE%04d", i))
+	}
+	state.StreamingState = common.ContentEvent{
+		ID:      model.Focused.ID(),
+		Content: strings.Join(lines, "\n"),
+	}
+	model.updateViewport()
+	if !strings.Contains(model.Viewport.GetContent(), "ACTIVELINE0499") {
+		t.Fatal("test setup did not render the end of the active response")
+	}
+
+	model.restoreFullHistoryForScroll()
+	content := model.Viewport.GetContent()
+	if !strings.Contains(content, "ACTIVELINE0000") {
+		t.Fatal("restored viewport discarded the beginning of the active streaming response")
+	}
+	if !strings.Contains(content, "ACTIVELINE0499") {
+		t.Fatal("restored viewport discarded the end of the active streaming response")
+	}
+}
+
+func TestSameLengthHistoryMutationInvalidatesRenderedCache(t *testing.T) {
+	history := []client.ChatMessage{{
+		Role:    "assistant",
+		Content: client.TextContent("OLDHISTORYCONTENT"),
+	}}
+	model, _ := newViewportBenchmarkModel(history)
+	model.updateViewport()
+	if !strings.Contains(model.Viewport.GetContent(), "OLDHISTORYCONTENT") {
+		t.Fatal("test setup did not render the original history")
+	}
+
+	model.Focused.(*benchmarkOrchestrator).history[0].Content = client.TextContent("NEWHISTORYCONTENT")
+	model.updateViewport()
+
+	content := model.Viewport.GetContent()
+	if !strings.Contains(content, "NEWHISTORYCONTENT") {
+		t.Fatal("same-length history mutation left stale rendered content in the viewport")
+	}
+	if strings.Contains(content, "OLDHISTORYCONTENT") {
+		t.Fatal("same-length history mutation retained the old rendered content")
 	}
 }

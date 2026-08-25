@@ -264,23 +264,12 @@ func main() {
 	executor.RegisterTools(sess.Registry, mainTools)
 
 	// Register MCP tools into the session registry.
-	// MCP tool names are now namespaced as "{server}:{tool}" (e.g. "graph-rag:list_files").
+	// MCP tool names are namespaced as "{server}__{tool}" (e.g. "graph-rag__list_files").
 	// For backwards compatibility with configs that disable tools by bare name
 	// (e.g. "list_files": false), we check the namespaced name first, then fall
 	// back to the bare name so existing configs keep working without modification.
 	for _, t := range mcpClient.GetTools() {
-		name := t.Name()
-		// Derive the bare name by stripping the server prefix.
-		bareName := name
-		if idx := strings.LastIndex(name, ":"); idx >= 0 {
-			bareName = name[idx+1:]
-		}
-		// Namespaced entry takes priority over bare-name entry.
-		if enabled, exists := enabledTools[name]; exists {
-			if !enabled {
-				continue
-			}
-		} else if enabled, exists := enabledTools[bareName]; exists && !enabled {
+		if !mcpToolEnabled(t, enabledTools) {
 			continue
 		}
 		sess.Registry.Register(t)
@@ -401,6 +390,18 @@ func main() {
 		fmt.Printf("Unspecified error: %v", err)
 		os.Exit(1)
 	}
+}
+
+func mcpToolEnabled(t tool.Tool, enabledTools map[string]bool) bool {
+	if enabled, exists := enabledTools[t.Name()]; exists {
+		return enabled
+	}
+	if named, ok := t.(interface{ BareName() string }); ok {
+		if enabled, exists := enabledTools[named.BareName()]; exists {
+			return enabled
+		}
+	}
+	return true
 }
 
 func newModelClient(ctx context.Context, setting appconfig.ModelSetting, enableImages bool) *client.Client {

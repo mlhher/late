@@ -287,6 +287,35 @@ func (s *Session) UpdateSessionMetadata() error {
 	return SaveSessionMeta(meta)
 }
 
+// StartNewConversation preserves the current conversation and switches this
+// session to a fresh history file. The new file is created when the first
+// message is saved, matching startup behavior for an empty session.
+func (s *Session) StartNewConversation() error {
+	if s.HistoryPath != "" && len(s.History) > 0 {
+		if err := SaveHistory(s.HistoryPath, s.History); err != nil {
+			return err
+		}
+		if err := s.UpdateSessionMetadata(); err != nil {
+			return err
+		}
+	}
+
+	dir := filepath.Dir(s.HistoryPath)
+	if s.HistoryPath == "" || dir == "." {
+		var err error
+		dir, err = SessionDir()
+		if err != nil {
+			return err
+		}
+	}
+
+	now := time.Now()
+	sessionID := fmt.Sprintf("session-%s-%09d", now.Format("20060102-150405"), now.Nanosecond())
+	s.HistoryPath = filepath.Join(dir, sessionID+".json")
+	s.History = []client.ChatMessage{}
+	return nil
+}
+
 // SystemPrompt returns the system prompt for this session
 func (s *Session) SystemPrompt() string {
 	return s.systemPrompt

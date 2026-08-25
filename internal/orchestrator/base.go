@@ -450,8 +450,7 @@ func (o *BaseOrchestrator) Parent() common.Orchestrator {
 func (o *BaseOrchestrator) Reset() error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	o.sess.History = []client.ChatMessage{}
-	return session.SaveHistory(o.sess.HistoryPath, nil)
+	return o.sess.StartNewConversation()
 }
 
 func (o *BaseOrchestrator) Rewind(index int) error {

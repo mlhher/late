@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"image/color"
 	"math"
 	"path/filepath"
@@ -12,10 +13,12 @@ import (
 	"unicode/utf8"
 
 	"late/internal/common"
+	"late/internal/client"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/rivo/uniseg"
+	"github.com/charmbracelet/x/ansi"
 )
 
 const todoPaneWidth = 44
@@ -643,6 +646,23 @@ Press **ctrl+h** or **esc** to return to the chat.`
 
 	s := m.GetAgentState(m.Focused.ID())
 	s.LastRenderTime = time.Now().UnixMilli()
+	streaming := s.State == StateStreaming || s.State == StateThinking
+
+	if len(s.CachedHistoryHashes) != len(s.RenderedHistory) {
+		s.RenderedHistory = nil
+		s.CachedHistoryLines = nil
+		s.CachedHistoryBlocks = nil
+		s.CachedHistoryHashes = nil
+	}
+
+	// Length alone is not a sufficient cache key: rewrites and rollbacks can
+	// replace a history entry in place. Avoid this scan on hot streaming frames.
+	if !streaming && len(history) == len(s.RenderedHistory) && !historyHashesMatch(history, s.CachedHistoryHashes) {
+		s.RenderedHistory = nil
+		s.CachedHistoryLines = nil
+		s.CachedHistoryBlocks = nil
+		s.CachedHistoryHashes = nil
+	}
 
 	// If history was reset or messages were removed, clear the cache
 	historyCacheChanged := false
@@ -650,6 +670,7 @@ Press **ctrl+h** or **esc** to return to the chat.`
 		s.RenderedHistory = nil
 		s.CachedHistoryLines = nil
 		s.CachedHistoryBlocks = nil
+		s.CachedHistoryHashes = nil
 		historyCacheChanged = true
 	}
 
@@ -708,6 +729,7 @@ Press **ctrl+h** or **esc** to return to the chat.`
 		}
 		// We always append to keep cache in sync with history length
 		s.RenderedHistory = append(s.RenderedHistory, rendered)
+		s.CachedHistoryHashes = append(s.CachedHistoryHashes, chatMessageHash(msg))
 		historyCacheChanged = true
 	}
 
@@ -743,8 +765,8 @@ Press **ctrl+h** or **esc** to return to the chat.`
 		s.CachedHistoryBlocks = historyRenderBlocks
 	}
 
-	streaming := s.State == StateStreaming || s.State == StateThinking
-	if streaming && !s.StreamingWindow && !m.Viewport.AtBottom() {
+	focusChanged := m.LastFocusedID != m.Focused.ID()
+	if streaming && !focusChanged && !s.StreamingWindow && !m.Viewport.AtBottom() {
 		// The user is reading older history. Keep that viewport stable and
 		// avoid rebuilding the full chat for every token. Streaming state
 		// continues to accumulate and catches up when they return to bottom.
@@ -1045,36 +1067,96 @@ func lastRenderedLines(content string, count int) string {
 	return content[end+1:]
 }
 
+func chatMessageHash(msg client.ChatMessage) uint64 {
+	h := fnv.New64a()
+	b, _ := json.Marshal(msg)
+	_, _ = h.Write(b)
+	for _, file := range msg.AttachedFiles {
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(file))
+	}
+	return h.Sum64()
+}
+
+func historyHashesMatch(history []client.ChatMessage, hashes []uint64) bool {
+	if len(history) != len(hashes) {
+		return false
+	}
+	for i, msg := range history {
+		if chatMessageHash(msg) != hashes[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (m *Model) renderFullStreamingResponse(s *AppState, msgWidth int) string {
+	var activeParts []string
+	if s.StreamingState.ReasoningContent != "" {
+		activeParts = append(activeParts, thoughtHeaderStyle.Width(msgWidth+1).Render("Thoughts:"))
+		reasoningWidth := max(msgWidth-2, 1)
+		reasoning := ansi.Wordwrap(s.StreamingState.ReasoningContent, reasoningWidth, "")
+		activeParts = append(activeParts, thinkingStyle.Width(reasoningWidth).Render(reasoning))
+	}
+	if s.StreamingState.Content != "" {
+		innerWidth := max(m.Viewport.Width()-AIMsgOverhead, 1)
+		md := m.renderMarkdownBlock(s.StreamingState.Content, innerWidth)
+		activeParts = append(activeParts, aiMsgStyle.Width(msgWidth+1).Render(md))
+	}
+	for _, tc := range s.StreamingState.ToolCalls {
+		callStr := tc.Function.Name
+		if registry := m.Focused.Registry(); registry != nil {
+			if tool := registry.Get(tc.Function.Name); tool != nil {
+				if args := json.RawMessage(tc.Function.Arguments); len(args) > 0 {
+					callStr = tool.CallString(args)
+				}
+			}
+		}
+		activeParts = append(activeParts, m.renderAnimatedTag(fmt.Sprintf("%s %s", m.Spinner.View(), callStr), tagStyle, msgWidth+1, true))
+	}
+	if len(activeParts) == 0 && s.State == StateThinking {
+		activeParts = append(activeParts, m.renderAnimatedTag("Thinking", thinkingStyle, msgWidth-2, true))
+	}
+	return strings.Join(activeParts, "\n")
+}
+
 func (m *Model) restoreFullHistoryForScroll() {
 	s := m.GetAgentState(m.Focused.ID())
 	if !s.StreamingWindow {
 		return
 	}
 
-	// Expand the current window in place. In particular, retain the active
-	// streaming block: rebuilding from CachedHistoryLines alone drops it and
-	// moves the apparent bottom upward by the height of the active response.
-	windowStart := s.StreamingWindowStart
-	windowOffset := m.Viewport.YOffset()
-	windowContent := m.Viewport.GetContent()
-	fullContent := windowContent
-	if windowStart > 0 {
-		fullContent = strings.Join(s.CachedHistoryLines[:windowStart], "\n") +
-			"\n" + windowContent
+	// This is an explicit, infrequent user action, so render the full active
+	// response once. The hot streaming path remains bounded to recent lines.
+	msgWidth := max(m.Viewport.Width()-2, 1)
+	parts := make([]string, 0, 2)
+	if len(s.CachedHistoryLines) > 0 {
+		parts = append(parts, strings.Join(s.CachedHistoryLines, "\n"))
 	}
-	m.Viewport.SetContent(fullContent)
-	m.Viewport.SetYOffset(windowStart + windowOffset)
+	active := m.renderFullStreamingResponse(s, msgWidth)
+	if active != "" {
+		parts = append(parts, active)
+	}
+	fullContent := strings.Join(parts, "\n")
+	padded := lipgloss.NewStyle().
+		Width(m.Viewport.Width()).
+		Background(appBgColor).
+		Render(fullContent)
+	m.Viewport.SetContent(padded)
+	m.Viewport.GotoBottom()
 
-	// Completed blocks regain their full-history coordinates. Preserve active
-	// blocks from the window and translate them by the prepended line count.
+	// Completed blocks regain their full-history coordinates. Rebuild the
+	// active block from the unbounded rendering rather than translating its
+	// previously truncated window coordinates.
 	fullRenderBlocks := append([]RenderBlock(nil), s.CachedHistoryBlocks...)
-	for _, block := range s.RenderBlocks {
-		if block.MessageIndex >= 0 {
-			continue
-		}
-		block.StartLine += windowStart
-		block.EndLine += windowStart
-		fullRenderBlocks = append(fullRenderBlocks, block)
+	if active != "" {
+		startLine := len(s.CachedHistoryLines)
+		fullRenderBlocks = append(fullRenderBlocks, RenderBlock{
+			MessageIndex: -1,
+			Content:      s.StreamingState.Content,
+			StartLine:    startLine,
+			EndLine:      startLine + strings.Count(active, "\n"),
+		})
 	}
 	s.RenderBlocks = fullRenderBlocks
 	s.StreamingWindow = false

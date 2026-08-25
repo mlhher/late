@@ -35,6 +35,9 @@ func TestBaseOrchestrator_Rewind(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(tmpDir)
+	originalSessionDir := session.SessionDir
+	session.SessionDir = func() (string, error) { return tmpDir, nil }
+	t.Cleanup(func() { session.SessionDir = originalSessionDir })
 
 	historyPath := filepath.Join(tmpDir, "history.json")
 	history := []client.ChatMessage{
@@ -71,5 +74,62 @@ func TestBaseOrchestrator_Rewind(t *testing.T) {
 	}
 	if updatedHistory[1].Content.String() != "Reply 1" {
 		t.Errorf("Expected second message 'Reply 1', got %q", updatedHistory[1].Content.String())
+	}
+}
+
+func TestBaseOrchestrator_ResetStartsNewConversation(t *testing.T) {
+	tmpDir := t.TempDir()
+	originalSessionDir := session.SessionDir
+	session.SessionDir = func() (string, error) { return tmpDir, nil }
+	t.Cleanup(func() { session.SessionDir = originalSessionDir })
+	originalPath := filepath.Join(tmpDir, "session-original.json")
+	history := []client.ChatMessage{
+		{Role: "user", Content: client.TextContent("keep me")},
+		{Role: "assistant", Content: client.TextContent("preserved")},
+	}
+
+	if err := session.SaveHistory(originalPath, history); err != nil {
+		t.Fatal(err)
+	}
+
+	sess := session.New(nil, originalPath, history, "", false)
+	o := NewBaseOrchestrator("test-orch", sess, nil, 10)
+	if err := o.Reset(); err != nil {
+		t.Fatalf("Reset() error = %v", err)
+	}
+
+	preserved, err := session.LoadHistory(originalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preserved) != 2 || preserved[0].Content.String() != "keep me" {
+		t.Fatalf("original history was not preserved: %#v", preserved)
+	}
+	if len(o.History()) != 0 {
+		t.Fatalf("new conversation history length = %d, want 0", len(o.History()))
+	}
+	if sess.HistoryPath == originalPath {
+		t.Fatal("new conversation reused the original history path")
+	}
+	if filepath.Dir(sess.HistoryPath) != tmpDir {
+		t.Fatalf("new history directory = %q, want %q", filepath.Dir(sess.HistoryPath), tmpDir)
+	}
+	newPath := sess.HistoryPath
+	if err := sess.AddUserMessage("new chat"); err != nil {
+		t.Fatalf("saving new conversation: %v", err)
+	}
+	newHistory, err := session.LoadHistory(newPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(newHistory) != 1 || newHistory[0].Content.String() != "new chat" {
+		t.Fatalf("new history was not saved separately: %#v", newHistory)
+	}
+	preserved, err = session.LoadHistory(originalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preserved) != 2 {
+		t.Fatalf("saving the new conversation changed original history: %#v", preserved)
 	}
 }

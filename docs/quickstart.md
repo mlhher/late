@@ -85,6 +85,7 @@ Type `/` into the input box to bring up a command picker. You can navigate throu
 | `/new` | Start a new session/chat. |
 | `/rewind` | Open a visual history of your messages to rewind the conversation to an earlier point. |
 | `/compose` | Open your system's default external editor (`$EDITOR`) to draft long or complex instructions. |
+| `/model` | Select the model used by the orchestrator and each subagent type. |
 | `/log` | Open the Git commit log viewer. |
 | `/help` | Show default keybindings. |
 | `/quit` | Exit Late. |
@@ -236,6 +237,7 @@ You can also create an `.llmignore` file alongside your `.gitignore` to specific
 | `--help` | Show all flags and commands |
 | `--version` | Show version information |
 | `--continue` | Resume the previous session |
+| `--prompt "..."` | Start the agent immediately with the given prompt |
 | `--gemma-thinking` | Inject thinking tokens for Gemma 4 models |
 | `--subagent-max-turns <n>` | Set max turns per subagent (default: 500) |
 | `--append-system-prompt "..."` | Append text to the system prompt (e.g. further instructions) |

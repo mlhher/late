@@ -393,13 +393,11 @@ func (m Model) updateInternal(msg tea.Msg) (Model, tea.Cmd) {
 			}
 		}
 	case spinner.TickMsg:
-		// Only redraw on tick to animate tool calls/thinking if an agent is actually active
-		// AND showing a spinner inside the viewport. Status bar spinner animates via View().
+		// Streaming content contains time-based caret/glow styling too, so it
+		// needs animation frames even while no new tokens arrive.
 		s := m.GetAgentState(m.Focused.ID())
 		if s.State == StateThinking || s.State == StateStreaming {
-			if s.State == StateThinking || len(s.StreamingState.ToolCalls) > 0 {
-				m.updateViewport()
-			}
+			m.updateViewport()
 		}
 		forwardToViewport = false
 	default:
@@ -926,7 +924,11 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 			if cmd == "/new" {
 				m.Input.Reset()
 				m.Input.SetValue("> ")
-				m.Focused.Reset()
+				if err := m.Root.Reset(); err != nil {
+					m.Err = fmt.Errorf("failed to start new conversation: %w", err)
+					return m, nil
+				}
+				m.Focused = m.Root
 				m.Pastes = make(map[string]string)
 				for _, state := range m.AgentStates {
 					state.RenderedHistory = nil
@@ -937,7 +939,7 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 				}
 				m.LastFocusedID = ""
 				m.updateViewport()
-				m.ToastMessage = "conversation cleared"
+				m.ToastMessage = "new conversation started"
 				m.ToastWarning = false
 				m.ToastExpireTime = time.Now().UnixMilli() + 3000
 				clearCmd := tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
@@ -1063,6 +1065,7 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 			return m, nil
 
 		case "shift+home":
+			m.restoreFullHistoryForScroll()
 			m.Viewport.GotoTop()
 			m.updateViewport()
 			return m, nil
