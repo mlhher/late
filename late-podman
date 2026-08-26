@@ -1,0 +1,277 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: late-podman [--image IMAGE] [--exec COMMAND] [--] [LATE_ARGS...]
+
+Run Late in a rootless Podman container with the current directory mounted at
+/workspace. The image must be Linux, glibc-based, and contain bash plus the
+development tools required by the project.
+
+Options:
+  --image IMAGE    OCI image to run (otherwise read .late/podman-image)
+  --exec COMMAND   Run a Bash command before Late (may be specified repeatedly)
+  -h, --help       Show this help
+
+When no image is configured, an interactive prompt offers to save the selected
+image in .late/podman-image.
+EOF
+}
+
+die() {
+    printf 'late-podman: %s\n' "$*" >&2
+    exit 1
+}
+
+image=""
+startup_command=""
+late_args=()
+
+while (($#)); do
+    case "$1" in
+        --image)
+            (($# >= 2)) || die "--image requires an argument"
+            image=$2
+            shift 2
+            ;;
+        --image=*)
+            image=${1#*=}
+            [[ -n "$image" ]] || die "--image requires an argument"
+            shift
+            ;;
+        --exec)
+            (($# >= 2)) || die "--exec requires an argument"
+            if [[ -n "$startup_command" ]]; then
+                startup_command+=$'\n'
+            fi
+            startup_command+=$2
+            shift 2
+            ;;
+        --exec=*)
+            command_value=${1#*=}
+            [[ -n "$command_value" ]] || die "--exec requires an argument"
+            if [[ -n "$startup_command" ]]; then
+                startup_command+=$'\n'
+            fi
+            startup_command+=$command_value
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            late_args+=("$@")
+            break
+            ;;
+        *)
+            late_args+=("$1")
+            shift
+            ;;
+    esac
+done
+
+[[ $(uname -s) == Linux ]] || die "only Linux hosts are supported"
+command -v podman >/dev/null 2>&1 || die "Podman is required but was not found in PATH"
+
+late_binary=$(command -v late 2>/dev/null || true)
+[[ -n "$late_binary" && -x "$late_binary" ]] || die "the late binary was not found in PATH"
+late_binary=$(readlink -f "$late_binary")
+
+workspace=$(pwd -P)
+image_file="$workspace/.late/podman-image"
+devcontainer_env=()
+devcontainer_post_create=""
+
+find_devcontainer_file() {
+    local root="$1"
+    if [[ -f "$root/.devcontainer/devcontainer.json" ]]; then
+        printf '%s\n' "$root/.devcontainer/devcontainer.json"
+    elif [[ -f "$root/.devcontainer.json" ]]; then
+        printf '%s\n' "$root/.devcontainer.json"
+    elif [[ -d "$root/.devcontainer" ]]; then
+        local found
+        found=$(find "$root/.devcontainer" -mindepth 2 -maxdepth 2 -name "devcontainer.json" 2>/dev/null | sort | head -n 1 || true)
+        if [[ -n "$found" ]]; then
+            printf '%s\n' "$found"
+        fi
+    fi
+}
+
+devcontainer_file=$(find_devcontainer_file "$workspace")
+
+if [[ -n "$devcontainer_file" ]]; then
+    devcontainer_dir=$(dirname "$devcontainer_file")
+    if command -v python3 >/dev/null 2>&1; then
+        eval "$(python3 -c '
+import sys, re, json, os, shlex
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as f:
+    text = f.read()
+
+out = []
+i = 0
+in_str = False
+in_block = False
+while i < len(text):
+    if in_block:
+        if text[i:i+2] == "*/":
+            in_block = False
+            i += 2
+        else:
+            i += 1
+        continue
+    if in_str:
+        out.append(text[i])
+        if text[i] == "\\" and i + 1 < len(text):
+            out.append(text[i+1])
+            i += 2
+            continue
+        if text[i] == "\"":
+            in_str = False
+        i += 1
+        continue
+    if text[i:i+2] == "//":
+        while i < len(text) and text[i] != "\n":
+            i += 1
+        continue
+    if text[i:i+2] == "/*":
+        in_block = True
+        i += 2
+        continue
+    if text[i] == "\"":
+        in_str = True
+        out.append(text[i])
+        i += 1
+        continue
+    out.append(text[i])
+    i += 1
+cleaned = "".join(out)
+cleaned = re.sub(r",\s*([\]}])", r"\1", cleaned)
+
+try:
+    data = json.loads(cleaned)
+except Exception as e:
+    sys.exit(0)
+
+img = data.get("image", "")
+build = data.get("build", {})
+dockerfile = ""
+context = ""
+if isinstance(build, str):
+    dockerfile = build
+elif isinstance(build, dict):
+    dockerfile = build.get("dockerfile", "")
+    context = build.get("context", "")
+elif "dockerfile" in data:
+    dockerfile = data.get("dockerfile", "")
+
+pcc = data.get("postCreateCommand", "")
+post_create = ""
+if isinstance(pcc, str):
+    post_create = pcc
+elif isinstance(pcc, list):
+    post_create = " ".join(shlex.quote(str(x)) for x in pcc)
+elif isinstance(pcc, dict):
+    post_create = "\n".join(str(v) for v in pcc.values())
+
+print(f"dc_image={shlex.quote(img)}")
+print(f"dc_dockerfile={shlex.quote(dockerfile)}")
+print(f"dc_context={shlex.quote(context)}")
+print(f"devcontainer_post_create={shlex.quote(post_create)}")
+
+cenv = data.get("containerEnv", {})
+if isinstance(cenv, dict):
+    for k, v in cenv.items():
+        kv = f"{k}={v}"
+        print(f"devcontainer_env+=({shlex.quote(kv)})")
+' "$devcontainer_file" 2>/dev/null || true)"
+    fi
+fi
+
+if [[ -z "$image" && -f "$image_file" ]]; then
+    IFS= read -r image < "$image_file" || true
+    [[ -n "$image" ]] || die "$image_file is empty"
+fi
+
+if [[ -z "$image" && -n "${dc_image:-}" ]]; then
+    image="$dc_image"
+elif [[ -z "$image" && -n "${dc_dockerfile:-}" ]]; then
+    dc_df_path="$devcontainer_dir/$dc_dockerfile"
+    if [[ ! -f "$dc_df_path" ]]; then
+        dc_df_path="$workspace/$dc_dockerfile"
+    fi
+    [[ -f "$dc_df_path" ]] || die "Dockerfile not found: $dc_dockerfile"
+    
+    dc_ctx_path="$devcontainer_dir"
+    if [[ -n "${dc_context:-}" ]]; then
+        dc_ctx_path="$devcontainer_dir/$dc_context"
+    fi
+    
+    clean_name=$(basename "$workspace" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9_.-' '_')
+    image="localhost/late-devcontainer-${clean_name}:latest"
+    echo "=> Building devcontainer image from $dc_df_path..."
+    podman build -t "$image" -f "$dc_df_path" "$dc_ctx_path"
+fi
+
+if [[ -z "$image" ]]; then
+    [[ -t 0 && -t 1 ]] || die "no image configured; use --image IMAGE, create .devcontainer/devcontainer.json, or create .late/podman-image"
+    read -r -p "Development container image: " image </dev/tty
+    [[ -n "$image" ]] || die "an image is required"
+
+    save_image=""
+    read -r -p "Remember this image in .late/podman-image? [y/N] " save_image </dev/tty
+    if [[ "$save_image" == [yY] || "$save_image" == [yY][eE][sS] ]]; then
+        mkdir -p "$workspace/.late"
+        printf '%s\n' "$image" > "$image_file"
+        printf 'Saved %s\n' "$image_file"
+    fi
+fi
+
+if [[ -n "$devcontainer_post_create" ]]; then
+    if [[ -n "$startup_command" ]]; then
+        startup_command="$devcontainer_post_create"$'\n'"$startup_command"
+    else
+        startup_command="$devcontainer_post_create"
+    fi
+fi
+
+run_args=(run --rm --network=host --security-opt label=disable)
+[[ -t 0 ]] && run_args+=(-i)
+[[ -t 1 ]] && run_args+=(-t)
+
+run_args+=(
+    --mount "type=bind,src=$workspace,target=/workspace"
+    --workdir /workspace
+    --mount "type=bind,src=$late_binary,target=/usr/local/bin/late,ro=true"
+    --volume late-podman-sessions:/root/.local/share/late
+    --entrypoint bash
+    -e TERM="${TERM:-xterm-256color}"
+)
+
+for env_var in "${devcontainer_env[@]}"; do
+    run_args+=(-e "$env_var")
+done
+
+config_home=${XDG_CONFIG_HOME:-${HOME:?HOME is not set}/.config}
+if [[ -d "$config_home/late" ]]; then
+    run_args+=(--mount "type=bind,src=$config_home/late,target=/root/.config/late,ro=true")
+fi
+
+for variable in OPENAI_BASE_URL OPENAI_API_KEY OPENAI_MODEL LATE_SUBAGENT_BASE_URL LATE_SUBAGENT_API_KEY LATE_SUBAGENT_MODEL COLORTERM LANG LC_ALL; do
+    if [[ -v "$variable" ]]; then
+        run_args+=(-e "$variable=${!variable}")
+    fi
+done
+
+container_script='set -e
+if [[ -n "$1" ]]; then
+    eval "$1"
+fi
+shift
+exec /usr/local/bin/late "$@"'
+
+exec podman "${run_args[@]}" "$image" -lc "$container_script" late-podman "$startup_command" "${late_args[@]}"

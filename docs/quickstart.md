@@ -243,6 +243,40 @@ You can also create an `.llmignore` file alongside your `.gitignore` to specific
 | `--append-system-prompt "..."` | Append text to the system prompt (e.g. further instructions) |
 | `--enable-images` | Treat models as supporting images (for none llama.cpp servers) |
 
+## Podman compatibility command
+
+On Linux systems with rootless Podman, `late-podman` runs Late in a glibc-based
+development image and mounts the current directory at `/workspace`:
+
+```bash
+late-podman --image registry.example/my-project-dev
+```
+
+The image must contain Bash and every language or SDK required by the project.
+If no `--image` is supplied, Late automatically searches for configuration in the following order:
+1. `.late/podman-image`
+2. `.devcontainer/devcontainer.json` (or `.devcontainer.json`) — reads `image` or `build.dockerfile`, `postCreateCommand`, and `containerEnv`
+3. Interactive terminal prompt
+
+Use `--exec` to prepare the container before Late starts. It is a Bash command,
+may be repeated, and Late starts only if every command succeeds:
+
+```bash
+late-podman --image fedora:latest \
+  --exec "dnf install -y golang nodejs npm" \
+  --exec "npm install" \
+  -- --continue
+```
+
+If your project contains a `.devcontainer/devcontainer.json`, any `postCreateCommand` commands are run automatically before `--exec` commands.
+
+Alpine and other musl-based images are unsupported. The launcher uses rootless
+Podman, does not relabel the host workspace, and does not mount the host home or
+container socket. It uses the host network so model servers listening on
+`localhost`, including loopback-only servers, remain reachable with the same
+Late configuration. Consequently, processes inside the development container
+can also reach other services listening on the host.
+
 ## Sessions
 
 Late automatically saves your session history. Resume or manage sessions:
