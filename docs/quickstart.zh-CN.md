@@ -253,8 +253,6 @@ late session load <id>     # 恢复指定的历史会话
 late session delete <id>   # 删除指定的会话
 ```
 
-默认情况下，子智能体的对话仅保存在内存中，结束后即被丢弃。使用 `--save-subagent-histories`（或在配置文件中设置 `"save_subagent_histories": true`）后，每个子智能体的对话历史记录都会被保存到会话文件夹下 —— `~/.local/share/late/sessions/<session-id>/subagents/<type>-subagent-<N>.json` —— 而父会话的原始文件位置保持不变。运行 `late session delete <id>` 删除会话时，子智能体文件夹也会随之被一并移除。请注意，保存的对话记录可能包含敏感内容（文件内容、工具输出）；这些文件以仅限用户读取的权限写入。
-
 ## Git 工作树 (Git Worktrees)
 
 Late 是专为并行开发设计的。你可以直接管理 Git 工作树，从而在隔离的环境中运行多个独立的智能体实例：
