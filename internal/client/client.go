@@ -167,7 +167,14 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 				continue
 			}
 			data := strings.TrimPrefix(line, "data: ")
+
+			// Handle [DONE] sentinel (OpenAI standard)
 			if data == "[DONE]" {
+				break
+			}
+
+			// Handle empty data line — some servers signal end this way
+			if data == "" {
 				break
 			}
 
@@ -179,6 +186,15 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 			case out <- chunk:
 			case <-ctx.Done():
 				return
+			}
+		}
+
+		// If the loop exited because scanner.Scan() returned false (connection closed)
+		// or an empty data line, check for read errors and propagate them.
+		if err := scanner.Err(); err != nil {
+			select {
+			case errCh <- fmt.Errorf("stream interrupted: %w", err):
+			default:
 			}
 		}
 	}()
