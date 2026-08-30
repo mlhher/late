@@ -398,8 +398,8 @@ func TestSearchTool_IncludeGitignoredStillHonorsLlmIgnore(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "temp", "reference.go"), []byte("package reference\n"), 0644)
 	os.WriteFile(filepath.Join(dir, "temp", "hidden.go"), []byte("package hidden\n"), 0644)
 
-	tool := &SearchTool{}
-	args := json.RawMessage(`{"pattern":"*.go","path":"` + filepath.Join(dir, "temp") + `","search_names":true,"include_gitignored":true}`)
+	tool := &FindFilesTool{}
+	args := json.RawMessage(`{"pattern":"*.go","path":"` + filepath.Join(dir, "temp") + `","include_gitignored":true}`)
 	result, err := tool.Execute(context.Background(), args)
 	if err != nil {
 		t.Fatal(err)

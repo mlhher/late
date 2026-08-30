@@ -75,7 +75,8 @@ func defaultConfig() Config {
 			"target_edit":    true,
 			"spawn_subagent": true,
 			"bash":           true,
-			"search_tool":    true,
+			"search_content": true,
+			"find_files":     true,
 		},
 	}
 }
