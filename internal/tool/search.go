@@ -30,7 +30,7 @@ func (t *SearchContentTool) Name() string { return "search_content" }
 func (t *SearchContentTool) Description() string {
 	return "Search for text or regex patterns INSIDE file contents (like grep/ripgrep). " +
 		"Returns matching lines formatted as 'filepath:line: content'. " +
-		"Honors .gitignore and .llmignore. Always skips binary files and .git, node_modules, .svn, .hg."
+		"Always skips binary files and .git, node_modules, .svn, .hg."
 }
 
 func (t *SearchContentTool) Parameters() json.RawMessage {
@@ -39,7 +39,7 @@ func (t *SearchContentTool) Parameters() json.RawMessage {
 		"properties": {
 			"pattern": {
 				"type": "string",
-				"description": "Text or regex pattern to search for inside files."
+				"description": "Text or regex pattern to search for inside files. Regex and case-insensitive by default. Set 'literal: true' for exact string matching (e.g. code with brackets or punctuation)."
 			},
 			"path": {
 				"type": "string",
@@ -55,11 +55,11 @@ func (t *SearchContentTool) Parameters() json.RawMessage {
 			},
 			"include": {
 				"type": "string",
-				"description": "File glob pattern to include, e.g. '*.go' or '*.ts'."
+				"description": "File glob pattern to include, e.g. '*.go' or '*.ts'. Filters match file basenames only, not path segments."
 			},
 			"exclude": {
 				"type": "string",
-				"description": "File/directory glob pattern to exclude, e.g. '*.min.js' or 'dist'."
+				"description": "File/directory glob pattern to exclude, e.g. '*.min.js' or 'dist'. Filters match file/directory basenames only, not path segments."
 			},
 			"context_lines": {
 				"type": "integer",
@@ -240,7 +240,11 @@ func (t *SearchContentTool) Execute(ctx context.Context, args json.RawMessage) (
 
 	result := sb.String()
 	if result == "" {
-		return fmt.Sprintf("No matches found for '%s'. Consider widening 'path', toggling 'case_sensitive', or setting 'literal: true'.", params.Pattern), nil
+		msg := fmt.Sprintf("No matches found for '%s'. Consider widening 'path', toggling 'case_sensitive', or setting 'literal: true'.", params.Pattern)
+		if strings.Contains(params.Include, "/") || strings.Contains(params.Exclude, "/") {
+			msg += " Note: include/exclude filters match file/directory names, not path segments (e.g. use '*.go' instead of 'src/*.go')."
+		}
+		return msg, nil
 	}
 
 	if truncated {
@@ -260,9 +264,9 @@ type FindFilesTool struct{}
 func (t *FindFilesTool) Name() string { return "find_files" }
 
 func (t *FindFilesTool) Description() string {
-	return "Find files and directories BY NAME or path pattern (like find/fd). " +
-		"Matches against both filename (e.g. 'README.md', '*.go') and relative path (e.g. '.github/workflows'). " +
-		"Honors .gitignore and .llmignore. Always skips .git, node_modules, .svn, .hg."
+	return "Find files and directories by name or path pattern (like find/fd). " +
+		"Recursively searches from 'path' and returns a newline-separated list of matching paths (directories end with '/'). " +
+		"Always skips .git, node_modules, .svn, .hg."
 }
 
 func (t *FindFilesTool) Parameters() json.RawMessage {
@@ -271,7 +275,7 @@ func (t *FindFilesTool) Parameters() json.RawMessage {
 		"properties": {
 			"pattern": {
 				"type": "string",
-				"description": "Name or pattern to find (e.g. '*.go', 'README*', 'workflows', '.github/*'). Matches against both basename and relative path."
+				"description": "Name, substring, or glob pattern to find (e.g. 'README', '*.go', 'workflows', '.github/*'). Patterns use filepath.Match glob syntax; '[...]' denotes a character class (e.g. '[id]' matches 'i' or 'd'). Escape literal bracket folders/files with backslashes: '\\[id\\]'. Use '*' to match all files."
 			},
 			"path": {
 				"type": "string",
@@ -342,25 +346,33 @@ func (t *FindFilesTool) Execute(ctx context.Context, args json.RawMessage) (stri
 	gi, repoRoot := getIgnoreForPath(searchPath, params.IncludeGitignored)
 
 	// Build matcher function that "just works"
-	cleanPattern := strings.TrimSuffix(params.Pattern, "/")
+	cleanPattern := filepath.ToSlash(strings.TrimSuffix(params.Pattern, "/"))
+	hasGlobstar := strings.Contains(cleanPattern, "**")
 	hasGlobMeta := strings.ContainsAny(cleanPattern, "*?[")
 	lowerPattern := strings.ToLower(cleanPattern)
 
 	nameMatchFunc := func(name, relPath string) bool {
-		// 1. Try glob match on filename and relative path
+		normRel := filepath.ToSlash(relPath)
+
+		// 1. If pattern contains globstar (**), match against relative path across separators
+		if hasGlobstar {
+			return matchGlobstar(cleanPattern, normRel)
+		}
+
+		// 2. Standard glob match on filename and relative path
 		if matched, err := filepath.Match(cleanPattern, name); err == nil && matched {
 			return true
 		}
-		if matched, err := filepath.Match(cleanPattern, relPath); err == nil && matched {
+		if matched, err := filepath.Match(cleanPattern, normRel); err == nil && matched {
 			return true
 		}
 
-		// 2. Case-insensitive substring fallback for non-glob queries (e.g. 'README' -> 'README.md', 'workflows' -> '.github/workflows')
+		// 3. Case-insensitive substring fallback for non-glob queries (e.g. 'README' -> 'README.md', 'workflows' -> '.github/workflows')
 		if !hasGlobMeta {
 			if strings.Contains(strings.ToLower(name), lowerPattern) {
 				return true
 			}
-			if strings.Contains(strings.ToLower(relPath), lowerPattern) {
+			if strings.Contains(strings.ToLower(normRel), lowerPattern) {
 				return true
 			}
 		}
@@ -466,7 +478,11 @@ func (t *FindFilesTool) Execute(ctx context.Context, args json.RawMessage) (stri
 
 	result := sb.String()
 	if result == "" {
-		return fmt.Sprintf("No files or directories matching '%s' found. Note: .git, node_modules, .svn, .hg are skipped by default.", params.Pattern), nil
+		msg := fmt.Sprintf("No files or directories matching '%s' found. Note: .git, node_modules, .svn, .hg are skipped by default.", params.Pattern)
+		if strings.Contains(params.Pattern, "**") {
+			msg += " Note: find_files is already recursive by default from 'path'; you can also use '*.ext' instead of '**/*.ext'."
+		}
+		return msg, nil
 	}
 
 	if truncated {
@@ -479,6 +495,38 @@ func (t *FindFilesTool) Execute(ctx context.Context, args json.RawMessage) (stri
 // =============================================================================
 // Helper Functions
 // =============================================================================
+
+// matchGlobstar reports whether pattern (may contain "**") matches path.
+// "**" matches zero or more path segments; all other metacharacters
+// (*, ?, [...]) follow filepath.Match semantics within a single segment.
+func matchGlobstar(pattern, path string) bool {
+	normPat := filepath.ToSlash(strings.Trim(pattern, "/"))
+	normPath := filepath.ToSlash(strings.Trim(path, "/"))
+
+	ps := strings.Split(normPat, "/")
+	ss := strings.Split(normPath, "/")
+
+	var rec func(pi, si int) bool
+	rec = func(pi, si int) bool {
+		if pi == len(ps) {
+			return si == len(ss)
+		}
+		if ps[pi] == "**" {
+			for k := si; k <= len(ss); k++ { // zero or more segments
+				if rec(pi+1, k) {
+					return true
+				}
+			}
+			return false
+		}
+		if si >= len(ss) {
+			return false
+		}
+		ok, err := filepath.Match(ps[pi], ss[si])
+		return err == nil && ok && rec(pi+1, si+1)
+	}
+	return rec(0, 0)
+}
 
 // countMatches reads a file and counts occurrences that match the given function.
 // Returns 0 for binary files or unreadable files.
