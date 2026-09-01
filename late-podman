@@ -365,6 +365,6 @@ if [[ -n "$per_run_cmd" ]]; then
     eval "$per_run_cmd"
 fi
 
-exec /usr/local/bin/late "$@"'
+exec /usr/local/bin/late --i-promise-i-have-backups-and-will-not-file-issues "$@"'
 
 exec podman "${run_args[@]}" "$image" -c "$container_script" late-podman "$post_create_cmd" "$post_create_hash" "$per_run_command" "${late_args[@]}"

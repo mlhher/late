@@ -70,6 +70,10 @@ assert_arg 'OPENAI_BASE_URL=http://localhost:8080'
 assert_arg $'dnf install -y golang\nnpm ci'
 assert_arg --continue
 assert_arg 'two words'
+grep -F -- '--i-promise-i-have-backups-and-will-not-file-issues' "$TEST_ROOT/args" >/dev/null || {
+    echo "expected container script to execute late with --i-promise-i-have-backups-and-will-not-file-issues" >&2
+    exit 1
+}
 
 # Test 2: devcontainer.json image, containerEnv, postCreateCommand on first run
 mkdir -p "$TEST_ROOT/dc-project/.devcontainer"
