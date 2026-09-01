@@ -287,6 +287,17 @@ assert_arg 'TZ=Europe/Berlin' "$TEST_ROOT/args-env"
 
 # Test 10: Git identity, safe.directory, and SSH agent socket pass-through
 python3 -c "import socket; s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.bind('$TEST_ROOT/ssh-mock.sock')"
+cat > "$TEST_ROOT/mock-gitconfig" <<'EOF'
+[user]
+	name = Test Committer
+	email = committer@example.com
+	signingkey = ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGitKey
+[gpg]
+	format = ssh
+[commit]
+	gpgsign = true
+EOF
+
 (
     cd "$TEST_ROOT/env-project"
     SSH_AUTH_SOCK="$TEST_ROOT/ssh-mock.sock" \
@@ -300,10 +311,22 @@ python3 -c "import socket; s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 )
 
 tr '\0' '\n' < "$TEST_ROOT/capture-git-ssh" > "$TEST_ROOT/args-git-ssh"
-assert_arg 'GIT_CONFIG_COUNT=1' "$TEST_ROOT/args-git-ssh"
-assert_arg 'GIT_CONFIG_KEY_0=safe.directory' "$TEST_ROOT/args-git-ssh"
-assert_arg 'GIT_CONFIG_VALUE_0=*' "$TEST_ROOT/args-git-ssh"
+assert_arg 'GIT_AUTHOR_NAME=Test Committer' "$TEST_ROOT/args-git-ssh"
+assert_arg 'GIT_AUTHOR_EMAIL=committer@example.com' "$TEST_ROOT/args-git-ssh"
 assert_arg "type=bind,src=$TEST_ROOT/ssh-mock.sock,target=/tmp/ssh-agent.sock" "$TEST_ROOT/args-git-ssh"
 assert_arg 'SSH_AUTH_SOCK=/tmp/ssh-agent.sock' "$TEST_ROOT/args-git-ssh"
+
+grep -F -- 'git config --global user.name' "$TEST_ROOT/args-git-ssh" >/dev/null || {
+    echo "expected git config --global user.name in container args" >&2
+    exit 1
+}
+grep -F -- 'git config --global gpg.format ssh' "$TEST_ROOT/args-git-ssh" >/dev/null || {
+    echo "expected git config --global gpg.format ssh in container args" >&2
+    exit 1
+}
+grep -F -- 'git config --global --add safe.directory /workspace' "$TEST_ROOT/args-git-ssh" >/dev/null || {
+    echo "expected safe.directory in container args" >&2
+    exit 1
+}
 
 echo 'late-podman tests passed'

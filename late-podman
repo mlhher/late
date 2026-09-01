@@ -377,14 +377,29 @@ elif [[ -f /etc/localtime ]]; then
     run_args+=(--mount "type=bind,src=/etc/localtime,target=/etc/localtime,ro=true")
 fi
 
+git_setup=""
 if host_git_name=$(git config --get user.name 2>/dev/null) && [[ -n "$host_git_name" ]]; then
     run_args+=(-e "GIT_AUTHOR_NAME=$host_git_name" -e "GIT_COMMITTER_NAME=$host_git_name")
+    git_setup+="git config --global user.name $(printf '%q' "$host_git_name")"$'\n'
 fi
 if host_git_email=$(git config --get user.email 2>/dev/null) && [[ -n "$host_git_email" ]]; then
     run_args+=(-e "GIT_AUTHOR_EMAIL=$host_git_email" -e "GIT_COMMITTER_EMAIL=$host_git_email")
+    git_setup+="git config --global user.email $(printf '%q' "$host_git_email")"$'\n'
 fi
 
-run_args+=(-e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=*)
+git_setup+="git config --global --add safe.directory /workspace"$'\n'
+
+host_gpg_format=$(git config --get gpg.format 2>/dev/null || true)
+host_signing_key=$(git config --get user.signingkey 2>/dev/null || true)
+host_gpg_sign=$(git config --get commit.gpgsign 2>/dev/null || true)
+
+if [[ "$host_gpg_format" == "ssh" && -n "$host_signing_key" ]]; then
+    git_setup+="git config --global gpg.format ssh"$'\n'
+    git_setup+="git config --global user.signingkey $(printf '%q' "$host_signing_key")"$'\n'
+    if [[ "$host_gpg_sign" == "true" ]]; then
+        git_setup+="git config --global commit.gpgsign true"$'\n'
+    fi
+fi
 
 if [[ -n "${SSH_AUTH_SOCK:-}" && -S "$SSH_AUTH_SOCK" ]]; then
     run_args+=(
@@ -405,10 +420,15 @@ for variable in OPENAI_BASE_URL OPENAI_API_KEY OPENAI_MODEL LATE_SUBAGENT_BASE_U
 done
 
 container_script='set -e
-post_create_cmd=$1
-post_create_hash=$2
-per_run_cmd=$3
-shift 3
+git_setup=$1
+post_create_cmd=$2
+post_create_hash=$3
+per_run_cmd=$4
+shift 4
+
+if [[ -n "$git_setup" ]]; then
+    eval "$git_setup"
+fi
 
 if [[ -n "$post_create_cmd" ]]; then
     echo "=> [late-podman] Running postCreateCommand..."
@@ -425,4 +445,4 @@ fi
 
 exec /usr/local/bin/late --i-promise-i-have-backups-and-will-not-file-issues "$@"'
 
-exec podman "${run_args[@]}" "$image" -c "$container_script" late-podman "$post_create_cmd" "$post_create_hash" "$per_run_command" "${late_args[@]}"
+exec podman "${run_args[@]}" "$image" -c "$container_script" late-podman "$git_setup" "$post_create_cmd" "$post_create_hash" "$per_run_command" "${late_args[@]}"
