@@ -255,16 +255,19 @@ late-podman --image registry.example/my-project-dev
 The image must contain Bash and every language or SDK required by the project.
 If no `--image` is supplied, Late automatically searches for configuration in the following order:
 1. `.late/podman-image`
-2. `.devcontainer/devcontainer.json` (or `.devcontainer.json`) — reads `image` or `build.dockerfile`, `postCreateCommand`, `postStartCommand`, and `containerEnv`
+2. `.devcontainer/devcontainer.json` (or `.devcontainer.json`) — reads `image` or `build.dockerfile`, `postCreateCommand`, `postStartCommand`, `containerEnv`, and `remoteEnv`
 3. Interactive terminal prompt
 
 Images built from a `Dockerfile` and `postCreateCommand` setups are cached automatically and only rerun when their definitions change. Use `--rebuild` to force rebuild the image and re-run setup commands.
+
+Use `-e` or `--env` to set or forward environment variables into the container (e.g. `-e KEY=value` or `-e KEY` to forward from host). Timezone (`TZ` / `/etc/localtime`), host Git identity (`user.name`, `user.email`), `safe.directory`, and running SSH agents (`SSH_AUTH_SOCK`) are forwarded automatically.
 
 Use `--exec` to prepare the container before Late starts. It is a Bash command,
 may be repeated, and Late starts only if every command succeeds:
 
 ```bash
 late-podman --image fedora:latest \
+  -e CGO_ENABLED=1 \
   --exec "dnf install -y golang nodejs npm" \
   --exec "npm install" \
   -- --continue

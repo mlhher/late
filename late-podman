@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: late-podman [--image IMAGE] [--exec COMMAND] [--rebuild] [--] [LATE_ARGS...]
+Usage: late-podman [--image IMAGE] [--exec COMMAND] [--rebuild] [-e VAR[=VAL]] [--] [LATE_ARGS...]
 
 Run Late in a rootless Podman container with the current directory mounted at
 /workspace. The image must be Linux, glibc-based, and contain bash plus the
@@ -12,6 +12,7 @@ development tools required by the project.
 Options:
   --image IMAGE    OCI image to run (otherwise read .late/podman-image)
   --exec COMMAND   Run a Bash command before Late (may be specified repeatedly)
+  -e, --env VAR    Set or forward environment variable (may be specified repeatedly)
   --rebuild        Force rebuild of devcontainer image and re-run setup commands
   -h, --help       Show this help
 
@@ -28,6 +29,7 @@ die() {
 image=""
 rebuild=false
 startup_command=""
+cli_env=()
 late_args=()
 
 while (($#)); do
@@ -57,6 +59,30 @@ while (($#)); do
                 startup_command+=$'\n'
             fi
             startup_command+=$command_value
+            shift
+            ;;
+        -e|--env)
+            (($# >= 2)) || die "$1 requires an argument"
+            env_pair=$2
+            if [[ "$env_pair" == *=* ]]; then
+                cli_env+=("$env_pair")
+            elif [[ -v "$env_pair" ]]; then
+                cli_env+=("$env_pair=${!env_pair}")
+            else
+                cli_env+=("$env_pair=")
+            fi
+            shift 2
+            ;;
+        --env=*)
+            env_pair=${1#*=}
+            [[ -n "$env_pair" ]] || die "--env requires an argument"
+            if [[ "$env_pair" == *=* ]]; then
+                cli_env+=("$env_pair")
+            elif [[ -v "$env_pair" ]]; then
+                cli_env+=("$env_pair=${!env_pair}")
+            else
+                cli_env+=("$env_pair=")
+            fi
             shift
             ;;
         --rebuild)
@@ -218,6 +244,12 @@ if isinstance(cenv, dict):
     for k, v in cenv.items():
         kv = f"{k}={v}"
         print(f"devcontainer_env+=({shlex.quote(kv)})")
+
+renv = data.get("remoteEnv", {})
+if isinstance(renv, dict):
+    for k, v in renv.items():
+        kv = f"{k}={v}"
+        print(f"devcontainer_env+=({shlex.quote(kv)})")
 ' "$devcontainer_file" 2>/dev/null || true)"
     fi
 fi
@@ -334,6 +366,32 @@ run_args+=(
 for env_var in "${devcontainer_env[@]}"; do
     run_args+=(-e "$env_var")
 done
+
+for env_var in "${cli_env[@]}"; do
+    run_args+=(-e "$env_var")
+done
+
+if [[ -v TZ ]]; then
+    run_args+=(-e "TZ=$TZ")
+elif [[ -f /etc/localtime ]]; then
+    run_args+=(--mount "type=bind,src=/etc/localtime,target=/etc/localtime,ro=true")
+fi
+
+if host_git_name=$(git config --get user.name 2>/dev/null) && [[ -n "$host_git_name" ]]; then
+    run_args+=(-e "GIT_AUTHOR_NAME=$host_git_name" -e "GIT_COMMITTER_NAME=$host_git_name")
+fi
+if host_git_email=$(git config --get user.email 2>/dev/null) && [[ -n "$host_git_email" ]]; then
+    run_args+=(-e "GIT_AUTHOR_EMAIL=$host_git_email" -e "GIT_COMMITTER_EMAIL=$host_git_email")
+fi
+
+run_args+=(-e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=*)
+
+if [[ -n "${SSH_AUTH_SOCK:-}" && -S "$SSH_AUTH_SOCK" ]]; then
+    run_args+=(
+        --mount "type=bind,src=$SSH_AUTH_SOCK,target=/tmp/ssh-agent.sock"
+        -e SSH_AUTH_SOCK=/tmp/ssh-agent.sock
+    )
+fi
 
 config_home=${XDG_CONFIG_HOME:-${HOME:?HOME is not set}/.config}
 if [[ -d "$config_home/late" ]]; then

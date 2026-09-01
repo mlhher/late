@@ -254,4 +254,56 @@ if PATH="$TEST_ROOT/bin:$PATH" HOME="$TEST_ROOT" TEST_ROOT="$TEST_ROOT" \
 fi
 grep -F -- '--image requires an argument' "$TEST_ROOT/error" >/dev/null
 
+# Test 9: CLI -e, --env, remoteEnv, and TZ pass-through
+mkdir -p "$TEST_ROOT/env-project/.devcontainer"
+cat > "$TEST_ROOT/env-project/.devcontainer/devcontainer.json" <<'EOF'
+{
+  "name": "Env Dev Container",
+  "image": "registry.example/env:1",
+  "remoteEnv": {
+    "DEVCONTAINER_REMOTE_VAR": "remote_value"
+  }
+}
+EOF
+
+(
+    cd "$TEST_ROOT/env-project"
+    MY_HOST_VAR="host_value" \
+    TZ="Europe/Berlin" \
+    PATH="$TEST_ROOT/bin:$PATH" \
+        TEST_ROOT="$TEST_ROOT" \
+        XDG_CONFIG_HOME="$TEST_ROOT/config" \
+        PODMAN_CAPTURE="$TEST_ROOT/capture-env" \
+        PODMAN_BUILD_CAPTURE="$TEST_ROOT/capture-build" \
+        late-podman -e CUSTOM_EXPLICIT=explicit_val -e MY_HOST_VAR --env=ANOTHER_VAR=another_val
+)
+
+tr '\0' '\n' < "$TEST_ROOT/capture-env" > "$TEST_ROOT/args-env"
+assert_arg 'DEVCONTAINER_REMOTE_VAR=remote_value' "$TEST_ROOT/args-env"
+assert_arg 'CUSTOM_EXPLICIT=explicit_val' "$TEST_ROOT/args-env"
+assert_arg 'MY_HOST_VAR=host_value' "$TEST_ROOT/args-env"
+assert_arg 'ANOTHER_VAR=another_val' "$TEST_ROOT/args-env"
+assert_arg 'TZ=Europe/Berlin' "$TEST_ROOT/args-env"
+
+# Test 10: Git identity, safe.directory, and SSH agent socket pass-through
+python3 -c "import socket; s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.bind('$TEST_ROOT/ssh-mock.sock')"
+(
+    cd "$TEST_ROOT/env-project"
+    SSH_AUTH_SOCK="$TEST_ROOT/ssh-mock.sock" \
+    GIT_CONFIG_GLOBAL="$TEST_ROOT/mock-gitconfig" \
+    PATH="$TEST_ROOT/bin:$PATH" \
+        TEST_ROOT="$TEST_ROOT" \
+        XDG_CONFIG_HOME="$TEST_ROOT/config" \
+        PODMAN_CAPTURE="$TEST_ROOT/capture-git-ssh" \
+        PODMAN_BUILD_CAPTURE="$TEST_ROOT/capture-build" \
+        late-podman
+)
+
+tr '\0' '\n' < "$TEST_ROOT/capture-git-ssh" > "$TEST_ROOT/args-git-ssh"
+assert_arg 'GIT_CONFIG_COUNT=1' "$TEST_ROOT/args-git-ssh"
+assert_arg 'GIT_CONFIG_KEY_0=safe.directory' "$TEST_ROOT/args-git-ssh"
+assert_arg 'GIT_CONFIG_VALUE_0=*' "$TEST_ROOT/args-git-ssh"
+assert_arg "type=bind,src=$TEST_ROOT/ssh-mock.sock,target=/tmp/ssh-agent.sock" "$TEST_ROOT/args-git-ssh"
+assert_arg 'SSH_AUTH_SOCK=/tmp/ssh-agent.sock' "$TEST_ROOT/args-git-ssh"
+
 echo 'late-podman tests passed'
