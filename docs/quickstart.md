@@ -255,8 +255,10 @@ late-podman --image registry.example/my-project-dev
 The image must contain Bash and every language or SDK required by the project.
 If no `--image` is supplied, Late automatically searches for configuration in the following order:
 1. `.late/podman-image`
-2. `.devcontainer/devcontainer.json` (or `.devcontainer.json`) — reads `image` or `build.dockerfile`, `postCreateCommand`, and `containerEnv`
+2. `.devcontainer/devcontainer.json` (or `.devcontainer.json`) — reads `image` or `build.dockerfile`, `postCreateCommand`, `postStartCommand`, and `containerEnv`
 3. Interactive terminal prompt
+
+Images built from a `Dockerfile` and `postCreateCommand` setups are cached automatically and only rerun when their definitions change. Use `--rebuild` to force rebuild the image and re-run setup commands.
 
 Use `--exec` to prepare the container before Late starts. It is a Bash command,
 may be repeated, and Late starts only if every command succeeds:
@@ -268,7 +270,7 @@ late-podman --image fedora:latest \
   -- --continue
 ```
 
-If your project contains a `.devcontainer/devcontainer.json`, any `postCreateCommand` commands are run automatically before `--exec` commands.
+If your project contains a `.devcontainer/devcontainer.json`, any `postCreateCommand` is run on initial container setup, and `postStartCommand` runs on container start before `--exec` commands.
 
 Alpine and other musl-based images are unsupported. The launcher uses rootless
 Podman, does not relabel the host workspace, and does not mount the host home or
