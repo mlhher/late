@@ -211,7 +211,7 @@ elif [[ -z "$image" && -n "${dc_dockerfile:-}" ]]; then
         dc_ctx_path="$devcontainer_dir/$dc_context"
     fi
     
-    clean_name=$(basename "$workspace" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9_.-' '_')
+    clean_name=$(printf "%s" "$(basename "$workspace")" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9_.-' '_' | sed 's/^[^a-z0-9]*//; s/[^a-z0-9]*$//')
     image="localhost/late-devcontainer-${clean_name}:latest"
     echo "=> Building devcontainer image from $dc_df_path..."
     podman build -t "$image" -f "$dc_df_path" "$dc_ctx_path"
@@ -274,4 +274,4 @@ fi
 shift
 exec /usr/local/bin/late "$@"'
 
-exec podman "${run_args[@]}" "$image" -lc "$container_script" late-podman "$startup_command" "${late_args[@]}"
+exec podman "${run_args[@]}" "$image" -c "$container_script" late-podman "$startup_command" "${late_args[@]}"
