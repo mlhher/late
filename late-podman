@@ -303,14 +303,10 @@ if isinstance(raw_mounts, list):
     fi
 fi
 
-if [[ -z "$image" && -f "$image_file" ]]; then
-    IFS= read -r image < "$image_file" || true
-    [[ -n "$image" ]] || die "$image_file is empty"
-fi
+cli_image="${image:-}"
+need_build=false
 
-if [[ -z "$image" && -n "${dc_image:-}" ]]; then
-    image="$dc_image"
-elif [[ -z "$image" && -n "${dc_dockerfile:-}" ]]; then
+if [[ -z "$cli_image" && -n "${dc_dockerfile:-}" ]]; then
     dc_df_path="$devcontainer_dir/$dc_dockerfile"
     if [[ ! -f "$dc_df_path" ]]; then
         dc_df_path="$workspace/$dc_dockerfile"
@@ -326,7 +322,6 @@ elif [[ -z "$image" && -n "${dc_dockerfile:-}" ]]; then
     build_hash_file="$workspace/.late/build-hash"
     build_hash=$(compute_hash "$dc_df_path" "$devcontainer_file" 2>/dev/null || true)
     
-    need_build=false
     if [[ "$rebuild" == true ]]; then
         need_build=true
     elif ! podman image exists "$image" 2>/dev/null; then
@@ -350,6 +345,11 @@ elif [[ -z "$image" && -n "${dc_dockerfile:-}" ]]; then
             printf '%s\n' "$build_hash" > "$build_hash_file"
         fi
     fi
+elif [[ -z "$image" && -f "$image_file" ]]; then
+    IFS= read -r image < "$image_file" || true
+    [[ -n "$image" ]] || die "$image_file is empty"
+elif [[ -z "$image" && -n "${dc_image:-}" ]]; then
+    image="$dc_image"
 fi
 
 if [[ -z "$image" ]]; then
@@ -372,7 +372,7 @@ if [[ -n "$devcontainer_post_create" ]]; then
     post_create_hash_file="$workspace/.late/post-create-hash"
     current_pc_hash=$(hash_string "$devcontainer_post_create")
     run_post_create=false
-    if [[ "$rebuild" == true || ! -f "$post_create_hash_file" ]]; then
+    if [[ "$rebuild" == true || "$need_build" == true || ! -f "$post_create_hash_file" ]]; then
         run_post_create=true
     else
         saved_pc_hash=$(cat "$post_create_hash_file" 2>/dev/null || true)
