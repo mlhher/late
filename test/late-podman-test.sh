@@ -376,4 +376,50 @@ assert_arg 'PROJECT_NAME=mounts-project' "$TEST_ROOT/args-mounts"
 assert_arg 'HOST_HOME=/custom/home' "$TEST_ROOT/args-mounts"
 assert_arg 'go mod tidy && cd /mcp-server && npm install' "$TEST_ROOT/args-mounts"
 
+# Test 12: Devcontainer Dockerfile rebuild when .late/podman-image and build-hash exist
+mkdir -p "$TEST_ROOT/rebuild-project/.devcontainer" "$TEST_ROOT/rebuild-project/.late"
+cat > "$TEST_ROOT/rebuild-project/.devcontainer/devcontainer.json" <<'EOF'
+{
+  "name": "Rebuild Dev Container",
+  "build": {
+    "dockerfile": "Dockerfile"
+  }
+}
+EOF
+cat > "$TEST_ROOT/rebuild-project/.devcontainer/Dockerfile" <<'EOF'
+FROM alpine:latest
+RUN echo "original"
+EOF
+
+# Simulate a project where .late/podman-image and .late/build-hash were created
+printf '%s\n' 'localhost/late-devcontainer-rebuild-project:latest' > "$TEST_ROOT/rebuild-project/.late/podman-image"
+initial_hash=$(sha256sum "$TEST_ROOT/rebuild-project/.devcontainer/Dockerfile" "$TEST_ROOT/rebuild-project/.devcontainer/devcontainer.json" | awk '{print $1}')
+printf '%s\n' "$initial_hash" > "$TEST_ROOT/rebuild-project/.late/build-hash"
+touch "$TEST_ROOT/mock-image-exists"
+
+# Modify the Dockerfile
+cat > "$TEST_ROOT/rebuild-project/.devcontainer/Dockerfile" <<'EOF'
+FROM alpine:latest
+RUN echo "modified"
+EOF
+
+rm -f "$TEST_ROOT/capture-rebuild-build"
+(
+    cd "$TEST_ROOT/rebuild-project"
+    PATH="$TEST_ROOT/bin:$PATH" \
+        TEST_ROOT="$TEST_ROOT" \
+        XDG_CONFIG_HOME="$TEST_ROOT/config" \
+        PODMAN_CAPTURE="$TEST_ROOT/capture-rebuild-run" \
+        PODMAN_BUILD_CAPTURE="$TEST_ROOT/capture-rebuild-build" \
+        late-podman --rebuild
+)
+
+[[ -f "$TEST_ROOT/capture-rebuild-build" ]] || {
+    echo "expected podman build to be called on --rebuild even when .late/podman-image exists" >&2
+    exit 1
+}
+tr '\0' '\n' < "$TEST_ROOT/capture-rebuild-build" > "$TEST_ROOT/args-rebuild-build"
+assert_arg build "$TEST_ROOT/args-rebuild-build"
+assert_arg --no-cache "$TEST_ROOT/args-rebuild-build"
+
 echo 'late-podman tests passed'
