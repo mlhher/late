@@ -123,8 +123,11 @@ func RegisterTools(reg *tool.Registry, enabledTools map[string]bool) {
 	if enabledTools["read_file"] {
 		reg.Register(tool.NewReadFileTool())
 	}
-	if enabledTools["search_tool"] {
-		reg.Register(&tool.SearchTool{})
+	if enabledTools["search_content"] || enabledTools["search_tool"] {
+		reg.Register(&tool.SearchContentTool{})
+	}
+	if enabledTools["find_files"] || enabledTools["search_tool"] {
+		reg.Register(&tool.FindFilesTool{})
 	}
 	if enabledTools["bash"] {
 		reg.Register(&tool.ShellTool{})

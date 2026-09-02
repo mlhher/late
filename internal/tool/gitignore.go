@@ -103,6 +103,12 @@ func loadMergedIgnore(dir string) (*GitIgnore, error) {
 	return merged, nil
 }
 
+// loadLLMIgnore loads only the agent-specific ignore rules. It is used when a
+// search explicitly opts into gitignored files, so .llmignore remains enforced.
+func loadLLMIgnore(dir string) (*GitIgnore, error) {
+	return LoadGitIgnore(filepath.Join(dir, ".llmignore"))
+}
+
 // Matches checks whether the given relative path (e.g. "cmd/late/main.go")
 // should be ignored. isDir should be true for directories.
 // Implements "last matching pattern wins" — negated patterns (!) can
@@ -223,14 +229,21 @@ func getRepoRoot() (string, *GitIgnore) {
 	return cachedRepoRoot, cachedGitIgnore
 }
 
-// getGitIgnoreForPath returns the gitignore and its originating directory
-// applicable to the given search path.
+// getGitIgnoreForPath returns the merged ignore rules and their originating
+// directory applicable to the given search path.
 //
-// It first walks upward from searchPath looking for nested .gitignore files,
-// which is essential for monorepos where sub-projects define their own ignore
-// rules. If no nested .gitignore is found, it falls back to the CWD-keyed
-// cached repo root .gitignore.
+// It first walks upward from searchPath looking for nested .gitignore or
+// .llmignore files, which is essential for monorepos where sub-projects define
+// their own ignore rules. If none is found, it falls back to the CWD-keyed
+// cached repo root rules.
 func getGitIgnoreForPath(searchPath string) (*GitIgnore, string) {
+	return getIgnoreForPath(searchPath, false)
+}
+
+// getIgnoreForPath returns the ignore rules applicable to searchPath. When
+// includeGitignored is true, only .llmignore rules are loaded; otherwise the
+// existing merged .gitignore + .llmignore behavior is preserved.
+func getIgnoreForPath(searchPath string, includeGitignored bool) (*GitIgnore, string) {
 	absPath, err := filepath.Abs(searchPath)
 	if err != nil {
 		return nil, ""
@@ -239,12 +252,17 @@ func getGitIgnoreForPath(searchPath string) (*GitIgnore, string) {
 	// Prime the CWD-keyed cache so we know the repo root boundary.
 	cachedRoot, _ := getRepoRoot()
 
-	// Walk upward from searchPath looking for a nested .gitignore.
+	// Walk upward from searchPath looking for applicable nested ignore rules.
 	// Return the closest one found (with its directory as the root so that
 	// relative path computation in matchesGitIgnore is correct).
 	dir := absPath
 	for {
-		gi, err := loadMergedIgnore(dir)
+		var gi *GitIgnore
+		if includeGitignored {
+			gi, err = loadLLMIgnore(dir)
+		} else {
+			gi, err = loadMergedIgnore(dir)
+		}
 		if err == nil && gi != nil {
 			return gi, dir
 		}
@@ -263,8 +281,16 @@ func getGitIgnoreForPath(searchPath string) (*GitIgnore, string) {
 		dir = parent
 	}
 
-	// Fall back to cached repo root .gitignore
+	// Fall back to the repo root rules. The normal path uses the cache; the
+	// opt-in path must load .llmignore separately to avoid applying .gitignore.
 	root, gi := getRepoRoot()
+	if includeGitignored && root != "" {
+		li, err := loadLLMIgnore(root)
+		if err == nil {
+			return li, root
+		}
+		return nil, root
+	}
 	return gi, root
 }
 

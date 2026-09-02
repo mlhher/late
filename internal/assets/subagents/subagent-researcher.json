@@ -4,6 +4,8 @@
   "prompt_file": "prompts/instruction-researcher.md",
   "allowed_tools": [
     "read_file",
+    "search_content",
+    "find_files",
     "search_tool",
     "bash"
   ]

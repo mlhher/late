@@ -247,10 +247,10 @@ func (t *ShellTool) ValidateBashCommand(command string, cwd string) error {
 	gateLevel := getBashGateLevel()
 	if gateLevel != "allow" && isSearchCommand(command) {
 		if gateLevel == "enforce" {
-			return fmt.Errorf("bash refused: `%s` detected. Use the native `search_tool` instead — it returns structured {path, line, content} matches, respects permission gates, and applies per-tool output caps.", extractCommand(command))
+			return fmt.Errorf("bash refused: `%s` detected. Use the native `search_content` (for text inside files) or `find_files` (for finding files/directories) tools instead — they respect .gitignore, permission gates, and apply output caps.", extractCommand(command))
 		}
 		// "warn" level: log but allow through
-		fmt.Fprintf(os.Stderr, "[WARN] Consider using search_tool instead of bash %s\n", extractCommand(command))
+		fmt.Fprintf(os.Stderr, "[WARN] Consider using search_content or find_files instead of bash %s\n", extractCommand(command))
 	}
 
 	blocked, err, _ := t.analyzeBashCommand(command, cwd)
