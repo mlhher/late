@@ -77,6 +77,9 @@ func defaultConfig() Config {
 			"bash":           true,
 			"search_content": true,
 			"find_files":     true,
+			"create_todos":   true,
+			"list_todos":     true,
+			"finish_todo":    true,
 		},
 	}
 }
