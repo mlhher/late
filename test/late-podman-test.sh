@@ -329,4 +329,80 @@ grep -F -- 'git config --global --add safe.directory /workspace' "$TEST_ROOT/arg
     exit 1
 }
 
+# Test 11: devcontainer.json mounts with string and object formats and variable substitution
+mkdir -p "$TEST_ROOT/mounts-project/.devcontainer"
+cat > "$TEST_ROOT/mounts-project/.devcontainer/devcontainer.json" <<'EOF'
+{
+  "name": "Mounts Dev Container",
+  "image": "registry.example/mounts:1",
+  "mounts": [
+    "source=${localWorkspaceFolder}/../path-to-your-mcp-server,target=/mcp-server,type=bind,consistency=cached",
+    {
+      "source": "${localWorkspaceFolder}/tools",
+      "target": "/tools",
+      "type": "bind",
+      "readonly": true
+    },
+    {
+      "source": "my-volume-${localWorkspaceFolderBasename}",
+      "target": "/data",
+      "type": "volume"
+    }
+  ],
+  "containerEnv": {
+    "PROJECT_NAME": "${localWorkspaceFolderBasename}",
+    "HOST_HOME": "${localEnv:MY_TEST_HOME:/default/home}"
+  },
+  "postCreateCommand": "go mod tidy && cd /mcp-server && npm install"
+}
+EOF
+
+(
+    cd "$TEST_ROOT/mounts-project"
+    MY_TEST_HOME="/custom/home" \
+    PATH="$TEST_ROOT/bin:$PATH" \
+        TEST_ROOT="$TEST_ROOT" \
+        XDG_CONFIG_HOME="$TEST_ROOT/config" \
+        PODMAN_CAPTURE="$TEST_ROOT/capture-mounts" \
+        PODMAN_BUILD_CAPTURE="$TEST_ROOT/capture-build" \
+        late-podman
+)
+
+tr '\0' '\n' < "$TEST_ROOT/capture-mounts" > "$TEST_ROOT/args-mounts"
+assert_arg "source=$TEST_ROOT/mounts-project/../path-to-your-mcp-server,target=/mcp-server,type=bind,consistency=cached" "$TEST_ROOT/args-mounts"
+assert_arg "type=bind,source=$TEST_ROOT/mounts-project/tools,target=/tools,ro=true" "$TEST_ROOT/args-mounts"
+assert_arg "type=volume,source=my-volume-mounts-project,target=/data" "$TEST_ROOT/args-mounts"
+assert_arg 'PROJECT_NAME=mounts-project' "$TEST_ROOT/args-mounts"
+assert_arg 'HOST_HOME=/custom/home' "$TEST_ROOT/args-mounts"
+assert_arg 'go mod tidy && cd /mcp-server && npm install' "$TEST_ROOT/args-mounts"
+
+# Test 12: devcontainer.json workspaceMount and workspaceFolder overrides
+mkdir -p "$TEST_ROOT/custom-ws/.devcontainer"
+cat > "$TEST_ROOT/custom-ws/.devcontainer/devcontainer.json" <<'EOF'
+{
+  "name": "Custom Workspace Container",
+  "image": "registry.example/custom-ws:1",
+  "workspaceFolder": "/workspaces/custom-app",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/custom-app,type=bind"
+}
+EOF
+
+(
+    cd "$TEST_ROOT/custom-ws"
+    PATH="$TEST_ROOT/bin:$PATH" \
+        TEST_ROOT="$TEST_ROOT" \
+        XDG_CONFIG_HOME="$TEST_ROOT/config" \
+        PODMAN_CAPTURE="$TEST_ROOT/capture-custom-ws" \
+        PODMAN_BUILD_CAPTURE="$TEST_ROOT/capture-build" \
+        late-podman
+)
+
+tr '\0' '\n' < "$TEST_ROOT/capture-custom-ws" > "$TEST_ROOT/args-custom-ws"
+assert_arg "source=$TEST_ROOT/custom-ws,target=/workspaces/custom-app,type=bind" "$TEST_ROOT/args-custom-ws"
+assert_arg "/workspaces/custom-app" "$TEST_ROOT/args-custom-ws"
+grep -F -- 'git config --global --add safe.directory /workspaces/custom-app' "$TEST_ROOT/args-custom-ws" >/dev/null || {
+    echo "expected safe.directory /workspaces/custom-app in container args" >&2
+    exit 1
+}
+
 echo 'late-podman tests passed'

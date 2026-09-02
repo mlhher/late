@@ -115,6 +115,9 @@ late_binary=$(readlink -f "$late_binary")
 workspace=$(pwd -P)
 image_file="$workspace/.late/podman-image"
 devcontainer_env=()
+devcontainer_mounts=()
+devcontainer_workspace_mount=""
+devcontainer_workspace_folder=""
 devcontainer_post_create=""
 devcontainer_post_start=""
 
@@ -161,6 +164,8 @@ if [[ -n "$devcontainer_file" ]]; then
 import sys, re, json, os, shlex
 
 path = sys.argv[1]
+workspace = sys.argv[2] if len(sys.argv) > 2 else os.getcwd()
+
 with open(path, "r", encoding="utf-8") as f:
     text = f.read()
 
@@ -209,6 +214,33 @@ try:
 except Exception as e:
     sys.exit(0)
 
+cenv = data.get("containerEnv", {})
+if not isinstance(cenv, dict):
+    cenv = {}
+
+def sub_vars(s, ws, ce):
+    if not isinstance(s, str):
+        return s
+    ws_basename = os.path.basename(ws)
+    def repl(m):
+        expr = m.group(1).strip()
+        if expr == "localWorkspaceFolder":
+            return ws
+        elif expr == "localWorkspaceFolderBasename":
+            return ws_basename
+        elif expr.startswith("localEnv:"):
+            parts = expr[len("localEnv:"):].split(":", 1)
+            var = parts[0]
+            default = parts[1] if len(parts) > 1 else ""
+            return os.environ.get(var, default)
+        elif expr.startswith("containerEnv:"):
+            parts = expr[len("containerEnv:"):].split(":", 1)
+            var = parts[0]
+            default = parts[1] if len(parts) > 1 else ""
+            return str(ce.get(var, os.environ.get(var, default)))
+        return m.group(0)
+    return re.sub(r"\$\{([^}]+)\}", repl, s)
+
 img = data.get("image", "")
 build = data.get("build", {})
 dockerfile = ""
@@ -230,8 +262,8 @@ def parse_cmd(val):
         return "\n".join(str(v) for v in val.values())
     return ""
 
-post_create = parse_cmd(data.get("postCreateCommand", ""))
-post_start = parse_cmd(data.get("postStartCommand", ""))
+post_create = sub_vars(parse_cmd(data.get("postCreateCommand", "")), workspace, cenv)
+post_start = sub_vars(parse_cmd(data.get("postStartCommand", "")), workspace, cenv)
 
 print(f"dc_image={shlex.quote(img)}")
 print(f"dc_dockerfile={shlex.quote(dockerfile)}")
@@ -239,18 +271,47 @@ print(f"dc_context={shlex.quote(context)}")
 print(f"devcontainer_post_create={shlex.quote(post_create)}")
 print(f"devcontainer_post_start={shlex.quote(post_start)}")
 
-cenv = data.get("containerEnv", {})
-if isinstance(cenv, dict):
-    for k, v in cenv.items():
-        kv = f"{k}={v}"
-        print(f"devcontainer_env+=({shlex.quote(kv)})")
+for k, v in cenv.items():
+    kv = f"{k}={sub_vars(str(v), workspace, cenv)}"
+    print(f"devcontainer_env+=({shlex.quote(kv)})")
 
 renv = data.get("remoteEnv", {})
 if isinstance(renv, dict):
     for k, v in renv.items():
-        kv = f"{k}={v}"
+        kv = f"{k}={sub_vars(str(v), workspace, cenv)}"
         print(f"devcontainer_env+=({shlex.quote(kv)})")
-' "$devcontainer_file" 2>/dev/null || true)"
+
+raw_mounts = data.get("mounts", [])
+if isinstance(raw_mounts, list):
+    for m in raw_mounts:
+        if isinstance(m, str):
+            subbed = sub_vars(m, workspace, cenv)
+            print(f"devcontainer_mounts+=({shlex.quote(subbed)})")
+        elif isinstance(m, dict):
+            m_type = sub_vars(str(m.get("type", "bind")), workspace, cenv)
+            m_src = sub_vars(str(m.get("source", m.get("src", ""))), workspace, cenv)
+            m_tgt = sub_vars(str(m.get("target", m.get("dst", m.get("destination", "")))), workspace, cenv)
+            if m_src and m_tgt:
+                opts = [f"type={m_type}", f"source={m_src}", f"target={m_tgt}"]
+                if m.get("readonly", m.get("ro", False)):
+                    opts.append("ro=true")
+                for k, v in m.items():
+                    if k not in ("type", "source", "src", "target", "dst", "destination", "readonly", "ro"):
+                        if isinstance(v, (str, int, float, bool)):
+                            opts.append(f"{k}={sub_vars(str(v), workspace, cenv)}")
+                mount_str = ",".join(opts)
+                print(f"devcontainer_mounts+=({shlex.quote(mount_str)})")
+
+raw_ws_mount = data.get("workspaceMount", "")
+if isinstance(raw_ws_mount, str) and raw_ws_mount.strip():
+    subbed_ws_mount = sub_vars(raw_ws_mount.strip(), workspace, cenv)
+    print(f"devcontainer_workspace_mount={shlex.quote(subbed_ws_mount)}")
+
+raw_ws_folder = data.get("workspaceFolder", "")
+if isinstance(raw_ws_folder, str) and raw_ws_folder.strip():
+    subbed_ws_folder = sub_vars(raw_ws_folder.strip(), workspace, cenv)
+    print(f"devcontainer_workspace_folder={shlex.quote(subbed_ws_folder)}")
+' "$devcontainer_file" "$workspace" 2>/dev/null || true)"
     fi
 fi
 
@@ -349,19 +410,30 @@ if [[ -n "$startup_command" ]]; then
     per_run_command+="$startup_command"
 fi
 
+container_workspace="${devcontainer_workspace_folder:-/workspace}"
+
 run_args=(run --rm --network=host --security-opt label=disable)
 [[ -t 0 ]] && run_args+=(-i)
 [[ -t 1 ]] && run_args+=(-t)
 
+if [[ -n "$devcontainer_workspace_mount" ]]; then
+    run_args+=(--mount "$devcontainer_workspace_mount")
+else
+    run_args+=(--mount "type=bind,src=$workspace,target=$container_workspace")
+fi
+
 run_args+=(
-    --mount "type=bind,src=$workspace,target=/workspace"
-    --workdir /workspace
+    --workdir "$container_workspace"
     --mount "type=bind,src=$late_binary,target=/usr/local/bin/late,ro=true"
     --volume late-podman-sessions:/root/.local/share/late
     --volume "late-podman-cache-${clean_name}:/root/.cache"
     --entrypoint bash
     -e TERM="${TERM:-xterm-256color}"
 )
+
+for mount_spec in "${devcontainer_mounts[@]}"; do
+    run_args+=(--mount "$mount_spec")
+done
 
 for env_var in "${devcontainer_env[@]}"; do
     run_args+=(-e "$env_var")
@@ -387,7 +459,10 @@ if host_git_email=$(git config --get user.email 2>/dev/null) && [[ -n "$host_git
     git_setup+="git config --global user.email $(printf '%q' "$host_git_email")"$'\n'
 fi
 
-git_setup+="git config --global --add safe.directory /workspace"$'\n'
+git_setup+="git config --global --add safe.directory $(printf '%q' "$container_workspace")"$'\n'
+if [[ "$container_workspace" != "/workspace" ]]; then
+    git_setup+="git config --global --add safe.directory /workspace"$'\n'
+fi
 
 host_gpg_format=$(git config --get gpg.format 2>/dev/null || true)
 host_signing_key=$(git config --get user.signingkey 2>/dev/null || true)
@@ -424,7 +499,8 @@ git_setup=$1
 post_create_cmd=$2
 post_create_hash=$3
 per_run_cmd=$4
-shift 4
+container_ws=$5
+shift 5
 
 if [[ -n "$git_setup" ]]; then
     eval "$git_setup"
@@ -434,8 +510,8 @@ if [[ -n "$post_create_cmd" ]]; then
     echo "=> [late-podman] Running postCreateCommand..."
     eval "$post_create_cmd"
     if [[ -n "$post_create_hash" ]]; then
-        mkdir -p /workspace/.late
-        printf "%s\n" "$post_create_hash" > /workspace/.late/post-create-hash
+        mkdir -p "$container_ws/.late"
+        printf "%s\n" "$post_create_hash" > "$container_ws/.late/post-create-hash"
     fi
 fi
 
@@ -445,4 +521,4 @@ fi
 
 exec /usr/local/bin/late --i-promise-i-have-backups-and-will-not-file-issues "$@"'
 
-exec podman "${run_args[@]}" "$image" -c "$container_script" late-podman "$git_setup" "$post_create_cmd" "$post_create_hash" "$per_run_command" "${late_args[@]}"
+exec podman "${run_args[@]}" "$image" -c "$container_script" late-podman "$git_setup" "$post_create_cmd" "$post_create_hash" "$per_run_command" "$container_workspace" "${late_args[@]}"
