@@ -255,7 +255,7 @@ late-podman --image registry.example/my-project-dev
 The image must contain Bash and every language or SDK required by the project.
 If no `--image` is supplied, Late automatically searches for configuration in the following order:
 1. `.late/podman-image`
-2. `.devcontainer/devcontainer.json` (or `.devcontainer.json`) — reads `image` or `build.dockerfile`, `mounts`, `workspaceMount`, `workspaceFolder`, `postCreateCommand`, `postStartCommand`, `containerEnv`, and `remoteEnv` (with devcontainer variable substitution support)
+2. `.devcontainer/devcontainer.json` (or `.devcontainer.json`) — reads `image` or `build.dockerfile`, `mounts`, `postCreateCommand`, `postStartCommand`, `containerEnv`, and `remoteEnv` (with devcontainer variable substitution support)
 3. Interactive terminal prompt
 
 Images built from a `Dockerfile` and `postCreateCommand` setups are cached automatically and only rerun when their definitions change. Use `--rebuild` to force rebuild the image and re-run setup commands.

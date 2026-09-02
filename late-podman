@@ -116,8 +116,6 @@ workspace=$(pwd -P)
 image_file="$workspace/.late/podman-image"
 devcontainer_env=()
 devcontainer_mounts=()
-devcontainer_workspace_mount=""
-devcontainer_workspace_folder=""
 devcontainer_post_create=""
 devcontainer_post_start=""
 
@@ -301,16 +299,6 @@ if isinstance(raw_mounts, list):
                             opts.append(f"{k}={sub_vars(str(v), workspace, cenv)}")
                 mount_str = ",".join(opts)
                 print(f"devcontainer_mounts+=({shlex.quote(mount_str)})")
-
-raw_ws_mount = data.get("workspaceMount", "")
-if isinstance(raw_ws_mount, str) and raw_ws_mount.strip():
-    subbed_ws_mount = sub_vars(raw_ws_mount.strip(), workspace, cenv)
-    print(f"devcontainer_workspace_mount={shlex.quote(subbed_ws_mount)}")
-
-raw_ws_folder = data.get("workspaceFolder", "")
-if isinstance(raw_ws_folder, str) and raw_ws_folder.strip():
-    subbed_ws_folder = sub_vars(raw_ws_folder.strip(), workspace, cenv)
-    print(f"devcontainer_workspace_folder={shlex.quote(subbed_ws_folder)}")
 ' "$devcontainer_file" "$workspace" 2>/dev/null || true)"
     fi
 fi
@@ -410,20 +398,13 @@ if [[ -n "$startup_command" ]]; then
     per_run_command+="$startup_command"
 fi
 
-container_workspace="${devcontainer_workspace_folder:-/workspace}"
-
 run_args=(run --rm --network=host --security-opt label=disable)
 [[ -t 0 ]] && run_args+=(-i)
 [[ -t 1 ]] && run_args+=(-t)
 
-if [[ -n "$devcontainer_workspace_mount" ]]; then
-    run_args+=(--mount "$devcontainer_workspace_mount")
-else
-    run_args+=(--mount "type=bind,src=$workspace,target=$container_workspace")
-fi
-
 run_args+=(
-    --workdir "$container_workspace"
+    --mount "type=bind,src=$workspace,target=/workspace"
+    --workdir /workspace
     --mount "type=bind,src=$late_binary,target=/usr/local/bin/late,ro=true"
     --volume late-podman-sessions:/root/.local/share/late
     --volume "late-podman-cache-${clean_name}:/root/.cache"
@@ -459,10 +440,7 @@ if host_git_email=$(git config --get user.email 2>/dev/null) && [[ -n "$host_git
     git_setup+="git config --global user.email $(printf '%q' "$host_git_email")"$'\n'
 fi
 
-git_setup+="git config --global --add safe.directory $(printf '%q' "$container_workspace")"$'\n'
-if [[ "$container_workspace" != "/workspace" ]]; then
-    git_setup+="git config --global --add safe.directory /workspace"$'\n'
-fi
+git_setup+="git config --global --add safe.directory /workspace"$'\n'
 
 host_gpg_format=$(git config --get gpg.format 2>/dev/null || true)
 host_signing_key=$(git config --get user.signingkey 2>/dev/null || true)
@@ -499,8 +477,7 @@ git_setup=$1
 post_create_cmd=$2
 post_create_hash=$3
 per_run_cmd=$4
-container_ws=$5
-shift 5
+shift 4
 
 if [[ -n "$git_setup" ]]; then
     eval "$git_setup"
@@ -510,8 +487,8 @@ if [[ -n "$post_create_cmd" ]]; then
     echo "=> [late-podman] Running postCreateCommand..."
     eval "$post_create_cmd"
     if [[ -n "$post_create_hash" ]]; then
-        mkdir -p "$container_ws/.late"
-        printf "%s\n" "$post_create_hash" > "$container_ws/.late/post-create-hash"
+        mkdir -p /workspace/.late
+        printf "%s\n" "$post_create_hash" > /workspace/.late/post-create-hash
     fi
 fi
 
@@ -521,4 +498,4 @@ fi
 
 exec /usr/local/bin/late --i-promise-i-have-backups-and-will-not-file-issues "$@"'
 
-exec podman "${run_args[@]}" "$image" -c "$container_script" late-podman "$git_setup" "$post_create_cmd" "$post_create_hash" "$per_run_command" "$container_workspace" "${late_args[@]}"
+exec podman "${run_args[@]}" "$image" -c "$container_script" late-podman "$git_setup" "$post_create_cmd" "$post_create_hash" "$per_run_command" "${late_args[@]}"
