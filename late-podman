@@ -150,6 +150,10 @@ find_devcontainer_file() {
         if [[ -n "$found" ]]; then
             printf '%s\n' "$found"
         fi
+    elif [[ -f "$root/.late/devcontainer.json" ]]; then
+        printf '%s\n' "$root/.late/devcontainer.json"
+    elif [[ -f "$root/.late/devcontainer.local.json" ]]; then
+        printf '%s\n' "$root/.late/devcontainer.local.json"
     fi
 }
 
@@ -164,53 +168,90 @@ import sys, re, json, os, shlex
 path = sys.argv[1]
 workspace = sys.argv[2] if len(sys.argv) > 2 else os.getcwd()
 
-with open(path, "r", encoding="utf-8") as f:
-    text = f.read()
-
-out = []
-i = 0
-in_str = False
-in_block = False
-while i < len(text):
-    if in_block:
-        if text[i:i+2] == "*/":
-            in_block = False
-            i += 2
-        else:
+def load_json(p):
+    if not os.path.isfile(p):
+        return {}
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            text = f.read()
+    except Exception:
+        return {}
+    out = []
+    i = 0
+    in_str = False
+    in_block = False
+    while i < len(text):
+        if in_block:
+            if text[i:i+2] == "*/":
+                in_block = False
+                i += 2
+            else:
+                i += 1
+            continue
+        if in_str:
+            out.append(text[i])
+            if text[i] == "\\" and i + 1 < len(text):
+                out.append(text[i+1])
+                i += 2
+                continue
+            if text[i] == "\"":
+                in_str = False
             i += 1
-        continue
-    if in_str:
-        out.append(text[i])
-        if text[i] == "\\" and i + 1 < len(text):
-            out.append(text[i+1])
+            continue
+        if text[i:i+2] == "//":
+            while i < len(text) and text[i] != "\n":
+                i += 1
+            continue
+        if text[i:i+2] == "/*":
+            in_block = True
             i += 2
             continue
         if text[i] == "\"":
-            in_str = False
-        i += 1
-        continue
-    if text[i:i+2] == "//":
-        while i < len(text) and text[i] != "\n":
+            in_str = True
+            out.append(text[i])
             i += 1
-        continue
-    if text[i:i+2] == "/*":
-        in_block = True
-        i += 2
-        continue
-    if text[i] == "\"":
-        in_str = True
+            continue
         out.append(text[i])
         i += 1
-        continue
-    out.append(text[i])
-    i += 1
-cleaned = "".join(out)
-cleaned = re.sub(r",\s*([\]}])", r"\1", cleaned)
+    cleaned = "".join(out)
+    cleaned = re.sub(r",\s*([\]}])", r"\1", cleaned)
+    try:
+        res = json.loads(cleaned)
+        return res if isinstance(res, dict) else {}
+    except Exception:
+        return {}
 
-try:
-    data = json.loads(cleaned)
-except Exception as e:
+data = load_json(path)
+if not data:
     sys.exit(0)
+
+devcontainer_dir = os.path.dirname(path)
+candidate_overrides = [
+    os.path.join(devcontainer_dir, "devcontainer.local.json"),
+    os.path.join(workspace, ".devcontainer.local.json"),
+    os.path.join(workspace, ".late", "devcontainer.json"),
+    os.path.join(workspace, ".late", "devcontainer.local.json"),
+]
+
+for override_path in candidate_overrides:
+    if os.path.isfile(override_path) and os.path.abspath(override_path) != os.path.abspath(path):
+        local_data = load_json(override_path)
+        if isinstance(local_data, dict):
+            local_mounts = local_data.get("mounts", [])
+            if isinstance(local_mounts, list):
+                if "mounts" not in data or not isinstance(data["mounts"], list):
+                    data["mounts"] = []
+                data["mounts"].extend(local_mounts)
+            local_cenv = local_data.get("containerEnv", {})
+            if isinstance(local_cenv, dict):
+                if "containerEnv" not in data or not isinstance(data["containerEnv"], dict):
+                    data["containerEnv"] = {}
+                data["containerEnv"].update(local_cenv)
+            local_renv = local_data.get("remoteEnv", {})
+            if isinstance(local_renv, dict):
+                if "remoteEnv" not in data or not isinstance(data["remoteEnv"], dict):
+                    data["remoteEnv"] = {}
+                data["remoteEnv"].update(local_renv)
 
 cenv = data.get("containerEnv", {})
 if not isinstance(cenv, dict):

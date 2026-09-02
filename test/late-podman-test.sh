@@ -422,4 +422,62 @@ tr '\0' '\n' < "$TEST_ROOT/capture-rebuild-build" > "$TEST_ROOT/args-rebuild-bui
 assert_arg build "$TEST_ROOT/args-rebuild-build"
 assert_arg --no-cache "$TEST_ROOT/args-rebuild-build"
 
+# Test 13: Local devcontainer overrides (.devcontainer/devcontainer.local.json and .late/devcontainer.json)
+mkdir -p "$TEST_ROOT/local-project/.devcontainer" "$TEST_ROOT/local-project/.late"
+cat > "$TEST_ROOT/local-project/.devcontainer/devcontainer.json" <<'EOF'
+{
+  "name": "Local Override Base Container",
+  "image": "registry.example/base:1",
+  "mounts": [
+    "source=${localWorkspaceFolder}/base-dir,target=/base-dir,type=bind"
+  ],
+  "containerEnv": {
+    "BASE_VAR": "base_val",
+    "SHARED_VAR": "from_base"
+  }
+}
+EOF
+
+cat > "$TEST_ROOT/local-project/.devcontainer/devcontainer.local.json" <<'EOF'
+{
+  "mounts": [
+    "source=${localWorkspaceFolder}/devcontainer-local-dir,target=/local-dir,type=bind"
+  ],
+  "containerEnv": {
+    "SHARED_VAR": "from_local",
+    "LOCAL_VAR": "local_val"
+  }
+}
+EOF
+
+cat > "$TEST_ROOT/local-project/.late/devcontainer.json" <<'EOF'
+{
+  "mounts": [
+    "source=${localWorkspaceFolder}/late-dir,target=/late-dir,type=bind"
+  ],
+  "containerEnv": {
+    "LATE_VAR": "late_val"
+  }
+}
+EOF
+
+(
+    cd "$TEST_ROOT/local-project"
+    PATH="$TEST_ROOT/bin:$PATH" \
+        TEST_ROOT="$TEST_ROOT" \
+        XDG_CONFIG_HOME="$TEST_ROOT/config" \
+        PODMAN_CAPTURE="$TEST_ROOT/capture-local-override" \
+        PODMAN_BUILD_CAPTURE="$TEST_ROOT/capture-build" \
+        late-podman
+)
+
+tr '\0' '\n' < "$TEST_ROOT/capture-local-override" > "$TEST_ROOT/args-local-override"
+assert_arg "source=$TEST_ROOT/local-project/base-dir,target=/base-dir,type=bind" "$TEST_ROOT/args-local-override"
+assert_arg "source=$TEST_ROOT/local-project/devcontainer-local-dir,target=/local-dir,type=bind" "$TEST_ROOT/args-local-override"
+assert_arg "source=$TEST_ROOT/local-project/late-dir,target=/late-dir,type=bind" "$TEST_ROOT/args-local-override"
+assert_arg 'BASE_VAR=base_val' "$TEST_ROOT/args-local-override"
+assert_arg 'SHARED_VAR=from_local' "$TEST_ROOT/args-local-override"
+assert_arg 'LOCAL_VAR=local_val' "$TEST_ROOT/args-local-override"
+assert_arg 'LATE_VAR=late_val' "$TEST_ROOT/args-local-override"
+
 echo 'late-podman tests passed'
