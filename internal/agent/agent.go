@@ -42,6 +42,11 @@ func NewSubagentOrchestrator(
 	if config == nil {
 		return nil, fmt.Errorf("unknown agent type: %s", agentType)
 	}
+	if saveSubagentHistory && parentSessionID != "" {
+		if _, err := session.SubagentHistoryDir(parentSessionID); err != nil {
+			return nil, fmt.Errorf("failed to resolve subagent history path: %w", err)
+		}
+	}
 
 	content, err := assets.PromptsFS.ReadFile(config.PromptFile)
 	if err != nil {
@@ -69,7 +74,10 @@ func NewSubagentOrchestrator(
 	if !ok {
 		return nil, fmt.Errorf("subagent parent must be a *orchestrator.BaseOrchestrator")
 	}
-	id := baseParent.NextChildID(agentType)
+	id, err := baseParent.NextChildID(agentType)
+	if err != nil {
+		return nil, err
+	}
 
 	// 2. Setup Subagent Session (Isolated History; persisted only when opted in)
 	var subagentHistoryPath string

@@ -141,9 +141,17 @@ func TestNextChildID_FormatAndMonotonic(t *testing.T) {
 
 	var got []string
 	for i := 0; i < 3; i++ {
-		got = append(got, o.NextChildID("researcher"))
+		id, err := o.NextChildID("researcher")
+		if err != nil {
+			t.Fatalf("NextChildID() error = %v", err)
+		}
+		got = append(got, id)
 	}
-	got = append(got, o.NextChildID("coder"))
+	id, err := o.NextChildID("coder")
+	if err != nil {
+		t.Fatalf("NextChildID() error = %v", err)
+	}
+	got = append(got, id)
 
 	want := []string{
 		"researcher-subagent-0",
@@ -178,7 +186,11 @@ func TestNextChildID_Concurrent(t *testing.T) {
 		go func(g int) {
 			defer wg.Done()
 			for i := 0; i < perGoroutine; i++ {
-				id := o.NextChildID("researcher")
+				id, err := o.NextChildID("researcher")
+				if err != nil {
+					t.Errorf("NextChildID() error = %v", err)
+					return
+				}
 				mu.Lock()
 				ids = append(ids, id)
 				mu.Unlock()
@@ -204,5 +216,44 @@ func TestNextChildID_Concurrent(t *testing.T) {
 
 	if n := len(o.Children()); n != goroutines {
 		t.Errorf("Children() length = %d, want %d", n, goroutines)
+	}
+}
+
+func TestNextChildIDPersistsSequenceForResume(t *testing.T) {
+	tmpDir := t.TempDir()
+	originalSessionDir := session.SessionDir
+	session.SessionDir = func() (string, error) { return tmpDir, nil }
+	t.Cleanup(func() { session.SessionDir = originalSessionDir })
+
+	historyPath := filepath.Join(tmpDir, "session-test.json")
+	sess := session.New(nil, historyPath, nil, "", false)
+	sess.SetSubagentMetadata(4, nil)
+	o := NewBaseOrchestrator("parent", sess, nil, 0)
+
+	id, err := o.NextChildID("researcher")
+	if err != nil {
+		t.Fatalf("NextChildID() error = %v", err)
+	}
+	if id != "researcher-subagent-4" {
+		t.Fatalf("NextChildID() = %q, want researcher-subagent-4", id)
+	}
+
+	meta, err := session.LoadSessionMeta("session-test")
+	if err != nil {
+		t.Fatalf("LoadSessionMeta() error = %v", err)
+	}
+	if meta.SubagentSeq != 5 {
+		t.Fatalf("SubagentSeq = %d, want 5", meta.SubagentSeq)
+	}
+
+	resumed := session.New(nil, historyPath, nil, "", false)
+	resumed.SetSubagentMetadata(meta.SubagentSeq, meta.SaveSubagentHistories)
+	resumedOrchestrator := NewBaseOrchestrator("parent", resumed, nil, 0)
+	resumedID, err := resumedOrchestrator.NextChildID("coder")
+	if err != nil {
+		t.Fatalf("resumed NextChildID() error = %v", err)
+	}
+	if resumedID != "coder-subagent-5" {
+		t.Errorf("resumed NextChildID() = %q, want coder-subagent-5", resumedID)
 	}
 }

@@ -529,26 +529,43 @@ func TestResolveSubagentSettings(t *testing.T) {
 }
 
 func TestResolveSaveSubagentHistories(t *testing.T) {
+	enabled := true
+	disabled := false
 	tests := []struct {
-		name        string
-		cfg         *Config
-		cliExplicit bool
-		cliValue    bool
-		want        bool
+		name            string
+		cfg             *Config
+		cliExplicit     bool
+		cliValue        bool
+		savedPreference *bool
+		want            bool
 	}{
 		{
-			name:        "explicit flag on wins over config off",
-			cfg:         &Config{SaveSubagentHistories: false},
-			cliExplicit: true,
-			cliValue:    true,
-			want:        true,
+			name:            "explicit flag on wins over config off",
+			cfg:             &Config{SaveSubagentHistories: false},
+			cliExplicit:     true,
+			cliValue:        true,
+			savedPreference: &disabled,
+			want:            true,
 		},
 		{
-			name:        "explicit flag off wins over config on",
-			cfg:         &Config{SaveSubagentHistories: true},
-			cliExplicit: true,
-			cliValue:    false,
-			want:        false,
+			name:            "explicit flag off wins over config on",
+			cfg:             &Config{SaveSubagentHistories: true},
+			cliExplicit:     true,
+			cliValue:        false,
+			savedPreference: &enabled,
+			want:            false,
+		},
+		{
+			name:            "saved preference wins over config",
+			cfg:             &Config{SaveSubagentHistories: true},
+			savedPreference: &disabled,
+			want:            false,
+		},
+		{
+			name:            "saved enabled preference wins over config",
+			cfg:             &Config{SaveSubagentHistories: false},
+			savedPreference: &enabled,
+			want:            true,
 		},
 		{
 			name:        "no flag uses config on",
@@ -575,7 +592,7 @@ func TestResolveSaveSubagentHistories(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ResolveSaveSubagentHistories(tt.cfg, tt.cliExplicit, tt.cliValue); got != tt.want {
+			if got := ResolveSaveSubagentHistories(tt.cfg, tt.cliExplicit, tt.cliValue, tt.savedPreference); got != tt.want {
 				t.Fatalf("ResolveSaveSubagentHistories() = %v, want %v", got, tt.want)
 			}
 		})

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"errors"
 	"late/internal/client"
 	"os"
 	"path/filepath"
@@ -62,6 +63,69 @@ func TestSessionMeta(t *testing.T) {
 	_, err = LoadSessionMeta("session-")
 	if err == nil {
 		t.Error("Expected error for ambiguous prefix, got nil")
+	}
+}
+
+func TestSessionMetadataRetainsSubagentState(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldSessionDir := SessionDir
+	SessionDir = func() (string, error) { return tmpDir, nil }
+	t.Cleanup(func() { SessionDir = oldSessionDir })
+
+	saveHistories := false
+	s := New(nil, filepath.Join(tmpDir, "session-test.json"), nil, "", false)
+	s.SetSubagentMetadata(7, &saveHistories)
+	if err := s.AddUserMessage("Hello"); err != nil {
+		t.Fatalf("AddUserMessage() error = %v", err)
+	}
+
+	loaded, err := LoadSessionMeta("session-test")
+	if err != nil {
+		t.Fatalf("LoadSessionMeta() error = %v", err)
+	}
+	if loaded.SubagentSeq != 7 {
+		t.Errorf("SubagentSeq = %d, want 7", loaded.SubagentSeq)
+	}
+	if loaded.SaveSubagentHistories == nil || *loaded.SaveSubagentHistories {
+		t.Errorf("SaveSubagentHistories = %v, want false", loaded.SaveSubagentHistories)
+	}
+}
+
+func TestLoadSessionMetaLegacySubagentState(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldSessionDir := SessionDir
+	SessionDir = func() (string, error) { return tmpDir, nil }
+	t.Cleanup(func() { SessionDir = oldSessionDir })
+
+	metaPath := filepath.Join(tmpDir, "session-legacy.meta.json")
+	if err := os.WriteFile(metaPath, []byte(`{"id":"session-legacy"}`), 0600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	loaded, err := LoadSessionMeta("session-legacy")
+	if err != nil {
+		t.Fatalf("LoadSessionMeta() error = %v", err)
+	}
+	if loaded.SubagentSeq != 0 {
+		t.Errorf("SubagentSeq = %d, want 0", loaded.SubagentSeq)
+	}
+	if loaded.SaveSubagentHistories != nil {
+		t.Errorf("SaveSubagentHistories = %v, want nil", *loaded.SaveSubagentHistories)
+	}
+}
+
+func TestUpdateSubagentSeqRestoresPreviousValueAfterMetadataFailure(t *testing.T) {
+	oldSessionDir := SessionDir
+	SessionDir = func() (string, error) { return "", errors.New("session directory unavailable") }
+	t.Cleanup(func() { SessionDir = oldSessionDir })
+
+	s := New(nil, "session-test.json", nil, "", false)
+	s.SetSubagentMetadata(4, nil)
+	if err := s.UpdateSubagentSeq(5); err == nil {
+		t.Fatal("UpdateSubagentSeq() error = nil, want metadata save failure")
+	}
+	if s.SubagentSeq() != 4 {
+		t.Errorf("SubagentSeq = %d, want 4", s.SubagentSeq())
 	}
 }
 
@@ -229,4 +293,3 @@ func TestLoadSessionMeta_IgnoresSubagentFolders(t *testing.T) {
 		t.Errorf("Expected nil meta for nonexistent session, got %v", notFound)
 	}
 }
-

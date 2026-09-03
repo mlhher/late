@@ -225,11 +225,15 @@ func ResolveSubagentSettingsWithEnv(cfg *Config, openAI OpenAISettings, lookup E
 }
 
 // ResolveSaveSubagentHistories determines whether subagent history
-// persistence is enabled. Precedence: explicit CLI flag > config file.
-// There is intentionally no environment-variable override.
-func ResolveSaveSubagentHistories(cfg *Config, cliExplicit bool, cliValue bool) bool {
+// persistence is enabled. Precedence: explicit CLI flag > saved session
+// preference > config file. There is intentionally no environment-variable
+// override.
+func ResolveSaveSubagentHistories(cfg *Config, cliExplicit bool, cliValue bool, savedPreference *bool) bool {
 	if cliExplicit {
 		return cliValue
+	}
+	if savedPreference != nil {
+		return *savedPreference
 	}
 	if cfg != nil {
 		return cfg.SaveSubagentHistories

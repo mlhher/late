@@ -80,6 +80,7 @@ func main() {
 	}
 
 	var loadedHistoryPath string
+	var loadedSessionMeta *session.SessionMeta
 	if *continueReq {
 		meta, err := session.GetLatestSession()
 		if err != nil {
@@ -93,12 +94,14 @@ func main() {
 		fmt.Printf("Resuming session: %s (%s)\n", meta.ID, meta.Title)
 		time.Sleep(500 * time.Millisecond) // Give user a moment to see what's happening
 		loadedHistoryPath = meta.HistoryPath
+		loadedSessionMeta = meta
 	} else if flag.NArg() > 0 && flag.Arg(0) == "session" {
-		path, _, shouldExit := handleSessionCommand(flag.Args()[1:])
-		if shouldExit {
+		sessCmdResult := handleSessionCommand(flag.Args()[1:])
+		if sessCmdResult.ShouldExit {
 			return
 		}
-		loadedHistoryPath = path
+		loadedHistoryPath = sessCmdResult.HistoryPath
+		loadedSessionMeta = sessCmdResult.Meta
 	}
 
 	if flag.NArg() > 0 && flag.Arg(0) == "worktree" {
@@ -218,14 +221,19 @@ func main() {
 		}
 	}
 
-	// Resolve subagent history persistence opt-in (explicit CLI flag > config file).
+	// Resolve subagent history persistence opt-in
+	// (explicit CLI flag > saved session preference > config file).
 	saveSubagentHistoriesCLI := false
 	flag.Visit(func(f *flag.Flag) {
 		if f.Name == "save-subagent-histories" {
 			saveSubagentHistoriesCLI = true
 		}
 	})
-	saveSubagentHistories := appconfig.ResolveSaveSubagentHistories(appConfig, saveSubagentHistoriesCLI, *saveSubagentHistoriesReq)
+	var storedSubagentHistoryPreference *bool
+	if loadedSessionMeta != nil {
+		storedSubagentHistoryPreference = loadedSessionMeta.SaveSubagentHistories
+	}
+	saveSubagentHistories := appconfig.ResolveSaveSubagentHistories(appConfig, saveSubagentHistoriesCLI, *saveSubagentHistoriesReq, storedSubagentHistoryPreference)
 
 	// Initialize Core Components
 	resolvedOpenAIConfig := appconfig.ResolveOpenAISettings(appConfig)
@@ -276,6 +284,11 @@ func main() {
 	mainTools["target_edit"] = false
 
 	sess := session.New(c, historyPath, history, systemPrompt, *useToolsReq)
+	if loadedSessionMeta != nil {
+		sess.SetSubagentMetadata(loadedSessionMeta.SubagentSeq, loadedSessionMeta.SaveSubagentHistories)
+	} else {
+		sess.SetSubagentMetadata(0, &saveSubagentHistories)
+	}
 	executor.RegisterTools(sess.Registry, mainTools)
 
 	// Register MCP tools into the session registry.
@@ -443,9 +456,14 @@ func newModelClient(ctx context.Context, setting appconfig.ModelSetting, enableI
 	return c
 }
 
-// handleSessionCommand processes session subcommands
-// Returns: command, args (remaining), verbose flag
-func handleSessionCommand(args []string) (string, []string, bool) {
+type sessionCommandResult struct {
+	HistoryPath string
+	Meta        *session.SessionMeta
+	ShouldExit  bool
+}
+
+// handleSessionCommand processes session subcommands.
+func handleSessionCommand(args []string) sessionCommandResult {
 	if len(args) == 0 {
 		fmt.Println("Usage: late session <list|load|delete> [args...]")
 		fmt.Println("")
@@ -453,7 +471,7 @@ func handleSessionCommand(args []string) (string, []string, bool) {
 		fmt.Println("  list [-v]      List all saved sessions (use -v for verbose/detailed view)")
 		fmt.Println("  load <id>      Load a session by ID (can use prefix)")
 		fmt.Println("  delete <id>    Delete a session by ID")
-		return "", nil, false
+		return sessionCommandResult{}
 	}
 
 	// Parse flags for specific commands
@@ -481,14 +499,15 @@ func handleSessionCommand(args []string) (string, []string, bool) {
 	switch args[0] {
 	case "list":
 		handleSessionList(verbose)
-		return "", nil, true
+		return sessionCommandResult{ShouldExit: true}
 	case "load":
 		if len(commandArgs) < 1 {
 			fmt.Println("Error: session ID required")
 			fmt.Println("Usage: late session load <id>")
 			os.Exit(1)
 		}
-		return handleSessionLoad(commandArgs[0]), nil, false
+		meta := handleSessionLoad(commandArgs[0])
+		return sessionCommandResult{HistoryPath: meta.HistoryPath, Meta: meta}
 	case "delete":
 		if len(commandArgs) < 1 {
 			fmt.Println("Error: session ID required")
@@ -496,11 +515,11 @@ func handleSessionCommand(args []string) (string, []string, bool) {
 			os.Exit(1)
 		}
 		handleSessionDelete(commandArgs[0])
-		return "", nil, true
+		return sessionCommandResult{ShouldExit: true}
 	default:
 		fmt.Printf("Unknown session command: %s\n", args[0])
 		handleSessionCommand([]string{})
-		return "", nil, true
+		return sessionCommandResult{ShouldExit: true}
 	}
 }
 
@@ -526,8 +545,8 @@ func handleSessionList(verbose bool) {
 	fmt.Println(session.FormatResumePrompt())
 }
 
-// handleSessionLoad returns the history path for the given session ID
-func handleSessionLoad(id string) string {
+// handleSessionLoad returns metadata for the given session ID.
+func handleSessionLoad(id string) *session.SessionMeta {
 	meta, err := session.LoadSessionMeta(id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading session: %v\n", err)
@@ -542,7 +561,7 @@ func handleSessionLoad(id string) string {
 
 	fmt.Printf("Resuming session: %s (%s)\n", meta.ID, meta.Title)
 	time.Sleep(500 * time.Millisecond) // Give user a moment to see what's happening
-	return meta.HistoryPath
+	return meta
 }
 
 // handleSessionDelete removes a session

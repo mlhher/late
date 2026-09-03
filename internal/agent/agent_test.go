@@ -342,9 +342,11 @@ func TestNewSubagentOrchestrator_PersistsWhenOptedIn(t *testing.T) {
 		t.Errorf("Expected a message containing goal %q, got %d messages", goal, len(msgs))
 	}
 
-	// Meta-skip invariant: subagent sessions must never write .meta.json sidecars.
+	// The parent sequence reservation writes its root metadata sidecar. Subagent
+	// sessions themselves must never write nested .meta.json sidecars.
+	rootMetaPath := filepath.Join(tmp, "mock-session.meta.json")
 	for _, f := range walkRegularFiles(t, tmp) {
-		if strings.HasSuffix(f, ".meta.json") {
+		if strings.HasSuffix(f, ".meta.json") && f != rootMetaPath {
 			t.Errorf("Unexpected .meta.json file written by subagent session: %s", f)
 		}
 	}
@@ -426,8 +428,11 @@ func TestNewSubagentOrchestrator_InMemoryByDefault(t *testing.T) {
 		t.Fatalf("Failed to create subagent orchestrator: %v", err)
 	}
 
+	rootMetaPath := filepath.Join(tmp, "mock-session.meta.json")
 	for _, f := range walkRegularFiles(t, tmp) {
-		t.Errorf("Expected no regular files in session dir when saveSubagentHistory=false, found: %s", f)
+		if f != rootMetaPath {
+			t.Errorf("Expected only root metadata when saveSubagentHistory=false, found: %s", f)
+		}
 	}
 }
 
@@ -474,5 +479,57 @@ func TestNewSubagentOrchestrator_SecondSpawnGetsNextID(t *testing.T) {
 		if _, err := os.Stat(p); err != nil {
 			t.Errorf("Expected subagent history file %s to exist: %v", p, err)
 		}
+	}
+}
+
+func TestNewSubagentOrchestrator_ResumedParentUsesNextHistoryPath(t *testing.T) {
+	tmp := t.TempDir()
+	setSessionDirForTest(t, tmp)
+
+	c := client.NewClient(client.Config{BaseURL: "http://localhost:8080"})
+	historyPath := filepath.Join(tmp, "session-test.json")
+	saveHistories := true
+	parentSession := session.New(c, historyPath, nil, "mock system prompt", true)
+	parentSession.SetSubagentMetadata(0, &saveHistories)
+	parent := orchestrator.NewBaseOrchestrator("parent", parentSession, nil, 10)
+
+	first, err := NewSubagentOrchestrator(c, "first goal", nil, "researcher", map[string]bool{}, false, false, 10, "session-test", true, parent, nil)
+	if err != nil {
+		t.Fatalf("first NewSubagentOrchestrator() error = %v", err)
+	}
+	if first.ID() != "researcher-subagent-0" {
+		t.Fatalf("first child ID = %q, want researcher-subagent-0", first.ID())
+	}
+
+	firstHistoryPath := filepath.Join(tmp, "session-test", "subagents", "researcher-subagent-0.json")
+	firstHistory, err := os.ReadFile(firstHistoryPath)
+	if err != nil {
+		t.Fatalf("ReadFile(first child history) error = %v", err)
+	}
+
+	meta, err := session.LoadSessionMeta("session-test")
+	if err != nil {
+		t.Fatalf("LoadSessionMeta() error = %v", err)
+	}
+	resumedSession := session.New(c, historyPath, nil, "mock system prompt", true)
+	resumedSession.SetSubagentMetadata(meta.SubagentSeq, meta.SaveSubagentHistories)
+	resumedParent := orchestrator.NewBaseOrchestrator("parent", resumedSession, nil, 10)
+
+	second, err := NewSubagentOrchestrator(c, "second goal", nil, "coder", map[string]bool{}, false, false, 10, "session-test", true, resumedParent, nil)
+	if err != nil {
+		t.Fatalf("resumed NewSubagentOrchestrator() error = %v", err)
+	}
+	if second.ID() != "coder-subagent-1" {
+		t.Errorf("resumed child ID = %q, want coder-subagent-1", second.ID())
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "session-test", "subagents", "coder-subagent-1.json")); err != nil {
+		t.Errorf("second child history was not created: %v", err)
+	}
+	updatedFirstHistory, err := os.ReadFile(firstHistoryPath)
+	if err != nil {
+		t.Fatalf("ReadFile(first child history after resume) error = %v", err)
+	}
+	if string(updatedFirstHistory) != string(firstHistory) {
+		t.Error("resumed child creation overwrote the original child history")
 	}
 }

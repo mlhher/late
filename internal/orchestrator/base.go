@@ -44,6 +44,10 @@ type BaseOrchestrator struct {
 }
 
 func NewBaseOrchestrator(id string, sess *session.Session, middlewares []common.ToolMiddleware, maxTurns int) *BaseOrchestrator {
+	childSeq := 0
+	if sess != nil {
+		childSeq = sess.SubagentSeq()
+	}
 	return &BaseOrchestrator{
 		id:          id,
 		sess:        sess,
@@ -52,6 +56,7 @@ func NewBaseOrchestrator(id string, sess *session.Session, middlewares []common.
 		ctx:         context.Background(),
 		stopCh:      make(chan struct{}),
 		maxTurns:    maxTurns,
+		childSeq:    childSeq,
 	}
 }
 
@@ -474,17 +479,18 @@ func (o *BaseOrchestrator) Rewind(index int) error {
 	return nil
 }
 
-// NextChildID atomically mints the next child ID under o.mu. The counter is
-// monotonic and independent of len(children), so concurrent spawns can never
-// produce duplicate IDs. The counter is shared across agent types (e.g.,
-// `researcher-subagent-0`, then `coder-subagent-1`), matching the legacy
-// `len(children)` numbering scheme.
-func (o *BaseOrchestrator) NextChildID(agentType string) string {
+// NextChildID atomically reserves and mints the next child ID under o.mu. The
+// counter is shared across agent types (e.g., `researcher-subagent-0`, then
+// `coder-subagent-1`), matching the legacy `len(children)` numbering scheme.
+func (o *BaseOrchestrator) NextChildID(agentType string) (string, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	id := fmt.Sprintf("%s-subagent-%d", agentType, o.childSeq)
+	if err := o.sess.UpdateSubagentSeq(o.childSeq + 1); err != nil {
+		return "", fmt.Errorf("failed to reserve child ID: %w", err)
+	}
 	o.childSeq++
-	return id
+	return id, nil
 }
 
 func (o *BaseOrchestrator) AddChild(child common.Orchestrator) {
