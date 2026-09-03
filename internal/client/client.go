@@ -20,6 +20,7 @@ type Config struct {
 	Model        string
 	Timeout      time.Duration
 	EnableImages bool
+	LogitBias    map[string]int
 }
 
 type BackendType string
@@ -77,6 +78,8 @@ func (c *Client) ChatCompletion(ctx context.Context, req ChatCompletionRequest) 
 		req.Model = c.cfg.Model
 	}
 
+	req.LogitBias = c.mergeLogitBias(req.LogitBias)
+
 	body, err := c.marshalFlattened(req)
 	if err != nil {
 		return nil, err
@@ -128,6 +131,8 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 		if req.Model == "" && c.cfg.Model != "" {
 			req.Model = c.cfg.Model
 		}
+
+		req.LogitBias = c.mergeLogitBias(req.LogitBias)
 
 		body, err := c.marshalFlattened(req)
 		if err != nil {
@@ -570,3 +575,47 @@ func (c *Client) formatError(resp *http.Response) error {
 	}
 	return fmt.Errorf("status: %d", resp.StatusCode)
 }
+
+func (c *Client) BaseURL() string {
+	return c.cfg.BaseURL
+}
+
+func (c *Client) HTTPClient() *http.Client {
+	return c.httpClient
+}
+
+func (c *Client) Backend() BackendType {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.backend
+}
+
+func (c *Client) SetLogitBias(bias map[string]int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cfg.LogitBias = bias
+}
+
+// MergeLogitBiases merges dynamic biases with user overrides.
+// User overrides take precedence over dynamic defaults on key collisions.
+func MergeLogitBiases(defaults, overrides map[string]int) map[string]int {
+	if len(defaults) == 0 && len(overrides) == 0 {
+		return nil
+	}
+	merged := make(map[string]int, len(defaults)+len(overrides))
+	for k, v := range defaults {
+		merged[k] = v
+	}
+	for k, v := range overrides {
+		merged[k] = v
+	}
+	return merged
+}
+
+func (c *Client) mergeLogitBias(reqBias map[string]int) map[string]int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return MergeLogitBiases(c.cfg.LogitBias, reqBias)
+}
+
+

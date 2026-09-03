@@ -47,6 +47,9 @@ func main() {
 	continueReq := flag.Bool("continue", false, "Load and start the latest session")
 	showCWDReq := flag.Bool("show-cwd", true, "Show current working directory in status bar")
 	promptReq := flag.String("prompt", "", "Start the agent immediately with the given prompt")
+	logitBiasReq := flag.String("logit-bias", "", "Token-bias mappings as raw JSON or key-value pairs (e.g., TOKEN_ID:BIAS,TOKEN_ID:BIAS)")
+	suppressThinkingWordsReq := flag.Bool("suppress-thinking-words", false, "Apply standard anti-overthinking bias map (dynamically resolved via /tokenize)")
+	subagentLogitBiasReq := flag.Bool("subagent-logit-bias", false, "Also apply logit biases and suppress-thinking-words to subagents (by default only applies to orchestrator)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of late:\n")
@@ -209,13 +212,24 @@ func main() {
 		}
 	}
 
-	// Initialize Core Components
+	// Parse explicit user logit bias overrides if provided
+	var explicitUserLogitBias map[string]int
+	if *logitBiasReq != "" {
+		parsed, err := client.ParseLogitBias(*logitBiasReq)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing --logit-bias: %v\n", err)
+			os.Exit(1)
+		}
+		explicitUserLogitBias = parsed
+	}
+
 	resolvedOpenAIConfig := appconfig.ResolveOpenAISettings(appConfig)
 	resolvedClientConfig := client.Config{
 		BaseURL:      resolvedOpenAIConfig.BaseURL,
 		APIKey:       resolvedOpenAIConfig.APIKey,
 		Model:        resolvedOpenAIConfig.Model,
 		EnableImages: *enableImagesReq,
+		LogitBias:    explicitUserLogitBias,
 	}
 	if appConfig != nil {
 		if setting, ok := appConfig.GetModelForAgent("orchestrator"); ok {
@@ -227,18 +241,54 @@ func main() {
 	c := client.NewClient(resolvedClientConfig)
 	c.DiscoverBackend(context.Background())
 
+	// Resolve thinking biases dynamically if requested
+	var dynamicThinkingBias map[string]int
+	if *suppressThinkingWordsReq {
+		if c.IsLlamaCPP() {
+			func() {
+				resolveCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				resolved, err := client.ResolveThinkingBiases(resolveCtx, c.BaseURL(), c.HTTPClient())
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: Failed to resolve thinking words via /tokenize: %v\n", err)
+				} else {
+					dynamicThinkingBias = resolved
+				}
+			}()
+		} else {
+			fmt.Fprintf(os.Stderr, "Info: Dynamic phrase suppression (--suppress-thinking-words) is only supported on llama.cpp backends; skipping\n")
+		}
+	}
+
+	// Orchestrator logit bias: merge dynamic thinking bias defaults with explicit user overrides
+	orchestratorLogitBias := client.MergeLogitBiases(dynamicThinkingBias, explicitUserLogitBias)
+	c.SetLogitBias(orchestratorLogitBias)
+
+	// Subagent logit bias: only applied if --subagent-logit-bias is opted in
+	var subagentResolvedLogitBias map[string]int
+	if *subagentLogitBiasReq {
+		subagentResolvedLogitBias = orchestratorLogitBias
+	}
+
 	// Initialize Subagent Client
 	resolvedSubagentConfig := appconfig.ResolveSubagentSettings(appConfig, resolvedOpenAIConfig)
 
 	subagentClient := c
-	if resolvedSubagentConfig.BaseURL != resolvedClientConfig.BaseURL ||
+	logitBiasDiffers := len(orchestratorLogitBias) > 0 && !*subagentLogitBiasReq
+	if logitBiasDiffers ||
+		resolvedSubagentConfig.BaseURL != resolvedClientConfig.BaseURL ||
 		resolvedSubagentConfig.APIKey != resolvedClientConfig.APIKey ||
 		resolvedSubagentConfig.Model != resolvedClientConfig.Model {
+		defaultSubagentBias := subagentResolvedLogitBias
+		if *subagentLogitBiasReq && resolvedSubagentConfig.Model != resolvedClientConfig.Model {
+			defaultSubagentBias = explicitUserLogitBias
+		}
 		subagentClient = client.NewClient(client.Config{
 			BaseURL:      resolvedSubagentConfig.BaseURL,
 			APIKey:       resolvedSubagentConfig.APIKey,
 			Model:        resolvedSubagentConfig.Model,
 			EnableImages: *enableImagesReq,
+			LogitBias:    defaultSubagentBias,
 		})
 		subagentClient.DiscoverBackend(context.Background())
 	}
@@ -288,7 +338,9 @@ func main() {
 		return func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			sess.SetClient(newModelClient(ctx, setting, *enableImagesReq))
+			// Only pass explicit user logit biases when changing model dynamically
+			// to avoid cross-model token ID bleed.
+			sess.SetClient(newModelClient(ctx, setting, *enableImagesReq, explicitUserLogitBias))
 			return nil
 		}
 	}
@@ -348,11 +400,16 @@ func main() {
 			var currentSubagentClient *client.Client
 			if appConfig != nil {
 				if setting, ok := appConfig.GetModelForAgent(agentType); ok {
+					biasForSubagent := subagentResolvedLogitBias
+					if *subagentLogitBiasReq && setting.Model != resolvedClientConfig.Model {
+						biasForSubagent = explicitUserLogitBias
+					}
 					currentSubagentClient = client.NewClient(client.Config{
 						BaseURL:      setting.URL,
 						APIKey:       setting.Key,
 						Model:        setting.Model,
 						EnableImages: *enableImagesReq,
+						LogitBias:    biasForSubagent,
 					})
 					currentSubagentClient.DiscoverBackend(ctx)
 				}
@@ -401,12 +458,13 @@ func mcpToolEnabled(t tool.Tool, enabledTools map[string]bool) bool {
 	return true
 }
 
-func newModelClient(ctx context.Context, setting appconfig.ModelSetting, enableImages bool) *client.Client {
+func newModelClient(ctx context.Context, setting appconfig.ModelSetting, enableImages bool, logitBias map[string]int) *client.Client {
 	c := client.NewClient(client.Config{
 		BaseURL:      setting.URL,
 		APIKey:       setting.Key,
 		Model:        setting.Model,
 		EnableImages: enableImages,
+		LogitBias:    logitBias,
 	})
 	c.DiscoverBackend(ctx)
 	return c
