@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"late/internal/client"
+	appconfig "late/internal/config"
 	"late/internal/session"
 )
 
@@ -168,6 +169,81 @@ func TestDeriveEffectiveSessionID(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := deriveEffectiveSessionID(tt.historyPath); got != tt.want {
 				t.Errorf("deriveEffectiveSessionID(%q) = %q, want %q", tt.historyPath, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateSuppressThinkingWords(t *testing.T) {
+	tests := []struct {
+		name                  string
+		suppressThinkingWords bool
+		orchestratorModel     string
+		subagentModel         string
+		appConfig             *appconfig.Config
+		wantErr               bool
+	}{
+		{
+			name:                  "flag disabled with different models is allowed",
+			suppressThinkingWords: false,
+			orchestratorModel:     "model-a",
+			subagentModel:         "model-b",
+			appConfig:             nil,
+			wantErr:               false,
+		},
+		{
+			name:                  "flag enabled with same model and no config is allowed",
+			suppressThinkingWords: true,
+			orchestratorModel:     "model-a",
+			subagentModel:         "model-a",
+			appConfig:             nil,
+			wantErr:               false,
+		},
+		{
+			name:                  "flag enabled with different default subagent model fails",
+			suppressThinkingWords: true,
+			orchestratorModel:     "model-a",
+			subagentModel:         "model-b",
+			appConfig:             nil,
+			wantErr:               true,
+		},
+		{
+			name:                  "flag enabled with differing per-agent model fails",
+			suppressThinkingWords: true,
+			orchestratorModel:     "model-a",
+			subagentModel:         "model-a",
+			appConfig: &appconfig.Config{
+				Models: []appconfig.ModelSetting{
+					{ID: "coder-model", Model: "model-c"},
+				},
+				AgentModels: map[string]string{
+					"coder": "coder-model",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name:                  "flag enabled with matching per-agent model succeeds",
+			suppressThinkingWords: true,
+			orchestratorModel:     "model-a",
+			subagentModel:         "model-a",
+			appConfig: &appconfig.Config{
+				Models: []appconfig.ModelSetting{
+					{ID: "coder-model", Model: "model-a"},
+				},
+				AgentModels: map[string]string{
+					"coder": "coder-model",
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateSuppressThinkingWords(tt.suppressThinkingWords, tt.orchestratorModel, tt.subagentModel, tt.appConfig)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateSuppressThinkingWords() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

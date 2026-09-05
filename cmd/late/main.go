@@ -50,7 +50,7 @@ func main() {
 	promptReq := flag.String("prompt", "", "Start the agent immediately with the given prompt")
 	logitBiasReq := flag.String("logit-bias", "", "Token-bias mappings as raw JSON or key-value pairs (e.g., TOKEN_ID:BIAS,TOKEN_ID:BIAS)")
 	suppressThinkingWordsReq := flag.Bool("suppress-thinking-words", false, "Apply standard anti-overthinking bias map (dynamically resolved via /tokenize)")
-	subagentLogitBiasReq := flag.Bool("subagent-logit-bias", false, "Also apply logit biases and suppress-thinking-words to subagents (by default only applies to orchestrator)")
+	subagentLogitBiasReq := flag.String("subagent-logit-bias", "", "Token-bias mappings for subagents as raw JSON or key-value pairs (e.g., TOKEN_ID:BIAS,TOKEN_ID:BIAS)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of late:\n")
@@ -235,6 +235,16 @@ func main() {
 		explicitUserLogitBias = parsed
 	}
 
+	var explicitSubagentLogitBias map[string]int
+	if *subagentLogitBiasReq != "" {
+		parsed, err := client.ParseLogitBias(*subagentLogitBiasReq)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing --subagent-logit-bias: %v\n", err)
+			os.Exit(1)
+		}
+		explicitSubagentLogitBias = parsed
+	}
+
 	// Resolve subagent history persistence opt-in
 	// (explicit CLI flag > saved session preference > config file).
 	saveSubagentHistoriesCLI := false
@@ -265,6 +275,14 @@ func main() {
 			resolvedClientConfig.Model = setting.Model
 		}
 	}
+	resolvedSubagentConfig := appconfig.ResolveSubagentSettings(appConfig, resolvedOpenAIConfig)
+
+	// Validate --suppress-thinking-words: only allowed in homogeneous setups
+	if err := validateSuppressThinkingWords(*suppressThinkingWordsReq, resolvedClientConfig.Model, resolvedSubagentConfig.Model, appConfig); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: --suppress-thinking-words is currently only supported when orchestrator and subagents use the same model: %v\n", err)
+		os.Exit(1)
+	}
+
 	c := client.NewClient(resolvedClientConfig)
 	c.DiscoverBackend(context.Background())
 
@@ -287,35 +305,25 @@ func main() {
 		}
 	}
 
-	// Orchestrator logit bias: merge dynamic thinking bias defaults with explicit user overrides
+	// Orchestrator logit bias: dynamic thinking bias (if enabled) + explicit user overrides
 	orchestratorLogitBias := client.MergeLogitBiases(dynamicThinkingBias, explicitUserLogitBias)
 	c.SetLogitBias(orchestratorLogitBias)
 
-	// Subagent logit bias: only applied if --subagent-logit-bias is opted in
-	var subagentResolvedLogitBias map[string]int
-	if *subagentLogitBiasReq {
-		subagentResolvedLogitBias = orchestratorLogitBias
-	}
+	// Subagent logit bias: dynamic thinking bias (if enabled, since setup is homogeneous) + explicit subagent overrides
+	subagentResolvedLogitBias := client.MergeLogitBiases(dynamicThinkingBias, explicitSubagentLogitBias)
 
 	// Initialize Subagent Client
-	resolvedSubagentConfig := appconfig.ResolveSubagentSettings(appConfig, resolvedOpenAIConfig)
-
 	subagentClient := c
-	logitBiasDiffers := len(orchestratorLogitBias) > 0 && !*subagentLogitBiasReq
-	if logitBiasDiffers ||
+	if len(subagentResolvedLogitBias) > 0 || len(orchestratorLogitBias) > 0 ||
 		resolvedSubagentConfig.BaseURL != resolvedClientConfig.BaseURL ||
 		resolvedSubagentConfig.APIKey != resolvedClientConfig.APIKey ||
 		resolvedSubagentConfig.Model != resolvedClientConfig.Model {
-		defaultSubagentBias := subagentResolvedLogitBias
-		if *subagentLogitBiasReq && resolvedSubagentConfig.Model != resolvedClientConfig.Model {
-			defaultSubagentBias = explicitUserLogitBias
-		}
 		subagentClient = client.NewClient(client.Config{
 			BaseURL:      resolvedSubagentConfig.BaseURL,
 			APIKey:       resolvedSubagentConfig.APIKey,
 			Model:        resolvedSubagentConfig.Model,
 			EnableImages: *enableImagesReq,
-			LogitBias:    defaultSubagentBias,
+			LogitBias:    subagentResolvedLogitBias,
 		})
 		subagentClient.DiscoverBackend(context.Background())
 	}
@@ -370,9 +378,13 @@ func main() {
 		return func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			// Only pass explicit user logit biases when changing model dynamically
-			// to avoid cross-model token ID bleed.
-			sess.SetClient(newModelClient(ctx, setting, *enableImagesReq, explicitUserLogitBias))
+			// Either both biases or none should be sent: only pass logit biases
+			// if the switched model matches the configured orchestrator model.
+			var bias map[string]int
+			if setting.Model == resolvedClientConfig.Model {
+				bias = orchestratorLogitBias
+			}
+			sess.SetClient(newModelClient(ctx, setting, *enableImagesReq, bias))
 			return nil
 		}
 	}
@@ -432,9 +444,9 @@ func main() {
 			var currentSubagentClient *client.Client
 			if appConfig != nil {
 				if setting, ok := appConfig.GetModelForAgent(agentType); ok {
-					biasForSubagent := subagentResolvedLogitBias
-					if *subagentLogitBiasReq && setting.Model != resolvedClientConfig.Model {
-						biasForSubagent = explicitUserLogitBias
+					var biasForSubagent map[string]int
+					if setting.Model == resolvedSubagentConfig.Model {
+						biasForSubagent = subagentResolvedLogitBias
 					}
 					currentSubagentClient = client.NewClient(client.Config{
 						BaseURL:      setting.URL,
@@ -513,6 +525,23 @@ func newModelClient(ctx context.Context, setting appconfig.ModelSetting, enableI
 	})
 	c.DiscoverBackend(ctx)
 	return c
+}
+
+func validateSuppressThinkingWords(suppressThinkingWords bool, orchestratorModel, subagentModel string, appConfig *appconfig.Config) error {
+	if !suppressThinkingWords {
+		return nil
+	}
+	if orchestratorModel != subagentModel {
+		return fmt.Errorf("orchestrator and subagents use different models (%q vs %q)", orchestratorModel, subagentModel)
+	}
+	if appConfig != nil {
+		for _, sub := range assets.GetSubagents() {
+			if setting, ok := appConfig.GetModelForAgent(sub.Name); ok && setting.Model != orchestratorModel {
+				return fmt.Errorf("subagent %q uses a different model (%q vs %q)", sub.Name, setting.Model, orchestratorModel)
+			}
+		}
+	}
+	return nil
 }
 
 type sessionCommandResult struct {
