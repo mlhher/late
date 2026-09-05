@@ -40,7 +40,7 @@ type tokenizeResponse struct {
 // ResolveThinkingBiases dynamically queries llama-server's /tokenize endpoint for
 // each phrase in DefaultSuppressedThinkingPhrases. Only single-token phrases are mapped
 // to -100; multi-token phrases are skipped with a log to avoid unintended subword suppression.
-func ResolveThinkingBiases(ctx context.Context, endpoint string, httpClient *http.Client) (map[string]int, error) {
+func ResolveThinkingBiases(ctx context.Context, endpoint string, apiKey string, httpClient *http.Client) (map[string]int, error) {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
@@ -67,6 +67,9 @@ func ResolveThinkingBiases(ctx context.Context, endpoint string, httpClient *htt
 			return nil, fmt.Errorf("failed to create tokenize request: %w", err)
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
+		if apiKey != "" {
+			httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+		}
 
 		resp, err := httpClient.Do(httpReq)
 		if err != nil {

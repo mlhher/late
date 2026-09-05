@@ -580,6 +580,10 @@ func (c *Client) BaseURL() string {
 	return c.cfg.BaseURL
 }
 
+func (c *Client) APIKey() string {
+	return c.cfg.APIKey
+}
+
 func (c *Client) HTTPClient() *http.Client {
 	return c.httpClient
 }

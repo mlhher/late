@@ -167,7 +167,7 @@ func TestResolveThinkingBiases(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	resolved, err := ResolveThinkingBiases(context.Background(), ts.URL, ts.Client())
+	resolved, err := ResolveThinkingBiases(context.Background(), ts.URL, "", ts.Client())
 	if err != nil {
 		t.Fatalf("unexpected error resolving thinking biases: %v", err)
 	}
@@ -203,12 +203,29 @@ func TestResolveThinkingBiases(t *testing.T) {
 	}))
 	defer prefixTS.Close()
 
-	prefixResolved, err := ResolveThinkingBiases(context.Background(), prefixTS.URL+"/custom/prefix/v1", prefixTS.Client())
+	prefixResolved, err := ResolveThinkingBiases(context.Background(), prefixTS.URL+"/custom/prefix/v1", "", prefixTS.Client())
 	if err != nil {
 		t.Fatalf("unexpected error resolving thinking biases with prefix: %v", err)
 	}
 	if prefixResolved["13428"] != -100 {
 		t.Errorf("expected prefixResolved['13428'] = -100, got %d", prefixResolved["13428"])
+	}
+
+	// Test authentication header propagation
+	var capturedAuthHeader string
+	authTS := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuthHeader = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(tokenizeResponse{Tokens: []int{1, 2}})
+	}))
+	defer authTS.Close()
+
+	_, err = ResolveThinkingBiases(context.Background(), authTS.URL, "secret-token", authTS.Client())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedAuthHeader != "Bearer secret-token" {
+		t.Errorf("expected Authorization header 'Bearer secret-token', got %q", capturedAuthHeader)
 	}
 }
 

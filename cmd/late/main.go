@@ -275,7 +275,7 @@ func main() {
 			func() {
 				resolveCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
-				resolved, err := client.ResolveThinkingBiases(resolveCtx, c.BaseURL(), c.HTTPClient())
+				resolved, err := client.ResolveThinkingBiases(resolveCtx, c.BaseURL(), c.APIKey(), c.HTTPClient())
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Warning: Failed to resolve thinking words via /tokenize: %v\n", err)
 				} else {
