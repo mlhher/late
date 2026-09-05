@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -94,8 +93,6 @@ func ResolveThinkingBiases(ctx context.Context, endpoint string, apiKey string, 
 		if len(tokResp.Tokens) == 1 {
 			tokenIDStr := strconv.Itoa(tokResp.Tokens[0])
 			result[tokenIDStr] = -100
-		} else {
-			log.Printf("[DEBUG] skipping thinking phrase %q: decomposes into %d tokens %v", phrase, len(tokResp.Tokens), tokResp.Tokens)
 		}
 	}
 
