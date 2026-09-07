@@ -151,6 +151,23 @@ func TestInstallFromGit_CleansUpOnCloneFailure(t *testing.T) {
 	}
 }
 
+func TestInstallFromGit_RejectsTraversalURL(t *testing.T) {
+	pm := NewPluginManager(t.TempDir())
+	traversalURLs := []string{
+		"https://github.com/foo/..",
+		"https://github.com/foo/.",
+		"https://github.com/foo/",
+		"github:user/..",
+		"github:user/.",
+	}
+	for _, u := range traversalURLs {
+		got, err := InstallFromGit(pm, u)
+		if err == nil {
+			t.Errorf("InstallFromGit(%q) expected error, got plugin %v", u, got)
+		}
+	}
+}
+
 // TestInstallFromLocal_WarnsOnSuspiciousPath verifies isSuspiciousPluginPath
 // recognises paths clearly outside the user's scope.
 func TestInstallFromLocal_WarnsOnSuspiciousPath(t *testing.T) {

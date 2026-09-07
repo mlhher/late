@@ -98,6 +98,9 @@ func InstallFromGit(pm *PluginManager, url string, projectLocal ...bool) (*Insta
 
 	// Determine plugin name from URL
 	name := pluginNameFromURL(url)
+	if err := validatePluginName(name); err != nil {
+		return nil, fmt.Errorf("invalid plugin name in git URL %q: %w", url, err)
+	}
 	targetDir := filepath.Join(destDir, name)
 
 	if err := os.MkdirAll(destDir, 0755); err != nil {
