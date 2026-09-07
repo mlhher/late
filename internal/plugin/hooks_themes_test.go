@@ -464,6 +464,32 @@ func TestGetTheme_BareNameLookup(t *testing.T) {
 	}
 }
 
+// TestGetTheme_DeterministicBareNameResolution verifies that when multiple plugins
+// define the same bare theme name, resolution is deterministic and sorted by plugin name.
+func TestGetTheme_DeterministicBareNameResolution(t *testing.T) {
+	pm := NewPluginManager(t.TempDir())
+	dirB := t.TempDir()
+	pB := writeTestPlugin(t, dirB, "b-plugin", &LateManifest{Themes: []string{"ocean.json"}})
+	writeJSON(t, pB.Path, "ocean.json", `{"name":"ocean"}`)
+	pm.Add(pB)
+
+	dirA := t.TempDir()
+	pA := writeTestPlugin(t, dirA, "a-plugin", &LateManifest{Themes: []string{"ocean.json"}})
+	writeJSON(t, pA.Path, "ocean.json", `{"name":"ocean"}`)
+	pm.Add(pA)
+
+	// Run multiple iterations to verify stability against map randomization
+	for i := 0; i < 20; i++ {
+		info, err := pm.GetTheme("ocean")
+		if err != nil || info == nil {
+			t.Fatalf("iteration %d: expected to find 'ocean', got err=%v info=%v", i, err, info)
+		}
+		if info.ID != "a-plugin:ocean" {
+			t.Fatalf("iteration %d: expected deterministic resolution to 'a-plugin:ocean', got %q", i, info.ID)
+		}
+	}
+}
+
 // 16. GetTheme: namespaced lookup
 func TestGetTheme_NamespacedLookup(t *testing.T) {
 	pm := NewPluginManager(t.TempDir())

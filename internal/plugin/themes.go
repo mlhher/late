@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -82,6 +83,9 @@ func (pm *PluginManager) AllThemes() []ThemeInfo {
 		plugins = append(plugins, p)
 	}
 	pm.mu.RUnlock()
+	sort.Slice(plugins, func(i, j int) bool {
+		return plugins[i].Name < plugins[j].Name
+	})
 
 	var themes []ThemeInfo
 	for _, p := range plugins {
@@ -129,6 +133,9 @@ func (pm *PluginManager) GetTheme(id string) (*ThemeInfo, error) {
 		plugins = append(plugins, p)
 	}
 	pm.mu.RUnlock()
+	sort.Slice(plugins, func(i, j int) bool {
+		return plugins[i].Name < plugins[j].Name
+	})
 
 	var lastErr error
 	for _, p := range plugins {
