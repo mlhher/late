@@ -404,6 +404,4 @@ A short rationale for the design choices that aren't obvious.
 
 > **Tip:** once you're done iterating, run
 > `late plugin disable late-codestyle` to turn it off, or
-> `late plugin remove late-codestyle` to uninstall. The filesystem
-> watcher picks up source edits within about two seconds — no restart
-> needed.
+> `late plugin remove late-codestyle` to uninstall.

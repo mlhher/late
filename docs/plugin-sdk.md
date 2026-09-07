@@ -34,7 +34,7 @@ Plugins can be installed in two scopes:
 - **Global** — `~/.config/late/plugins/` (Linux) or `~/Library/Application Support/late/plugins/` (macOS). Available in every project.
 - **Project-local** — `.late/plugins/` relative to your project root. Only available when Late is running from that project. Overrides a global plugin with the same name.
 
-At startup, Late discovers plugins from both locations, registers their surfaces, and makes them available in the TUI. Project-local plugins take priority over global ones with the same name. A background filesystem watcher polls for changes every 2 seconds so plugin installs and enables/disables are picked up without restarting.
+At startup, Late discovers plugins from both locations, registers their surfaces, and makes them available in the TUI. Project-local plugins take priority over global ones with the same name.
 
 ```
 ~/.config/late/plugins/               # Global plugins (all projects)
@@ -249,7 +249,7 @@ late plugin link ./my-plugin
 late plugin install ./my-plugin
 ```
 
-Creates a symlink from `~/.config/late/plugins/<name>` to your local directory. Any changes you make are available immediately (the watcher picks them up within 2 seconds).
+Creates a symlink from `~/.config/late/plugins/<name>` to your local directory.
 
 ### Project-local (per-project)
 
@@ -341,7 +341,7 @@ late plugin list
 
 You should see your plugin listed. The slash commands appear in autocomplete and the status bar shows the plugin count.
 
-6. **Iterate:** Edit your plugin files. The background watcher picks up changes within ~2 seconds. Run `late plugin list` again or toggle the help overlay to see your updates.
+6. **Iterate:** Edit your plugin files. Run `late plugin list` again or restart Late to see your updates.
 
 7. **Use project-local scope (optional):** For plugins that should only apply to the current project, create `.late/plugins/` and use the `--project` flag:
 
@@ -488,7 +488,7 @@ Add more commands, skills, or MCP servers:
 
 ---
 
-> **Tip:** Plugins are discovered at startup and watched for changes every 2 seconds. You can enable/disable plugins with `late plugin enable <name>` and `late plugin disable <name>` without restarting Late.
+> **Tip:** Plugins are discovered at startup. You can enable/disable plugins with `late plugin enable <name>` and `late plugin disable <name>`.
 
 ---
 

@@ -284,10 +284,6 @@ func main() {
 		}
 	}
 
-	// Snapshot the user-authored MCP config before plugin servers are merged
-	// into it, so the plugin watcher can recompute the desired server set
-	// (user config + current plugin servers) on every change.
-	baseMCPConfig := cloneMCPConfig(config)
 
 	// Plugin discovery and surface registration
 	var (
@@ -305,8 +301,8 @@ func main() {
 			if err := pm.Discover(); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to discover plugins: %v\n", err)
 			} else {
-				// Keep the manager even with zero plugins so the watcher runs
-				// and picks up the first install without a restart.
+				// Keep the manager even with zero plugins so plugin command
+				// dispatch and hooks remain safely available.
 				pluginManager = pm
 				if pm.Count() > 0 {
 					fmt.Printf("Loading %d plugin(s)...\n", pm.Count())
@@ -438,7 +434,7 @@ func main() {
 	// so existing configs keep working without modification.
 	//
 	// pluginToolNames records every plugin-provided tool registered here so
-	// the watcher can unregister the stale set on the next plugin change.
+	// toolSync tracks the initial tool set.
 	var pluginToolNames []string
 	// usedToolNames records every name registered below (MCP first, then
 	// inline) so inline tools are deduped against MCP names too — without
@@ -534,10 +530,7 @@ func main() {
 		model.SubagentInfo = resolvedSubagentConfig.Model
 	}
 
-	// Register plugin command handler + message hook into the TUI. These are
-	// wired even with zero plugins so a plugin installed while Late is
-	// running becomes fully functional (commands, message hooks) after the
-	// watcher fires — no restart needed.
+	// Register plugin command handler + message hook into the TUI.
 	if pluginManager != nil {
 		model.MessageHook = func(text string) string {
 			return pluginManager.HookedMessage(context.Background(), text)
@@ -585,79 +578,13 @@ func main() {
 
 	p := tea.NewProgram(model)
 
-	// toolSync serializes plugin/MCP tool-registry refreshes triggered from
-	// multiple goroutines: the plugin filesystem watcher below and MCP
-	// servers' own tools/list_changed notifications (wired via
-	// mcpClient.OnToolsChanged just below). Both paths recompute the full
-	// current tool/command/theme set and diff it against the last set sent
-	// to the TUI, so the two triggers can't race each other into sending a
-	// stale diff.
+	// toolSync serializes plugin/MCP tool-registry refreshes triggered by
+	// MCP servers' own tools/list_changed notifications (wired via
+	// mcpClient.OnToolsChanged below). It recomputes the full current tool/
+	// command/theme set and diffs it against the last set sent to the TUI.
 	toolSync := &pluginToolSync{prev: append([]string(nil), pluginToolNames...)}
 	mcpClient.OnToolsChanged = func() {
 		toolSync.refresh(p, mcpClient, pluginManager, enabledTools)
-	}
-
-	// Start plugin filesystem watcher. It runs even with zero plugins so
-	// the first install is picked up without a restart. On every change it
-	// fully re-registers the plugin surfaces: skills, MCP sessions, tools,
-	// commands, and themes — not just commands/themes.
-	if pluginManager != nil {
-		watcher := plugin.NewPollingWatcher(pluginManager)
-		// Also watch project-local dir if configured
-		if pluginManager.HasProjectDir() {
-			watcher.AddWatchDir(pluginManager.ProjectDir())
-		}
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		go watcher.Start(ctx, func() {
-			// 1. Re-sync skill dirs (creates new ones, prunes stale ones
-			// for removed/disabled plugins). When Late started with zero
-			// plugins the skills dir was never resolved, so compute it lazily.
-			if skillsDir == "" {
-				if d, err := pathutil.LateSkillsDir(); err == nil {
-					skillsDir = d
-				}
-			}
-			if skillsDir != "" {
-				if err := pluginManager.RegisterPluginSkills(skillsDir); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to re-register plugin skills: %v\n", err)
-				}
-			}
-
-			// 2. Reconcile MCP sessions against the desired set: user config
-			// + current plugin servers. Removed or disabled plugins drop
-			// their servers (sessions closed); new ones connect. A server
-			// whose command/args/env/url/dir changed while its name stayed
-			// the same is closed and reconnected too — see
-			// mcp.Client.Reconcile.
-			desired := cloneMCPConfig(baseMCPConfig)
-			pluginMCP := pluginManager.BuildMCPConfigMap()
-			for name, srv := range pluginMCP {
-				desired.McpServers[name] = mcp.MCPServer{
-					Command:       srv.Command,
-					Args:          srv.Args,
-					Env:           srv.Env,
-					URL:           srv.URL,
-					TransportType: srv.TransportType,
-					Disabled:      srv.Disabled,
-					Dir:           srv.Dir,
-				}
-			}
-			if err := mcpClient.Reconcile(context.Background(), desired); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to reconcile plugin MCP servers: %v\n", err)
-			}
-
-			// 3. Rebuild tool-call middlewares so onToolCall/onToolResult
-			// hooks from plugins installed, edited, or removed since
-			// startup take effect immediately instead of only after a
-			// restart (BuildHookMiddlewares/BuildToolResultMiddlewares
-			// snapshot live from pluginManager on every call — only the
-			// SetMiddlewares call itself was previously startup-only).
-			rootAgent.SetMiddlewares(buildMiddlewares(pluginManager, p, sess.Registry))
-
-			// 4. Refresh the tool/command/theme set the TUI sees.
-			toolSync.refresh(p, mcpClient, pluginManager, enabledTools)
-		})
 	}
 
 	// Wire TUI integration
@@ -673,8 +600,6 @@ func main() {
 		rootAgent.SetContext(ctx)
 
 		// Set middlewares (see buildMiddlewares for ordering rationale).
-		// This is also rebuilt by the plugin watcher's onChanged callback
-		// above so hook changes take effect without a restart.
 		rootAgent.SetMiddlewares(buildMiddlewares(pluginManager, p, sess.Registry))
 
 		// Start forwarding events from the root agent to the TUI
@@ -759,8 +684,7 @@ func newModelClient(ctx context.Context, setting appconfig.ModelSetting, enableI
 // run FIRST (outermost), then the TUI confirmation, then the onToolResult
 // hooks. Confirmation must see the arguments AFTER plugins mutated them —
 // otherwise a plugin could change the arguments after the user approved
-// the call. Called both at startup and by the plugin watcher's onChanged
-// callback so hook changes take effect without a restart.
+// the call.
 func buildMiddlewares(pluginManager *plugin.PluginManager, p *tea.Program, registry *common.ToolRegistry) []common.ToolMiddleware {
 	mws := []common.ToolMiddleware{}
 	if pluginManager != nil {
@@ -774,9 +698,8 @@ func buildMiddlewares(pluginManager *plugin.PluginManager, p *tea.Program, regis
 }
 
 // pluginToolSync serializes tool/command/theme refreshes sent to the TUI.
-// Two independent triggers can fire it: the plugin filesystem watcher (a
-// plugin was installed/removed/edited) and an MCP server's own
-// tools/list_changed notification (wired via mcp.Client.OnToolsChanged).
+// An MCP server's own tools/list_changed notification (wired via
+// mcp.Client.OnToolsChanged) can trigger it to recompute the current set.
 // Without the mutex, concurrent refreshes could interleave and send a
 // diff computed against a stale `prev`.
 type pluginToolSync struct {
@@ -868,18 +791,6 @@ func toolEnabled(enabledTools map[string]bool, name string) bool {
 	return true
 }
 
-// cloneMCPConfig returns a shallow copy of an MCP config (the server map
-// is copied; server values are shared). A nil config becomes an empty one.
-func cloneMCPConfig(c *mcp.MCPConfig) *mcp.MCPConfig {
-	if c == nil {
-		return &mcp.MCPConfig{McpServers: make(map[string]mcp.MCPServer)}
-	}
-	out := &mcp.MCPConfig{McpServers: make(map[string]mcp.MCPServer, len(c.McpServers))}
-	for k, v := range c.McpServers {
-		out.McpServers[k] = v
-	}
-	return out
-}
 
 type sessionCommandResult struct {
 	HistoryPath string

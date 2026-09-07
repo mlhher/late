@@ -19,8 +19,8 @@ type Tool interface {
 
 // ToolRegistry stores available tools.
 //
-// It is safe for concurrent use: the plugin watcher re-registers tools at
-// runtime while orchestrator goroutines execute tool calls.
+// It is safe for concurrent use: tool registration and lookups can occur
+// concurrently while orchestrator goroutines execute tool calls.
 type ToolRegistry struct {
 	mu    sync.RWMutex
 	tools map[string]Tool

@@ -350,7 +350,7 @@ func (m *Model) FindThemeByIndex(i int) *ThemeEntry {
 	return &m.ThemeEntries[i]
 }
 
-// PluginChangeMsg is sent when the filesystem watcher detects plugin changes.
+// PluginChangeMsg is sent when plugin tools, commands, or themes change.
 // Commands carries the updated list of plugin-provided slash commands.
 // Themes carries the updated list of plugin-provided themes for the /themes
 // picker so the TUI can refresh without restarting Late.

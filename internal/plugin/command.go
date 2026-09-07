@@ -233,7 +233,7 @@ func handlePluginInstall(pm *PluginManager, args []string) {
 		}
 	}
 
-	fmt.Println("\nPlugin activated. The filesystem watcher will pick it up within 2 seconds.")
+	fmt.Println("\nPlugin activated.")
 }
 
 // parseProjectFlag checks if --project flag is present in args and returns
@@ -284,16 +284,15 @@ func handlePluginRemove(pm *PluginManager, args []string) {
 	// Re-sync the in-memory registry with disk so any chained CLI
 	// invocation in the same process doesn't see the now-removed plugin.
 	// Best-effort — the on-disk removal already succeeded, so a warning
-	// here is recoverable on the next bootstrap or watcher tick.
+	// here is recoverable on the next bootstrap.
 	if discErr := pm.Discover(); discErr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to re-discover plugins after remove: %v\n", discErr)
 	}
 
 	// Self-clean: prune the namespaced skill symlinks for this plugin now
-	// instead of waiting for the next filesystem watcher tick or TUI
-	// bootstrap. Without this, `~/.config/late/skills/<plugin>:<skill>`
-	// entries would linger as orphans after `late plugin remove <plugin>`
-	// in any process where the watcher hasn't run yet.
+	// instead of waiting for the next TUI bootstrap. Without this,
+	// `~/.config/late/skills/<plugin>:<skill>` entries would linger as orphans
+	// after `late plugin remove <plugin>`.
 	if skillErr := pm.RegisterPluginSkills(""); skillErr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to prune plugin skill symlinks: %v\n", skillErr)
 	}

@@ -234,8 +234,6 @@ Plugins bundle any combination of **skills**, **slash commands**, **MCP servers*
 * **Global (Windows):** `%APPDATA%\late\plugins\`
 * **Project:** `.late/plugins/` (overrides global plugins with the same name)
 
-A background watcher reloads every ~2 seconds, so installs and enable/disable toggles pick up while Late is running — no restart needed.
-
 ### Install
 
 ```bash

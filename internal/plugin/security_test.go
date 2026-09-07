@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -108,126 +107,6 @@ func TestConcurrentSetProjectDirAndRead(t *testing.T) {
 	wg.Wait()
 }
 
-// ---------------------------------------------------------------------------
-// Watcher (#4, #7)
-// ---------------------------------------------------------------------------
-
-// TestTakeSnapshot_DedupesAcrossSources verifies that takeSnapshot walks a
-// directory at most once even when it's referenced through both
-// AddWatchDir() and SetProjectDir().
-func TestTakeSnapshot_DedupesAcrossSources(t *testing.T) {
-	// Use a single dir as global, and reference same path as project + addWatch
-	dir := t.TempDir()
-	mkPlugin(t, dir, "uniq")
-
-	pm := NewPluginManager(dir)
-	pm.SetProjectDir(dir) // duplicate -> should be deduped
-
-	w := NewPollingWatcher(pm)
-	w.AddWatchDir(dir) // duplicate again -> should be deduped
-
-	snap := w.takeSnapshot()
-	if len(snap) != 1 {
-		t.Fatalf("expected exactly 1 plugin entry after dedupe, got %d", len(snap))
-	}
-	if _, ok := snap["uniq"]; !ok {
-		t.Errorf("expected 'uniq' plugin in snapshot, got keys: %v", keys(snap))
-	}
-}
-
-// TestSnapshotChanged_LateFileModDetectsEnableToggle verifies that writing
-// the .late-plugin.json file (with the Enabled field changed) is detected
-// even when the parent directory's mtime did not change.
-func TestSnapshotChanged_LateFileModDetectsEnableToggle(t *testing.T) {
-	dir := t.TempDir()
-	pluginDir := filepath.Join(dir, "toggle")
-	if err := os.MkdirAll(pluginDir, 0755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-
-	// Write initial .late-plugin.json (enabled)
-	writeLateMeta(t, pluginDir, true)
-
-	pm := NewPluginManager(dir)
-	w := NewPollingWatcher(pm)
-
-	before := w.takeSnapshot()
-
-	// Write a NEW .late-plugin.json (disabled), forcing its own mtime bump
-	time.Sleep(10 * time.Millisecond) // ensure clock granularity moves
-	writeLateMeta(t, pluginDir, false)
-
-	after := w.takeSnapshot()
-
-	if !w.snapshotChanged(before, after) {
-		t.Error("expected snapshotChanged to detect enable/disable toggle (lateFileMod change)")
-	}
-
-	if after["toggle"].enabled {
-		t.Error("expected enabled=false after toggle")
-	}
-	if before["toggle"].enabled != true {
-		t.Errorf("expected initial enabled=true, got %v", before["toggle"].enabled)
-	}
-}
-
-// TestSnapshotChanged_NoLateFileMod verifies the same content does not trigger.
-func TestSnapshotChanged_NoLateFileMod(t *testing.T) {
-	dir := t.TempDir()
-	pluginDir := filepath.Join(dir, "same")
-	if err := os.MkdirAll(pluginDir, 0755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	writeLateMeta(t, pluginDir, true)
-
-	w := NewPollingWatcher(nil) // we don't need pm for snapshot comparison
-	// build snapshot manually to avoid DependOnPM
-	directDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(directDir, "same"), 0755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	writeLateMeta(t, filepath.Join(directDir, "same"), true)
-
-	pm := NewPluginManager(directDir)
-	w2 := NewPollingWatcher(pm)
-	a := w2.takeSnapshot()
-	b := w2.takeSnapshot()
-	if w2.snapshotChanged(a, b) {
-		t.Error("expected identical snapshots to NOT register as changed")
-	}
-	_ = dir
-	_ = pluginDir
-	_ = w
-}
-
-// TestWatcher_StartRunsWithoutPanic sanity-checks that the watcher goroutine
-// takes/drops the lock without panic in a single tick. ctx is canceled
-// immediately so the goroutine exits promptly.
-func TestWatcher_StartRunsWithoutPanic(t *testing.T) {
-	dir := t.TempDir()
-	mkPlugin(t, dir, "p1")
-
-	pm := NewPluginManager(dir)
-	if err := pm.Discover(); err != nil {
-		t.Fatalf("Discover: %v", err)
-	}
-	w := NewPollingWatcher(pm)
-	w.SetInterval(20 * time.Millisecond)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // immediate cancel
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		w.Start(ctx, func() {})
-	}()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("watcher did not exit promptly on canceled context")
-	}
-}
 
 // ---------------------------------------------------------------------------
 // Installer (#6)
@@ -724,23 +603,4 @@ func mkPlugin(t *testing.T, dir, name string) {
 	}
 }
 
-func writeLateMeta(t *testing.T, pluginDir string, enabled bool) {
-	t.Helper()
-	meta := InstalledPlugin{
-		Name:    filepath.Base(pluginDir),
-		Path:    pluginDir,
-		Enabled: enabled,
-		Late:    &LateManifest{},
-	}
-	if err := SavePluginMeta(&meta); err != nil {
-		t.Fatalf("save: %v", err)
-	}
-}
 
-func keys(m map[string]pluginSnapshotEntry) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
-}

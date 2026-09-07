@@ -295,9 +295,7 @@ func looksLikeNpmPackage(source string) bool {
 }
 
 // updateGitTempSuffix is appended to the existing plugin dir name when
-// Update clones the new source for an atomic swap. The dot prefix hides
-// it from the PollingWatcher's directory-listing (it will be renamed in
-// the same Write-Lock window — race is bounded by the mutex).
+// Update clones the new source for an atomic swap.
 const updateGitTempSuffix = ".late-update-"
 
 // Update re-installs the named plugin in place using the Source originally
@@ -309,8 +307,7 @@ const updateGitTempSuffix = ".late-update-"
 //
 // Concurrency: we hold RLock only long enough to fetch the InstalledPlugin
 // snapshot, then run all docker/exec work lock-free. The atomic swap
-// (Rename/symlink recreate) happens under pm.mu.Lock() so the watcher
-// (which holds the lock in Discover) sees a stable view.
+// (Rename/symlink recreate) happens under pm.mu.Lock().
 func Update(pm *PluginManager, name string, mc *MarketplaceClient) (*InstalledPlugin, error) {
 	if pm == nil {
 		return nil, fmt.Errorf("update: nil plugin manager")
@@ -409,8 +406,8 @@ func updateGit(pm *PluginManager, old *InstalledPlugin, source, targetDir string
 	// Match the fresh-install contract: keep the store clean.
 	_ = os.RemoveAll(filepath.Join(tmp, ".git"))
 
-	// Swap window. Hold the write lock so a concurrent Discover() call
-	// from the PollingWatcher can't race us mid-rename.
+	// Swap window. Hold the write lock so concurrent reads can't race us
+	// mid-rename.
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	if _, statErr := os.Stat(old.Path); statErr != nil {

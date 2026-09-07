@@ -565,9 +565,7 @@ func mcpServerEqual(a, b MCPServer) bool {
 // new servers are connected. A server whose name is still present and
 // enabled but whose command/args/env/url/dir changed is also closed so
 // ConnectFromConfig reconnects it with the new config instead of leaving
-// it running on the old one. Used by the plugin watcher so
-// installing/removing/editing a plugin's MCP server takes effect without
-// restarting Late.
+// it running on the old one.
 func (c *Client) Reconcile(ctx context.Context, config *MCPConfig) error {
 	desired := make(map[string]bool)
 	for name, server := range config.McpServers {

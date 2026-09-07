@@ -423,9 +423,7 @@ func isSymlink(path string) bool {
 	return info.Mode()&os.ModeSymlink != 0
 }
 
-// SavePluginMeta persists a minimal metadata file for the plugin. After
-// writing, force the file's mtime to "now" so the PollingWatcher's snapshot
-// always detects the change even on filesystems that coalesce rapid writes.
+// SavePluginMeta persists a minimal metadata file for the plugin.
 //
 // Local dev-symlink plugins skip the per-directory write below: the plugin
 // directory is a symlink into the developer's source tree, and writing
