@@ -229,6 +229,7 @@ func (m *Model) ApplyTheme(info *ThemeEntry) error {
 		s.LastChunks = nil
 		s.LastTail = ""
 		s.StreamingStyledCache = ""
+		s.StreamingChunkCount = 0
 	}
 	return nil
 }

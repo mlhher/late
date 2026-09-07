@@ -222,7 +222,7 @@ func TestApplyTheme_ClearsRenderCaches(t *testing.T) {
 	if s.RenderedHistory != nil {
 		t.Fatal("RenderedHistory not cleared")
 	}
-	if s.LastTotalContent != "" || s.LastStreamingContent != "" || s.StreamingStyledCache != "" {
+	if s.LastTotalContent != "" || s.LastStreamingContent != "" || s.StreamingStyledCache != "" || s.StreamingChunkCount != 0 {
 		t.Fatal("caches not cleared")
 	}
 }
