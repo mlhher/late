@@ -187,6 +187,7 @@ func (m Model) updateInternal(msg tea.Msg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	if msg, ok := msg.(pluginCommandResultMsg); ok {
+		m.RunningPluginCmd = ""
 		if !msg.handled {
 			// The plugin registered the name but has no handler (legacy
 			// plain-prompt dispatch) — submit the input as a normal prompt.
@@ -253,6 +254,9 @@ func (m Model) updateInternal(msg tea.Msg) (Model, tea.Cmd) {
 
 	// Filter key events that were consumed by updateChat during confirmation
 	forwardToInput := true
+	if m.RunningPluginCmd != "" {
+		forwardToInput = false
+	}
 
 	if pasteMsg, ok := msg.(tea.PasteMsg); ok {
 		if isBinary([]byte(pasteMsg.Content)) {
@@ -860,7 +864,7 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 			return m.interruptFocusedAgent()
 
 		case "enter":
-			if m.ShowFilePicker {
+			if m.ShowFilePicker || m.RunningPluginCmd != "" {
 				return m, nil
 			}
 			input := strings.TrimPrefix(m.Input.Value(), "> ")
@@ -1137,6 +1141,23 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 				if len(parts) > 0 {
 					name := parts[0]
 					args := parts[1:]
+
+					// Record in input history immediately
+					if len(m.InputHistory) == 0 || m.InputHistory[len(m.InputHistory)-1] != cmd {
+						m.InputHistory = append(m.InputHistory, cmd)
+					}
+					m.HistoryIndex = -1
+					m.HistoryWorking = ""
+
+					// Clear input box and dismiss autocomplete
+					m.Input.Reset()
+					m.Input.SetValue("> ")
+					m.ShowAutocomplete = false
+					m.AutocompleteItems = nil
+
+					// Mark plugin command as running (displays animated ghost text & blocks input)
+					m.RunningPluginCmd = name
+
 					return m, func() tea.Msg {
 						output, handled, hErr := m.CommandHandler(context.Background(), name, args)
 						return pluginCommandResultMsg{

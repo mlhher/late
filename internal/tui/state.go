@@ -215,6 +215,11 @@ type Model struct {
 	// Plugin-provided slash commands (registered at startup from plugins)
 	PluginCommands []string // each entry should include leading slash, e.g. "/query"
 
+	// RunningPluginCmd holds the name of a plugin command currently executing,
+	// or empty if none. While set, the input box displays animated ghost text
+	// and user input is blocked.
+	RunningPluginCmd string
+
 	// Plugin-provided message hook. Set at startup from
 	// (*PluginManager).HookedMessage. When nil, outgoing user messages are
 	// sent through unchanged; otherwise submitMessage runs it
