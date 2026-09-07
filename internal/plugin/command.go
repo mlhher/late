@@ -3,7 +3,6 @@ package plugin
 import (
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 	"text/tabwriter"
 )
@@ -396,15 +395,3 @@ func handlePluginEnable(pm *PluginManager, args []string, enable bool) {
 	fmt.Printf("%s %s\n", plugin.Name, state)
 }
 
-// (isGitURL and isLocalPath were removed: Install() now classifies the
-// source string itself, including marketplace fallback for bare names.)
-
-// Sort plugins by name
-type byName []*InstalledPlugin
-
-func (a byName) Len() int           { return len(a) }
-func (a byName) Less(i, j int) bool { return a[i].Name < a[j].Name }
-func (a byName) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-
-// Ensure sort.Interface compliance
-var _ sort.Interface = byName{}
