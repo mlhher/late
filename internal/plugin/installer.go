@@ -111,7 +111,10 @@ func InstallFromGit(pm *PluginManager, url string, projectLocal ...bool) (*Insta
 	// Expand shorthand: github:user/repo -> https://github.com/user/repo.git
 	gitURL := expandGitURL(url)
 
-	cmd := exec.Command("git", "clone", "--depth", "1", gitURL, targetDir)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", gitURL, targetDir)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
