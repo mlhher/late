@@ -160,12 +160,14 @@ func (m Model) updateInternal(msg tea.Msg) (Model, tea.Cmd) {
 		// removed or disabled plugins stop advertising their tools, new or
 		// re-enabled plugins' tools become callable. Done here in the
 		// update loop so the registry map is only touched from one place.
-		if reg := m.Root.Registry(); reg != nil {
-			for _, name := range msg.RemovedTools {
-				reg.Unregister(name)
-			}
-			for _, t := range msg.AddedTools {
-				reg.Register(t)
+		if m.Root != nil {
+			if reg := m.Root.Registry(); reg != nil {
+				for _, name := range msg.RemovedTools {
+					reg.Unregister(name)
+				}
+				for _, t := range msg.AddedTools {
+					reg.Register(t)
+				}
 			}
 		}
 		m.ShowAutocomplete = false
@@ -176,6 +178,9 @@ func (m Model) updateInternal(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		if m.ThemeIndex < 0 {
 			m.ThemeIndex = 0
+		}
+		if m.SelectedTheme != "" && m.SelectedTheme != "default" && m.FindTheme(m.SelectedTheme) == nil {
+			_ = m.ApplyTheme(&DefaultThemeEntry)
 		}
 		// Force viewport refresh so help text and status bar update
 		m.updateViewport()
@@ -1070,7 +1075,7 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 				// Default the cursor to the currently active theme (or 0).
 				m.ThemeIndex = 0
 				for i, t := range m.ThemeEntries {
-					if t.ID == m.SelectedTheme {
+					if t.ID == m.SelectedTheme || (t.ID == "default" && (m.SelectedTheme == "" || m.SelectedTheme == "default")) {
 						m.ThemeIndex = i
 						break
 					}

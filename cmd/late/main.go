@@ -476,15 +476,18 @@ func main() {
 		themeID = os.Getenv("LATE_THEME")
 	}
 	themeBytes := tui.LateTheme
-	if themeID != "" && pluginManager != nil {
+	if themeID != "" && themeID != "default" && pluginManager != nil {
 		if info, err := pluginManager.GetTheme(themeID); err == nil && info != nil {
 			if merged, mErr := tui.ResolveRenderTheme(info.ID, info.Glamour); mErr == nil {
 				themeBytes = merged
+				themeID = info.ID
 				fmt.Fprintf(os.Stderr, "Applied plugin theme: %s\n", info.ID)
 			}
 		} else if err != nil {
 			fmt.Fprintf(os.Stderr, "Theme lookup failed for %q: %v\n", themeID, err)
 		}
+	} else if themeID == "default" {
+		themeBytes = tui.LateTheme
 	}
 
 	// Initialize common renderer
@@ -499,6 +502,10 @@ func main() {
 	rootAgent := orchestrator.NewBaseOrchestrator("main", sess, nil, 0)
 
 	model := tui.NewModel(rootAgent, renderer, appConfig)
+	model.SetActiveThemeStyles(themeBytes)
+	if themeID != "" {
+		model.SelectedTheme = themeID
+	}
 	model.ApplyOrchestratorModel = func(setting appconfig.ModelSetting) tea.Cmd {
 		return func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -542,20 +549,21 @@ func main() {
 	// when the user presses Enter.
 	if pluginManager != nil && pluginManager.Count() > 0 {
 		model.SetPluginCommands(pluginManager.PluginCommands())
-		model.SelectedTheme = themeID
 
 		// Map plugin.ThemeInfo to tui.ThemeEntry so the /themes picker and
 		// inline `/themes <name>` can resolve plugin themes at runtime.
+		// Always include DefaultThemeEntry first so users can revert.
 		pluginThemes := pluginManager.AllThemes()
 		if len(pluginThemes) > 0 {
-			entries := make([]tui.ThemeEntry, len(pluginThemes))
-			for i, info := range pluginThemes {
-				entries[i] = tui.ThemeEntry{
+			entries := make([]tui.ThemeEntry, 0, len(pluginThemes)+1)
+			entries = append(entries, tui.DefaultThemeEntry)
+			for _, info := range pluginThemes {
+				entries = append(entries, tui.ThemeEntry{
 					ID:         info.ID,
 					PluginName: info.PluginName,
 					ThemeName:  info.ThemeName,
 					Glamour:    info.Glamour,
-				}
+				})
 			}
 			model.SetThemes(entries)
 		}
@@ -745,13 +753,16 @@ func (s *pluginToolSync) refresh(p *tea.Program, mcpClient *mcp.Client, pluginMa
 
 		cmds = pluginManager.PluginCommands()
 		pluginThemes := pluginManager.AllThemes()
-		entries = make([]tui.ThemeEntry, len(pluginThemes))
-		for i, info := range pluginThemes {
-			entries[i] = tui.ThemeEntry{
-				ID:         info.ID,
-				PluginName: info.PluginName,
-				ThemeName:  info.ThemeName,
-				Glamour:    info.Glamour,
+		if len(pluginThemes) > 0 {
+			entries = make([]tui.ThemeEntry, 0, len(pluginThemes)+1)
+			entries = append(entries, tui.DefaultThemeEntry)
+			for _, info := range pluginThemes {
+				entries = append(entries, tui.ThemeEntry{
+					ID:         info.ID,
+					PluginName: info.PluginName,
+					ThemeName:  info.ThemeName,
+					Glamour:    info.Glamour,
+				})
 			}
 		}
 	}

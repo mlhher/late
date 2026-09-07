@@ -306,7 +306,7 @@ func (m *Model) SetThemes(themes []ThemeEntry) {
 // (case-insensitive). Returns nil if nothing matches. The active theme is
 // preferred when its bare name is supplied.
 func (m *Model) FindTheme(query string) *ThemeEntry {
-	if query == "" || len(m.ThemeEntries) == 0 {
+	if query == "" {
 		return nil
 	}
 	// 1. Exact ID match wins.
@@ -315,7 +315,14 @@ func (m *Model) FindTheme(query string) *ThemeEntry {
 			return &m.ThemeEntries[i]
 		}
 	}
-	// 2. Case-insensitive bare-name match.
+	// 2. "default" matches DefaultThemeEntry even if ThemeEntries is unpopulated.
+	if strings.EqualFold(query, "default") {
+		return &DefaultThemeEntry
+	}
+	if len(m.ThemeEntries) == 0 {
+		return nil
+	}
+	// 3. Case-insensitive bare-name match.
 	lc := strings.ToLower(query)
 	var firstBareMatch *ThemeEntry
 	for i := range m.ThemeEntries {

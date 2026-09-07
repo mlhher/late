@@ -409,3 +409,113 @@ func TestRenderThemeView_ClampsCursor(t *testing.T) {
 		t.Fatalf("expected clamp to 0, got %d", m.ThemeIndex)
 	}
 }
+
+// 21. ApplyTheme with DefaultThemeEntry resets activeThemeStyles to LateTheme.
+func TestApplyTheme_RevertToDefault(t *testing.T) {
+	m := &Model{}
+	custom := ThemeEntry{
+		ID:         "ocean:deep",
+		PluginName: "ocean",
+		ThemeName:  "deep",
+		Glamour: map[string]any{
+			"document": map[string]any{
+				"color": "#998877",
+			},
+		},
+	}
+	if err := m.ApplyTheme(&custom); err != nil {
+		t.Fatalf("ApplyTheme custom failed: %v", err)
+	}
+	if !strings.Contains(string(m.activeThemeStyles), "#998877") {
+		t.Fatalf("expected custom style to be active, got %s", m.activeThemeStyles)
+	}
+
+	// Now revert to default
+	if err := m.ApplyTheme(&DefaultThemeEntry); err != nil {
+		t.Fatalf("ApplyTheme DefaultThemeEntry failed: %v", err)
+	}
+	if m.SelectedTheme != "default" {
+		t.Fatalf("expected SelectedTheme to be 'default', got %q", m.SelectedTheme)
+	}
+	if string(m.activeThemeStyles) != string(LateTheme) {
+		t.Fatalf("expected activeThemeStyles to equal LateTheme")
+	}
+	if strings.Contains(string(m.activeThemeStyles), "#998877") {
+		t.Fatalf("expected activeThemeStyles to no longer contain custom style")
+	}
+}
+
+// 22. FindTheme resolves "default" both when ThemeEntries is empty and when populated.
+func TestFindTheme_Default(t *testing.T) {
+	m := &Model{}
+	// Empty ThemeEntries
+	info := m.FindTheme("default")
+	if info == nil || info.ID != "default" {
+		t.Fatalf("expected DefaultThemeEntry on empty model, got %+v", info)
+	}
+	infoUpper := m.FindTheme("DEFAULT")
+	if infoUpper == nil || infoUpper.ID != "default" {
+		t.Fatalf("expected DefaultThemeEntry on case-insensitive match, got %+v", infoUpper)
+	}
+
+	// Populated ThemeEntries
+	m.SetThemes([]ThemeEntry{
+		DefaultThemeEntry,
+		makeTheme("custom:foo", "custom", "foo"),
+	})
+	infoPopulated := m.FindTheme("default")
+	if infoPopulated == nil || infoPopulated.ID != "default" {
+		t.Fatalf("expected DefaultThemeEntry when populated, got %+v", infoPopulated)
+	}
+}
+
+// 23. SetActiveThemeStyles updates GetRenderer style JSON and clears cache.
+func TestSetActiveThemeStyles_UpdatesGetRenderer(t *testing.T) {
+	m := &Model{}
+	// Initial GetRenderer creates renderer with default styles
+	r1 := m.GetRenderer(80)
+	if r1 == nil {
+		t.Fatal("expected non-nil renderer")
+	}
+
+	customJSON := []byte(`{"document":{"color":"#112233"}}`)
+	m.SetActiveThemeStyles(customJSON)
+	if string(m.activeThemeStyles) != string(customJSON) {
+		t.Fatalf("expected activeThemeStyles updated, got %s", m.activeThemeStyles)
+	}
+	if m.cachedRenderer != nil {
+		t.Fatal("expected cachedRenderer to be nil after SetActiveThemeStyles")
+	}
+
+	// Next GetRenderer builds with custom styles
+	r2 := m.GetRenderer(80)
+	if r2 == nil {
+		t.Fatal("expected non-nil renderer from custom styles")
+	}
+}
+
+// 24. PluginChangeMsg falls back to DefaultThemeEntry if active theme was removed.
+func TestPluginChangeMsg_RemovesActiveThemeFallsBackToDefault(t *testing.T) {
+	m := &Model{
+		SelectedTheme: "plugin:custom",
+		ThemeEntries: []ThemeEntry{
+			DefaultThemeEntry,
+			makeTheme("plugin:custom", "plugin", "custom"),
+		},
+		activeThemeStyles: []byte(`{"document":{"color":"#ABCDEF"}}`),
+	}
+
+	// Plugin was disabled/removed: only DefaultThemeEntry remains in catalog
+	msg := PluginChangeMsg{
+		Themes: []ThemeEntry{DefaultThemeEntry},
+	}
+	nm, _ := m.Update(msg)
+	nmModel := nm.(Model)
+	if nmModel.SelectedTheme != "default" {
+		t.Fatalf("expected SelectedTheme to revert to 'default', got %q", nmModel.SelectedTheme)
+	}
+	if string(nmModel.activeThemeStyles) != string(LateTheme) {
+		t.Fatalf("expected activeThemeStyles to revert to LateTheme, got %s", nmModel.activeThemeStyles)
+	}
+}
+

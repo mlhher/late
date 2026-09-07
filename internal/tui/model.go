@@ -87,6 +87,8 @@ func NewModel(root common.Orchestrator, renderer *glamour.TermRenderer, cfg *con
 		cachedRendererWidth: -1, // Force first creation
 		Pastes:              make(map[string]string),
 		AppConfig:           cfg,
+		SelectedTheme:       "default",
+		activeThemeStyles:   LateTheme,
 	}
 
 	fp := filepicker.New()
@@ -160,6 +162,18 @@ func (m *Model) ReloadTheme(renderer *glamour.TermRenderer) {
 		return
 	}
 	m.Renderer = renderer
+	m.cachedRenderer = nil
+	m.cachedRendererWidth = -1
+}
+
+// SetActiveThemeStyles sets the raw glamour JSON style bytes used by GetRenderer
+// and invalidates the per-width renderer cache.
+func (m *Model) SetActiveThemeStyles(styles []byte) {
+	if len(styles) == 0 {
+		m.activeThemeStyles = LateTheme
+	} else {
+		m.activeThemeStyles = styles
+	}
 	m.cachedRenderer = nil
 	m.cachedRendererWidth = -1
 }

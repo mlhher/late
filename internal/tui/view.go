@@ -1404,7 +1404,7 @@ func (m *Model) renderThemeView() {
 
 	var rows []string
 	for i, t := range m.ThemeEntries {
-		isActive := t.ID == m.SelectedTheme
+		isActive := t.ID == m.SelectedTheme || (t.ID == "default" && (m.SelectedTheme == "" || m.SelectedTheme == "default"))
 		marker := "  "
 		if isActive {
 			marker = "\u25cf "
@@ -1484,10 +1484,10 @@ func (m *Model) renderThemeView() {
 }
 
 // displayThemeNameOrNone formats the active theme id for the picker
-// footer. Empty id is rendered as the bundled base theme.
+// footer. Empty id or "default" is rendered as default (built-in).
 func displayThemeNameOrNone(id string) string {
-	if id == "" {
-		return "bundled base"
+	if id == "" || id == "default" {
+		return "default (built-in)"
 	}
 	return id
 }

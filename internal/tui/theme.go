@@ -4,6 +4,13 @@ import (
 	"encoding/json"
 )
 
+var DefaultThemeEntry = ThemeEntry{
+	ID:         "default",
+	PluginName: "built-in",
+	ThemeName:  "default",
+	Glamour:    nil,
+}
+
 var LateTheme = []byte(`
 {
   "document": {
