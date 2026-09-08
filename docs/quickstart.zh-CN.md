@@ -88,6 +88,7 @@ Late 提供了一个基于终端的用户界面 (TUI)，包含三个区域：**�
 | `/compose` | 打开系统默认的外部编辑器 (`$EDITOR`) 以起草长篇或复杂的指令。 |
 | `/model` | 选择编排器和各类子智能体使用的模型。 |
 | `/log` | 打开 Git 提交日志查看器。 |
+| `/themes` | 打开主题选择器或切换主题 (`/themes [名称]`)。 |
 | `/help` | 显示默认的快捷键绑定。 |
 | `/quit` | 退出 Late。 |
 
@@ -232,8 +233,6 @@ Late 支持 Model Context Protocol (大模型上下文协议)。请将你的 MCP
 * **全局 (Windows):** `%APPDATA%\late\plugins\`
 * **项目本地:** `.late/plugins/`（优先级高于同名全局插件）
 
-后台每约 2 秒轮询一次文件系统，安装、启用或禁用都不需要重启 Late。
-
 ### 安装
 
 ```bash
@@ -278,7 +277,7 @@ late plugin update [<name>]
 
 | 扩展面      | 示例字段                              | 在 Late 中的表现           |
 | ---------- | ------------------------------------- | ------------------------- |
-| 技能       | `"skills": ["skills/welcome.md"]`     | 自动加载的指令集           |
+| 技能       | `"skills": ["skills/"]`               | 自动加载的指令集           |
 | MCP 服务器 | `"mcp": { "servers": {...} }`         | 可调用的工具               |
 | 斜杠命令   | `"commands": ["/weather"]`            | 聊天中的 `/weather` 命令   |
 | 主题       | `"themes": ["themes/dark.json"]`      | 通过 `/themes` 切换        |
@@ -301,6 +300,7 @@ Late 的原生搜索工具会自动遵循你的项目 `.gitignore`，通过排�
 | `--version` | 显示当前版本信息 |
 | `--continue` | 恢复上一个会话 |
 | `--prompt "..."` | 使用给定提示词立即启动智能体 |
+| `--theme "<id>"` | 在启动时应用插件主题（例如 `<plugin>:<名称>`）；亦支持读取环境变量 `$LATE_THEME` |
 | `--gemma-thinking` | 为 Gemma 4 等模型注入专用的思考标记 (thinking tokens) |
 | `--subagent-max-turns <n>` | 设置每个子智能体的最大交互轮数 (默认：500) |
 | `--append-system-prompt "..."` | 向系统提示词的末尾追加文本（例如自定义的补充说明） |

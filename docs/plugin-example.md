@@ -1,407 +1,423 @@
-# Worked Example: `late-codestyle`
+# Worked Example: `example-plugin`
 
-This page is an end-to-end example of a plugin that exercises **every
-extension surface** Late supports today: skills, MCP servers, slash
-commands (both shapes), themes, lifecycle hooks (mutation + veto),
-inline tools, and project-local install.
+This page is an end-to-end walkthrough of the reference plugin shipped directly in the repository at [`example-plugin/`](../example-plugin). It exercises **every extension surface** Late supports: skills, MCP servers, slash commands (both prompt dispatch and script handlers), themes, inline tools, and all four lifecycle hooks (`onSessionStart`, `onMessageSend`, `onToolCall`, and `onToolResult`).
 
-The example is `late-codestyle`, a small developer-tooling plugin that
-formats, lints, and looks up CLI syntax. It is intentionally tiny so
-the contracts stay visible — every script is short.
-
-> See [plugin-sdk.md](./plugin-sdk.md) for the canonical field-by-field
-> reference. This page is the "show me the whole thing" companion.
+See [plugin-sdk.md](./plugin-sdk.md) for the canonical field-by-field reference.
 
 ---
 
 ## Directory Layout
 
+The plugin lives at [`example-plugin/`](../example-plugin) with the following structure:
+
 ```
-late-codestyle/
+example-plugin/
 ├── package.json
 ├── skills/
-│   └── codestyle.md
+│   └── demo/
+│       └── SKILL.md
 ├── themes/
-│   └── ocean.json
-├── hooks/
-│   ├── veto.sh          # onToolCall — mutate or block dangerous calls
-│   ├── welcome.sh       # onSessionStart
-│   └── log-result.sh    # onToolResult — observation (may also mutate/veto)
+│   └── demo.json
 └── scripts/
-    ├── lint.sh          # /lint handler
-    ├── lint-server.sh   # MCP stdio server (mock for demo)
-    └── lookup.sh        # inline `lookup` tool + /lookup command fallback
+    ├── command.sh          # /echo-cmd handler script
+    ├── tool.sh             # inline greet tool script
+    ├── mcp_server.py       # stdio MCP server (provides mcp_ping tool)
+    ├── session_start.sh    # onSessionStart hook
+    ├── message_send.sh     # onMessageSend hook
+    ├── tool_call.sh        # onToolCall hook (mutate or veto)
+    └── tool_result.sh      # onToolResult hook (mutate or veto)
 ```
 
-Run `chmod +x hooks/*.sh scripts/*.sh` after creating these files.
+Ensure scripts are executable before testing:
+
+```bash
+chmod +x example-plugin/scripts/*.sh example-plugin/scripts/mcp_server.py
+```
 
 ---
 
 ## The Manifest (`package.json`)
 
-Every `late.*` field declared, with realistic values. This is the
-complete `late` object — the surrounding `package.json` is the usual
-`name`/`version`/`description` triple and otherwise vanilla.
+The manifest declares all plugin surfaces in the `"late"` field:
 
 ```json
 {
-  "name": "late-codestyle",
-  "version": "0.1.0",
-  "description": "Format, lint, lookup, and ocean theme for Late.",
+  "name": "example-plugin",
+  "version": "1.0.0",
+  "description": "Comprehensive plugin consuming all available Late plugin APIs",
   "late": {
-    "skills": ["skills/"],
-
-    "mcp": {
-      "servers": {
-        "live-lint": {
-          "command": "bash",
-          "args": ["scripts/lint-server.sh"]
-        }
-      }
-    },
-
-    "commands": [
-      "/format",
-      { "name": "/lint", "handler": "scripts/lint.sh" }
+    "skills": [
+      "skills"
     ],
-
-    "themes": ["themes/ocean.json"],
-
-    "hooks": {
-      "onToolCall":     ["hooks/veto.sh"],
-      "onSessionStart": ["hooks/welcome.sh"],
-      "onToolResult":   ["hooks/log-result.sh"]
-    },
-
+    "commands": [
+      "/bare-cmd",
+      {
+        "name": "/echo-cmd",
+        "handler": "scripts/command.sh"
+      }
+    ],
     "tools": [
       {
-        "name": "lookup",
-        "description": "Look up CLI command syntax.",
-        "script": "scripts/lookup.sh",
+        "name": "greet",
+        "description": "Returns a greeting for the given name",
+        "script": "scripts/tool.sh",
         "parameters": {
           "type": "object",
           "properties": {
-            "query": { "type": "string", "description": "The command or flag to look up." }
+            "name": {
+              "type": "string",
+              "description": "Name to greet"
+            }
           },
-          "required": ["query"]
+          "required": [
+            "name"
+          ]
         }
       }
-    ]
+    ],
+    "themes": [
+      "themes/demo.json"
+    ],
+    "mcp": {
+      "servers": {
+        "mcp-demo": {
+          "command": "python3",
+          "args": [
+            "./scripts/mcp_server.py"
+          ],
+          "env": {
+            "MCP_ENV_TEST": "active"
+          }
+        }
+      }
+    },
+    "hooks": {
+      "onSessionStart": [
+        "scripts/session_start.sh"
+      ],
+      "onMessageSend": [
+        "scripts/message_send.sh"
+      ],
+      "onToolCall": [
+        "scripts/tool_call.sh"
+      ],
+      "onToolResult": [
+        "scripts/tool_result.sh"
+      ]
+    }
   }
 }
 ```
 
-Notes on the choices below:
+Key points on each surface:
 
-- **Commands**: declared in **both** shapes on purpose. `/format` is a
-  bare string — Late submits the input as a plain prompt and the agent
-  uses the plugin's skills/tools to handle it (legacy path). `/lint`
-  carries an explicit `handler` script — Late runs the script and shows
-  its stdout as a toast, no orchestration needed.
-- **Hooks**: each one demonstrates a different part of the hook
-  contract (mutate/veto, sequential transform, lifecycle, observation).
-- **Tools**: declared inline so the model can call `lookup` directly,
-  no MCP sandbox needed. Names are namespaced to
-  `late-codestyle__lookup` (sanitized — `:` is not accepted by
-  OpenAI-compatible endpoints).
+- **Commands**: Demonstrates both command shapes. `/bare-cmd` is a bare string that dispatches as a regular user prompt to the agent (legacy dispatch). `/echo-cmd` carries a `handler` script (`scripts/command.sh`) executed directly by Late; stdout appears as a toast without model orchestration.
+- **Skills**: Points to the `skills` directory. Late symlinks the skill into `~/.config/late/skills/example-plugin:demo` and discovers `skills/demo/SKILL.md`.
+- **Inline Tools**: `greet` exposes a script-backed tool (`scripts/tool.sh`) directly to the LLM as `example-plugin__greet`.
+- **Themes**: `themes/demo.json` provides Glamour styling overrides under the theme ID `example-plugin:demo`.
+- **MCP Server**: `mcp-demo` launches a Python stdio MCP server exposing the `mcp_ping` tool as `example-plugin_mcp-demo__mcp_ping`.
+- **Hooks**: Implements all four lifecycle hooks: `onSessionStart`, `onMessageSend`, `onToolCall`, and `onToolResult`.
 
 ---
 
-## Skills — `skills/codestyle.md`
+## Skills — `skills/demo/SKILL.md`
 
-Skills are injected into the system prompt as instructions. The
-`scripts:` list is informational — agent scripts called from skills
-become `ScriptTool`s.
+Skills are exposed to the agent through the `activate_skill` tool. When the agent activates a skill, its instructions are returned to guide subsequent actions:
 
 ```markdown
 ---
-name: codestyle
-description: When the user asks about code formatting, lint summaries, or CLI syntax, prefer the codestyle plugin's tools and scripts over hand-rolled shell.
-scripts:
-  - scripts/lookup.sh
-  - scripts/lint.sh
+name: demo
+description: A demo skill provided by example-plugin
 ---
 
-## Instructions
+# Demo Skill Instructions
 
-- When the user asks about formatting, prefer invoking `format` via the
-  `bash` tool with the project's formatter, but first describe the change
-  to the user.
-- When the user asks "what flags does X have?" or requests a CLI lookup,
-  prefer the `late-codestyle__lookup` tool so the result lands as a real
-  tool call trace.
-- The plugin's `onToolCall` hook may redact or reject your proposed
-  command — if a veto comes back as an error, surface it to the user
-  rather than retrying with a workaround.
+When the user asks for demo assistance, follow these guidelines:
+1. Greet the user courteously.
+2. Demonstrate calling the example-plugin tools.
 ```
 
 ---
 
 ## Slash Commands
 
-### `/format` — legacy (plain-prompt fall-through)
+### `/bare-cmd` — prompt dispatch (legacy)
 
-`/format` is declared as a bare string. When the user presses Enter,
-Late submits `/format ...` as a regular user prompt and the agent
-leans on the `codestyle` skill + generic `bash` tool to actually run
-the formatter. There is no `handler` script.
+Declared as a bare string in `late.commands`. When entered, Late submits `/bare-cmd ...` as a user message to the orchestrator, letting the agent use available tools and skills to respond.
 
-### `/lint` — explicit handler
+### `/echo-cmd` — explicit script handler
 
-`/lint <file>` runs `scripts/lint.sh` with the trailing args (a JSON
-string array) on stdin. Late surfaces the script's stdout as a toast
-or surfaces errors as an error toast.
+Declared as `{ "name": "/echo-cmd", "handler": "scripts/command.sh" }`. When entered, Late executes the script and shows stdout as a toast notification.
 
-#### `scripts/lint.sh`
+#### `scripts/command.sh`
 
 ```bash
-#!/usr/bin/env bash
-# /lint handler — receives args JSON on stdin, e.g. ["README.md"]
-set -e
+#!/bin/sh
+# Command handler script for /echo-cmd
+# Receives JSON array of arguments on stdin
+sleep 2
 args=$(cat)
-file=$(printf '%s' "$args" | sed -n 's/.*"\([^"]*\)".*/\1/p' | head -1)
-
-if [ -z "$file" ]; then
-  echo "usage: /lint <file>"
-  exit 2
-fi
-
-echo "linting $file"
-if [ ! -f "$file" ]; then
-  echo "error: file not found: $file"
-  exit 1
-fi
-wc -l "$file"
+echo "echo-cmd received arguments: $args"
 ```
 
 ---
 
-## MCP Server
+## Inline Tool — `greet`
 
-Servers must speak Model Context Protocol over stdio. The example is a
-mock that always replies with a single tool — replace it with a real
-MCP server (Python `@modelcontextprotocol/sdk`, Node
-`@modelcontextprotocol/sdk`, etc.) for production.
+`late.tools[*]` exposes a script to the LLM as a tool without requiring an MCP server. The tool is namespaced as `example-plugin__greet`. The script receives arguments JSON on stdin and writes its output to stdout.
 
-#### `scripts/lint-server.sh`
+#### `scripts/tool.sh`
 
 ```bash
-#!/usr/bin/env bash
-# Minimal mock MCP stdio server — one tool: live_lint
-while IFS= read -r _; do
-  echo '{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"live_lint","description":"Lint the file at path.","inputSchema":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}]}}'
-done
-```
-
-The server is registered in the agent as the namespaced tool
-`late-codestyle__live-lint` (sanitized; `:` becomes `_`). The MCP `env`
-field supports `${VAR}` expansion at launch time — wire secrets in via
-`env`, not args.
-
----
-
-## Inline Tool — `lookup`
-
-`late.tools[*]` registers a script-backed tool **without** an MCP
-wrapper. The model calls `late-codestyle:lookup` and the script
-receives the JSON-encoded arguments on stdin.
-
-#### `scripts/lookup.sh`
-
-```bash
-#!/usr/bin/env bash
-# Tool stdin is the arguments JSON, e.g. {"query":"grep -E"}
-set -e
-payload=$(cat)
-query=$(printf '%s' "$payload" \
-  | sed -n 's/.*"query"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-
-if [ -z "$query" ]; then
-  echo "error: lookup requires a 'query' argument"
-  exit 1
+#!/bin/sh
+# Inline tool script for "greet" tool
+# Receives JSON arguments object on stdin
+input=$(cat)
+name=$(echo "$input" | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+if [ -z "$name" ]; then
+  name="world"
 fi
-
-echo "lookup results for: $query"
-echo "- ${query} --help → standard help text applies"
-echo "- ${query} -V      → version output"
-echo "- ${query}(1)     → man page (if installed)"
+echo "Hello, $name! Greetings from example-plugin inline tool."
 ```
-
-The agent sees this as a normal tool. All the usual middleware
-applies — `onToolCall` can still veto it, `enabledTools` still gates
-it, and user confirmation still prompts the user. The name is
-sanitized for OpenAI-compatible endpoints: `late-codestyle:lookup`
-becomes `late-codestyle__lookup` (only `[A-Za-z0-9_-]`, max 64 chars).
 
 ---
 
-## Themes
+## MCP Server — `mcp-demo`
 
-Themes are [Glamour](https://github.com/charmbracelet/glamour) JSON
-files. Plug them in by listing their path under `late.themes`. The
-TUI's `/themes` command exposes them in the picker.
+The plugin manifest starts `scripts/mcp_server.py` as an MCP server over stdio. The server is declared under the key `mcp-demo`, and its exposed `mcp_ping` tool is registered in Late as `example-plugin_mcp-demo__mcp_ping`.
 
-#### `themes/ocean.json`
+#### `scripts/mcp_server.py`
+
+```python
+#!/usr/bin/env python3
+"""
+Minimal stdio MCP server for example-plugin.
+Speaks Model Context Protocol (JSON-RPC 2.0 over newline-delimited stdio).
+"""
+import sys
+import json
+
+def send_response(response):
+    sys.stdout.write(json.dumps(response) + "\n")
+    sys.stdout.flush()
+
+def main():
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            req = json.loads(line)
+        except Exception:
+            continue
+
+        req_id = req.get("id")
+        method = req.get("method")
+        params = req.get("params", {})
+
+        if req_id is None:
+            continue
+
+        if method == "initialize":
+            send_response({
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "mcp-demo", "version": "1.0.0"}
+                }
+            })
+        elif method == "ping":
+            send_response({"jsonrpc": "2.0", "id": req_id, "result": {}})
+        elif method == "tools/list":
+            send_response({
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "tools": [{
+                        "name": "mcp_ping",
+                        "description": "MCP demo tool that replies to a ping",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {"type": "string", "description": "Ping message"}
+                            },
+                            "required": ["message"]
+                        }
+                    }]
+                }
+            })
+        elif method == "tools/call":
+            args = params.get("arguments", {})
+            msg = args.get("message", "hello")
+            send_response({
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "content": [{
+                        "type": "text",
+                        "text": f"MCP pong from example-plugin: {msg}"
+                    }]
+                }
+            })
+        else:
+            send_response({
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32601, "message": f"Method {method} not found"}
+            })
+
+if __name__ == "__main__":
+    main()
+```
+
+---
+
+## Themes — `themes/demo.json`
+
+Themes customize markdown rendering in the TUI using Glamour style rules.
 
 ```json
 {
-  "name": "ocean",
+  "name": "demo",
   "glamour": {
-    "document":  { "color": "#bce0ff" },
-    "heading":   { "color": "#5fc8ff", "bold": true },
-    "link":      { "color": "#5fc8ff", "underline": true },
-    "strong":    { "bold": true, "color": "#ffffff" },
-    "bullet":    { "foreground": "#5fc8ff" },
-    "code":      { "color": "#cdf7ff", "background": "#002b48" },
-    "code_block":{ "color": "#cdf7ff", "background": "#002b48" }
+    "document": {
+      "margin": 2
+    },
+    "heading": {
+      "color": "#33ccff",
+      "bold": true
+    },
+    "code_block": {
+      "color": "#aaffaa"
+    }
   }
 }
 ```
 
-Apply from the TUI: `/themes ocean` (by bare name) or
-`/themes late-codestyle:ocean` (by namespaced ID).
+Apply via the TUI command `/themes demo` or by namespaced ID `/themes example-plugin:demo`.
 
 ---
 
 ## Hooks
 
-Hooks are the must-tiny part of every plugin — they show whether you
-understand the contract. Each of the four hooks below tests a
-different part of it.
+Late supports four plugin lifecycle hooks:
 
-### Hook contract recap
+| Hook | Read from stdin | Write to stdout |
+| --- | --- | --- |
+| `onSessionStart` | `{}` (empty JSON object) | non-empty stdout is logged to stderr |
+| `onMessageSend` | user message string | replacement string for user message |
+| `onToolCall` | `{ "tool", "arguments", "timestamp" }` JSON | valid JSON mutates arguments; literal `"blocked"` vetoes call; empty stdout passes through |
+| `onToolResult` | `{ "tool", "result" }` JSON | valid JSON replaces result LLM sees; literal `"blocked"` vetoes result; empty stdout passes through |
 
-| Hook            | Read from stdin                                       | Write to stdout                                          |
-| --------------- | ----------------------------------------------------- | -------------------------------------------------------- |
-| `onSessionStart` | empty JSON object `{}`                                 | ignored (fire-and-forget)                                |
-| `onToolCall`     | `{ "tool", "arguments", "timestamp" }`                | JSON → mutate `arguments` · literal `"blocked"` → veto the call · empty/non-JSON → pass-through |
-| `onToolResult`   | `{ "tool", "result" }`                                | JSON → replace the result the LLM sees · literal `"blocked"` → veto · empty/non-JSON → pass-through |
-| `onMessageSend`  | the current user message                              | replacement text (sequential)                             |
+### `scripts/session_start.sh` — `onSessionStart`
 
-### `hooks/veto.sh` — `onToolCall` (mutate OR veto)
+Fires once when Late starts. Non-empty stdout is logged to stderr.
 
 ```bash
-#!/usr/bin/env bash
-# Read the ToolCall payload and either:
-#   1. Block dangerous commands by returning the literal string "blocked".
-#   2. Redact arguments by returning replacement JSON.
-#   3. Pass through unchanged by returning empty.
-set -e
+#!/bin/sh
+# onSessionStart hook script
+# Receives empty JSON object {} on stdin
+cat > /dev/null
+echo "example-plugin session initialized"
+```
+
+### `scripts/message_send.sh` — `onMessageSend`
+
+Intercepts and can transform outgoing user messages.
+
+```bash
+#!/bin/sh
+# onMessageSend hook script
+# Receives message text on stdin
+# If non-empty stdout is produced, it replaces the message content.
+msg=$(cat)
+case "$msg" in
+  *"[TEST_TRANSFORM]"*)
+    echo "$msg (transformed by example-plugin)"
+    ;;
+  *)
+    # Return message as-is
+    echo "$msg"
+    ;;
+esac
+```
+
+### `scripts/tool_call.sh` — `onToolCall`
+
+Runs before every tool invocation. Can mutate arguments or veto execution.
+
+```bash
+#!/bin/sh
+# onToolCall hook script
+# Receives JSON payload: {"tool": "...", "arguments": {...}, "timestamp": "..."}
+# Return "blocked" to veto the tool call.
+# Return valid JSON to mutate arguments.
+# Return empty to pass through unchanged.
 payload=$(cat)
-
-# Block any bash call that asks for `rm -rf` of root or $HOME.
-if printf '%s' "$payload" | grep -q 'rm[[:space:]]*-r[fR]\?[[:space:]]\+/\(\|[[:space:]]\)\|$HOME'; then
-  echo "blocked"
-  exit 0
-fi
-
-# Otherwise, redact long filesystem paths in bash arguments.
-if printf '%s' "$payload" | grep -q '"tool"[[:space:]]*:[[:space:]]*"bash"'; then
-  redacted=$(printf '%s' "$payload" \
-    | sed 's#/Users/[a-z0-9_]\+/<REDACTED>#g' \
-    | sed 's#/home/[a-z0-9_]\+/<REDACTED>#g')
-  if [ "$redacted" != "$payload" ]; then
-    printf '%s' "$redacted"
-    exit 0
-  fi
-fi
-
-# Empty stdout → pass-through.
+case "$payload" in
+  *"\"block_me\":true"*|*"\"block_me\": true"*)
+    echo "blocked"
+    ;;
+  *)
+    # Pass through unchanged
+    ;;
+esac
 ```
 
-Returning the literal string `"blocked"` aborts the chain (next()
-is skipped, the call returns an error to the agent). Returning any
-other JSON-valued stdout replaces `call.Function.Arguments` and
-continues the chain.
+### `scripts/tool_result.sh` — `onToolResult`
 
-### `hooks/welcome.sh` — `onSessionStart` (lifecycle)
+Runs after successful tool execution. Can mutate the result seen by the LLM or veto it.
 
 ```bash
-#!/usr/bin/env bash
-# Fires once, when Late boots. Stdin is empty.
-echo "[late-codestyle] loaded — /format, /lint, lookup, ocean theme ready" >&2
+#!/bin/sh
+# onToolResult hook script
+# Receives JSON payload: {"tool": "...", "result": "..."}
+# Return "blocked" to veto the result.
+# Return valid JSON to replace the result.
+# Return empty to pass through unchanged.
+payload=$(cat)
+case "$payload" in
+  *block_result*)
+    echo "blocked"
+    ;;
+  *)
+    # Pass through unchanged
+    ;;
+esac
 ```
-
-Errors and stderr are forwarded; the user sees the message in the
-TUI.
-
-### `hooks/log-result.sh` — `onToolResult` (observation)
-
-```bash
-#!/usr/bin/env bash
-# Best-effort one-liner per tool result, logged to stderr.
-cat \
-  | grep -o '"tool"[[:space:]]*:[[:space:]]*"[^"]*"' \
-  | head -1 \
-  | sed 's/^/[late-codestyle][result] /' >&2
-```
-
-This hook logs to stderr, but `onToolResult` is **not** observation-only:
-hooks that print valid JSON to stdout replace the result the agent sees,
-and a literal `"blocked"` vetoes it. Keeping the script stderr-only is a
-choice, not a limitation.
 
 ---
 
 ## Install & Test
 
-### Global dev install (recommended while iterating)
+### Global link (recommended for development)
+
+From the root of the repository:
 
 ```bash
-# from inside the late-codestyle directory
-chmod +x hooks/*.sh scripts/*.sh
-late plugin link ./late-codestyle
+late plugin link ./example-plugin
 late plugin list
 ```
 
-You should see `late-codestyle 0.1.0 local ✓` in the output.
+You should see `example-plugin 1.0.0 local ✓` in the list.
 
-### Project-local install (recommended for team repos)
+### Project-local link
 
 ```bash
 mkdir -p .late/plugins
-chmod +x hooks/*.sh scripts/*.sh
-late plugin link --project ./late-codestyle
+late plugin link --project ./example-plugin
 ```
 
-Now commit `.late/plugins/late-codestyle` (it's a symlink; the real
-files live in the repo at `./late-codestyle`) so the whole team gets
-the same plugin.
+> **Note on linking:** `late plugin link` creates an absolute symlink pointing to your local source directory for iteration. For committed team configurations, copy the plugin folder into `.late/plugins/` or install via `late plugin install --project <source>`.
 
 ### Smoke tests in the TUI
 
-1. `/help` — confirm `/format` and `/lint` appear in the command list
-   alongside the built-ins.
-2. `/lint README.md` — should produce a "linting README.md" toast with
-   `wc -l` output.
-3. `/themes` — open the picker, navigate to `late-codestyle:ocean`,
-   press Enter to apply.
-4. In the chat, ask *"look up the flags for `grep -E`"* — the agent
-   should call `late-codestyle:lookup`.
-5. Ask the agent to *"run `bash` with `rm -rf /tmp/cache`"* — the
-   hook should let it through (no leading slash, no `$HOME`). Try
-   `rm -rf /` on a sandbox and watch the hook veto the call.
-
-If something doesn't work, `late plugin disable late-codestyle` flips
-it off without removing the install.
-
----
-
-## Why each shape?
-
-A short rationale for the design choices that aren't obvious.
-
-| Choice                                  | Why                                                                  |
-| --------------------------------------- | -------------------------------------------------------------------- |
-| Two commands, two shapes                  | Demonstrates both wire-level dispatch modes.                          |
-| `onToolCall` **returns** JSON             | Demonstrates the gate-via-mutate contract — the most powerful hook.   |
-| `onToolResult` only writes to stderr      | Demonstrates the observation use case; the hook can also mutate the result by printing JSON to stdout. |
-| `late.tools[*]` instead of MCP for `lookup` | Demonstrates the simpler "no-server" path inline tools support.       |
-| `themes`                                  | Shows a plugin theme's Glamour style overrides.                       |
-| One global install, one `--project` install | Both scopes are first-class; pick whichever matches the rollout.    |
-
----
-
-> **Tip:** once you're done iterating, run
-> `late plugin disable late-codestyle` to turn it off, or
-> `late plugin remove late-codestyle` to uninstall.
+1. `/echo-cmd hello world` — produces a toast displaying `echo-cmd received arguments: ["hello","world"]`.
+2. `/themes` — open the theme picker, choose `example-plugin:demo`, and observe custom cyan headings.
+3. In chat, ask *"Use the greet tool to say hello to Alice"* — the agent invokes `example-plugin__greet`.
+4. In chat, ask *"Call mcp_ping with message test"* — the agent invokes `example-plugin_mcp-demo__mcp_ping`.
+5. Send a chat message containing `[TEST_TRANSFORM]` — the `onMessageSend` hook appends `(transformed by example-plugin)`.
+6. Ask the agent to call a tool with argument `"block_me": true` — `onToolCall` returns `blocked` and prevents execution.
+7. To disable without uninstalling: `late plugin disable example-plugin`.

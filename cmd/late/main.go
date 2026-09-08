@@ -27,9 +27,10 @@ import (
 	"late/internal/tool"
 	"late/internal/tui"
 
+	"encoding/json"
+
 	tea "charm.land/bubbletea/v2"
 	"charm.land/glamour/v2"
-	"encoding/json"
 )
 
 // pluginInlineTool adapts a plugin.InlineTool (defined in internal/plugin/tools.go)
@@ -104,12 +105,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  session list [-v]      List all saved sessions (use -v for verbose/detailed view)\n")
 		fmt.Fprintf(os.Stderr, "  session load <id>      Load a session by ID\n")
 		fmt.Fprintf(os.Stderr, "  session delete <id>    Delete a session by ID\n")
-		fmt.Fprintf(os.Stderr, "  plugin list, ls        List installed plugins\n")
-		fmt.Fprintf(os.Stderr, "  plugin install <src>   Install a plugin from npm/git/local\n")
-		fmt.Fprintf(os.Stderr, "  plugin remove <name>   Remove a plugin\n")
-		fmt.Fprintf(os.Stderr, "  plugin link <path>     Link a local plugin directory\n")
-		fmt.Fprintf(os.Stderr, "  plugin enable <name>   Enable a plugin\n")
-		fmt.Fprintf(os.Stderr, "  plugin disable <name>  Disable a plugin\n")
+		fmt.Fprintf(os.Stderr, "  plugin list, ls                      List installed plugins\n")
+		fmt.Fprintf(os.Stderr, "  plugin install [--project] <src>     Install a plugin from npm/git/local\n")
+		fmt.Fprintf(os.Stderr, "  plugin remove [--project] <name>     Remove a plugin\n")
+		fmt.Fprintf(os.Stderr, "  plugin link [--project] <path>       Link a local plugin directory\n")
+		fmt.Fprintf(os.Stderr, "  plugin update [<name>]               Update all or a specific plugin\n")
+		fmt.Fprintf(os.Stderr, "  plugin enable <name>                 Enable a plugin\n")
+		fmt.Fprintf(os.Stderr, "  plugin disable <name>                Disable a plugin\n")
 		fmt.Fprintf(os.Stderr, "  worktree list          List all worktrees\n")
 		fmt.Fprintf(os.Stderr, "  worktree create <path> [branch]  Create a new worktree\n")
 		fmt.Fprintf(os.Stderr, "  worktree remove <path>           Remove a worktree\n")
@@ -284,11 +286,10 @@ func main() {
 		}
 	}
 
-
 	// Plugin discovery and surface registration
 	var (
-		skillsDir  string
-		skillsErr  error
+		skillsDir string
+		skillsErr error
 	)
 	if pluginManager == nil {
 		pluginsDir, err := common.LatePluginsDir()
@@ -803,7 +804,6 @@ func toolEnabled(enabledTools map[string]bool, name string) bool {
 	}
 	return true
 }
-
 
 type sessionCommandResult struct {
 	HistoryPath string

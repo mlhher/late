@@ -88,6 +88,7 @@ Type `/` into the input box to bring up a command picker. You can navigate throu
 | `/compose` | Open your system's default external editor (`$EDITOR`) to draft long or complex instructions. |
 | `/model` | Select the model used by the orchestrator and each subagent type. |
 | `/log` | Open the Git commit log viewer. |
+| `/themes` | Open the theme picker or switch themes (`/themes [name]`). |
 | `/help` | Show default keybindings. |
 | `/quit` | Exit Late. |
 
@@ -274,7 +275,7 @@ A `package.json` with a `"late"` field declares its surfaces:
 
 | Surface     | Example field                       | Appears as                |
 | ----------- | ----------------------------------- | ------------------------- |
-| Skills      | `"skills": ["skills/welcome.md"]`   | Auto-loaded instructions  |
+| Skills      | `"skills": ["skills/"]`             | Auto-loaded instructions  |
 | MCP servers | `"mcp": { "servers": {...} }`       | Available tools           |
 | Commands    | `"commands": ["/weather"]`          | `/weather` in the chat    |
 | Themes      | `"themes": ["themes/dark.json"]`    | Switchable from `/themes` |
@@ -297,6 +298,7 @@ You can also create an `.llmignore` file alongside your `.gitignore` to specific
 | `--version` | Show version information |
 | `--continue` | Resume the previous session |
 | `--prompt "..."` | Start the agent immediately with the given prompt |
+| `--theme "<id>"` | Apply a plugin theme on launch (e.g. `<plugin>:<name>`); also reads `$LATE_THEME` |
 | `--gemma-thinking` | Inject thinking tokens for Gemma 4 models |
 | `--subagent-max-turns <n>` | Set max turns per subagent (default: 500) |
 | `--append-system-prompt "..."` | Append text to the system prompt (e.g. further instructions) |

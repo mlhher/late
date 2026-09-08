@@ -1,6 +1,10 @@
 # Late Plugin SDK Guide
 
-Late's plugin system lets you bundle extension surfaces — skills, slash commands, MCP servers, themes, and hooks — into a single installable unit. Plugins can be installed from npm, a Git repository, a local directory, or a marketplace catalog.
+Late's plugin system lets you bundle extension surfaces, including skills, slash commands, MCP servers, themes, and hooks, into a single installable unit. Plugins can be installed from npm, a Git repository, a local directory, or a marketplace catalog.
+
+Please see the [example-plugin](../example-plugin) for a full implementation of every supported API surface.
+
+For rapid plugin development, point your agent to [./plugin-sdk.md](./plugin-sdk.md), [./plugin-example.md](./plugin-example.md), and the runnable [example-plugin](../example-plugin).
 
 ---
 
@@ -95,7 +99,8 @@ Every plugin must have a `package.json` at its root. The `"late"` field is the p
 | `version` | `string` | Plugin version (semver). |
 | `description` | `string` | Short description shown in `late plugin list`. |
 | `late.skills` | `string[]` | Relative paths to [Skill](#skills) directories. |
-| `late.commands` | `string[]` | Slash command names (with or without leading `/`). |
+| `late.commands` | `(string \| object)[]` | Slash command names or command objects with handler scripts (`{ "name": "...", "handler": "..." }`). |
+| `late.tools` | `object[]` | Inline agent-callable tool definitions (`{ "name": "...", "script": "...", ... }`). |
 | `late.mcp.servers` | `object` | Map of MCP server names to [MCP Server](#mcp-servers) configs. |
 | `late.themes` | `string[]` | Relative paths to Glamour theme JSON files. |
 | `late.hooks` | `object` | Hook type → script path mappings. |
@@ -108,7 +113,7 @@ Every plugin must have a `package.json` at its root. The `"late"` field is the p
 
 [Agent Skills](https://agentskills.io/) are reusable sets of instructions that Late's orchestrator injects into the system prompt. Skills are discovered automatically from skill directories.
 
-Plugin skills are symlinked into `~/.config/late/skills/<name>` at startup so the existing skill loader discovers them.
+Plugin skills are symlinked into `~/.config/late/skills/<name>` at startup so the existing skill loader discovers them. Each skill must reside in a directory whose name matches the skill `name` declared in its `SKILL.md` frontmatter (or directly at `skills/SKILL.md` if named `skills`).
 
 A skill directory contains a `SKILL.md` with YAML frontmatter:
 
@@ -133,20 +138,26 @@ Each script in a skill becomes a `ScriptTool` that the agent can invoke.
 my-plugin/
 ├── package.json
 └── skills/
-    ├── SKILL.md
-    └── pull.sh
+    └── git-helpers/
+        ├── SKILL.md
+        └── pull.sh
 ```
 
 ### Slash Commands
 
 Plugin slash commands appear in the TUI's autocomplete dropdown when the user types `/`. They are also shown in the `/help` overlay and the status bar.
 
-Commands are listed in the manifest as strings. When the user types a plugin slash command and presses Enter, it is dispatched as a regular user prompt to the agent. The plugin's skills, MCP servers, and tools handle the actual execution.
+Commands can be declared in two ways:
+- **Bare strings** (e.g. `"/pull"`): Late dispatches the invocation as a regular user prompt to the orchestrator, letting the agent use available skills and tools to handle it.
+- **Objects with a `handler` script** (e.g. `{ "name": "/echo", "handler": "scripts/echo.sh" }`): Late executes the script directly, passing any trailing arguments as a JSON string array on stdin. Script stdout is displayed as a toast notification in the TUI without involving the LLM.
 
 ```json
 {
   "late": {
-    "commands": ["/pull", "/fetch", "/status"]
+    "commands": [
+      "/pull",
+      { "name": "/echo", "handler": "scripts/echo.sh" }
+    ]
   }
 }
 ```
@@ -157,7 +168,7 @@ The leading `/` is optional — Late normalizes it automatically.
 
 Model Context Protocol servers provide tools that agents can call. Plugin MCP servers are merged into Late's MCP configuration at startup.
 
-Server names are automatically namespaced as `plugin-name:server-name` to prevent collisions.
+Server tools are automatically namespaced as `<plugin>_<server>__<tool>` (sanitized to `[A-Za-z0-9_-]` characters for OpenAI endpoint compatibility).
 
 ```json
 {
@@ -207,6 +218,7 @@ Hooks are scripts that run at specific lifecycle events. Each hook type accepts 
   "late": {
     "hooks": {
       "onToolCall": ["hooks/log-tool.sh"],
+      "onToolResult": ["hooks/log-result.sh"],
       "onSessionStart": ["hooks/on-start.sh"],
       "onMessageSend": ["hooks/on-send.sh"]
     }
@@ -216,7 +228,8 @@ Hooks are scripts that run at specific lifecycle events. Each hook type accepts 
 
 | Hook | When it fires | Script receives |
 | --- | --- | --- |
-| `onToolCall` | Before a tool is executed | Tool name and arguments via stdin (JSON) |
+| `onToolCall` | Before a tool is executed | `{ "tool", "arguments", "timestamp" }` JSON via stdin |
+| `onToolResult` | After a tool executes successfully | `{ "tool", "result" }` JSON via stdin |
 | `onSessionStart` | Once, when Late starts | An empty JSON object `{}` via stdin |
 | `onMessageSend` | When a user sends a message | The message content via stdin |
 
@@ -291,9 +304,7 @@ late plugin enable <name>                 Enable a plugin
 late plugin disable <name>                Disable a plugin
 ```
 
-The `--project` (or `--local`) flag can be used with `install`, `link`, and `remove`
-to operate on the project-local `.late/plugins/` directory instead of the global store.
-When omitted, these commands default to the global directory.
+The `--project` (or `--local`) flag can be used with `install`, `link`, and `remove` to operate on the project-local `.late/plugins/` directory instead of the global store. When omitted, these commands default to the global directory.
 
 ---
 
@@ -339,7 +350,7 @@ late plugin link ./my-plugin
 late plugin list
 ```
 
-You should see your plugin listed. The slash commands appear in autocomplete and the status bar shows the plugin count.
+You should see your plugin listed. The slash commands appear in autocomplete and the status bar displays the plugin badge (counting registered plugin commands).
 
 6. **Iterate:** Edit your plugin files. Run `late plugin list` again or restart Late to see your updates.
 
@@ -366,8 +377,9 @@ This sample plugin adds a `/pull` slash command and a `git-helpers` skill that t
 git-pull/
 ├── package.json
 └── skills/
-    ├── SKILL.md
-    └── safe-pull.sh
+    └── git-helpers/
+        ├── SKILL.md
+        └── safe-pull.sh
 ```
 
 ### `package.json`
@@ -384,7 +396,7 @@ git-pull/
 }
 ```
 
-### `skills/SKILL.md`
+### `skills/git-helpers/SKILL.md`
 
 ```markdown
 ---
@@ -407,7 +419,7 @@ When the user asks to pull changes or uses the `/pull` command:
 Use the `safe-pull.sh` script tool for automated execution.
 ```
 
-### `skills/safe-pull.sh`
+### `skills/git-helpers/safe-pull.sh`
 
 ```bash
 #!/bin/bash
@@ -442,7 +454,7 @@ fi
 Make the script executable:
 
 ```bash
-chmod +x skills/safe-pull.sh
+chmod +x skills/git-helpers/safe-pull.sh
 ```
 
 ### Install and test
@@ -494,15 +506,11 @@ Add more commands, skills, or MCP servers:
 
 ## Plugin Surfaces (Reference)
 
-A plugin manifest's `late` field can declare any of the following surfaces.
-All surfaces are optional and may be combined in any package.json.
+A plugin manifest's `late` field can declare any of the following surfaces. All surfaces are optional and may be combined in any package.json.
 
 ### `late.commands` — slash commands
 
-`late.commands` accepts either a flat array of strings (legacy form, the
-command falls through to plain-prompt dispatch) or an array of objects that
-can attach a `handler` script (messages are dispatched to your script, stdout
-becomes a toast, errors become error toasts).
+`late.commands` accepts either a flat array of strings (legacy form, the command falls through to plain-prompt dispatch) or an array of objects that can attach a `handler` script (messages are dispatched to your script, stdout becomes a toast, errors become error toasts).
 
 ```json
 {
@@ -515,15 +523,11 @@ becomes a toast, errors become error toasts).
 }
 ```
 
-When the handler returns non-empty stdout, the TUI shows a toast like:
-`/git-pull → "Already up to date."`. When it exits non-zero, the toast
-reads: `/git-pull failed: <message>`.
+When the handler returns non-empty stdout, the TUI shows a toast like: `/git-pull → "Already up to date."`. When it exits non-zero, the toast reads: `/git-pull failed: <message>`.
 
 ### `late.tools` — inline agent-callable tools
 
-Tools declared this way are exposed to the model without an MCP wrapper.
-The script receives the tool's argument JSON on stdin and must return the
-result on stdout.
+Tools declared this way are exposed to the model without an MCP wrapper. The script receives the tool's argument JSON on stdin and must return the result on stdout.
 
 ```json
 {
@@ -544,12 +548,7 @@ result on stdout.
 }
 ```
 
-The tool is registered under the namespaced name `<plugin>__<tool>`
-(e.g. `weather__summarize`) — sanitized to characters OpenAI-compatible
-endpoints accept (only `[A-Za-z0-9_-]`, capped at 64 chars; `:` and other
-characters become `_`, and rare collisions get a hash suffix). All the
-usual onToolCall / middleware pipeline rules apply, so plugin tools
-respect user confirmation, hook mutation, and enabledTools gating.
+The tool is registered under the namespaced name `<plugin>__<tool>` (e.g. `weather__summarize`) — sanitized to characters OpenAI-compatible endpoints accept (only `[A-Za-z0-9_-]`, capped at 64 chars; `:` and other characters become `_`, and rare collisions get a hash suffix). All the usual onToolCall / middleware pipeline rules apply, so plugin tools respect user confirmation, hook mutation, and enabledTools gating.
 
 ### `late.hooks` — lifecycle hooks
 
@@ -557,26 +556,21 @@ respect user confirmation, hook mutation, and enabledTools gating.
 | --------------- | ------------------------------------------------------------- | ------------------------------------------------------ |
 | `onSessionStart` | Once, when Late starts.                                      | an empty JSON object `{}`                                |
 | `onToolCall`     | Before every tool runs. May mutate or veto (return `"blocked"`). | `{ "tool": "...", "arguments": {...}, "timestamp": "..." }` |
-| `onToolResult`   | After every tool runs. JSON stdout **mutates** the result the LLM sees; `"blocked"` vetoes it (see [Tool-result mutation](#tool-result-mutation) below). | `{ "tool": "...", "result": "..." }`                    |
+| `onToolResult`   | After every successful tool execution. JSON stdout **mutates** the result the LLM sees; `"blocked"` vetoes it (see [Tool-result mutation](#tool-result-mutation) below). | `{ "tool": "...", "result": "..." }`                    |
 | `onMessageSend`  | Sequential transform of outgoing user messages.              | the current message text                                 |
 
-Hooks are run inside the plugin's directory, so relative paths in the
-manifest are resolved against the package root. Paths that escape the
-plugin directory are rejected.
+Hooks are run inside the plugin's directory, so relative paths in the manifest are resolved against the package root. Paths that escape the plugin directory are rejected.
 
 ### `--project` — project-local plugins
 
-Install into `~/.config/late/.late/plugins/` (your project's local copy)
-instead of the global plugins directory:
+Install into `.late/plugins/` (your project's local copy) instead of the global plugins directory:
 
 ```bash
 late plugin install --project ./my-plugin
 late plugin link    --project ./my-plugin
 ```
 
-Project-local plugins override global plugins with the same `name`, so
-teams can ship a plugin with their repo without forcing every developer
-to install it. Path: `$CWD/.late/plugins/`.
+Project-local plugins override global plugins with the same `name`, so teams can ship a plugin with their repo without forcing every developer to install it. Path: `$CWD/.late/plugins/`.
 
 ### From the marketplace registry
 
@@ -587,11 +581,7 @@ late plugin install git-helper
 late plugin install github:my-org/git-helper
 ```
 
-Bare names hit the marketplace first, if `LATE_PLUGIN_REGISTRY` is set — no
-default registry is published yet, so without it the marketplace step is
-skipped. The registry returns either an npm target or a git URL. If the
-registry is unreachable or returns 404, install falls back to trying the
-bare name as an npm package. Point at a registry from the environment:
+Bare names hit the marketplace first, if `LATE_PLUGIN_REGISTRY` is set — no default registry is published yet, so without it the marketplace step is skipped. The registry returns either an npm target or a git URL. If the registry is unreachable or returns 404, install falls back to trying the bare name as an npm package. Point at a registry from the environment:
 
 ```bash
 export LATE_PLUGIN_REGISTRY="https://registry.example.com/v1"
@@ -609,19 +599,14 @@ late plugin update git-helper
 
 Update flow:
 
-- **npm** — `npm install --prefix <plugins-dir> --no-save --quiet <pkg>@latest`
-  then recreates the `plugins/<name>` symlink if it was missing.
-- **git** — clones to a sibling temp directory, strips `.git`, then atomically
-  `rename`s over the existing plugin directory (no half-writes).
+- **npm** — `npm install --prefix <plugins-dir> --no-save --quiet <pkg>@latest` then recreates the `plugins/<name>` symlink if it was missing.
+- **git** — clones to a sibling temp directory, strips `.git`, then atomically `rename`s over the existing plugin directory (no half-writes).
 - **marketplace** — re-resolves the registry entry, then proceeds as npm or git.
 - **local** — skipped with a hint to edit the source directory directly.
 
 ## Tool-result Mutation
 
-`onToolResult` scripts can rewrite the tool result before the LLM sees it.
-The hook runs sequentially across plugin scripts (deterministic order
-matches the snapshot from `PluginChangeMsg`). A script's stdout is
-interpreted like this:
+`onToolResult` scripts can rewrite the tool result before the LLM sees it. The hook runs sequentially across plugin scripts (deterministic order determined by `snapshotHooks`, sorted by plugin name then script path). A script's stdout is interpreted like this:
 
 | Script stdout           | Effect                                                          |
 | ----------------------- | --------------------------------------------------------------- |
@@ -630,18 +615,5 @@ interpreted like this:
 | literal `blocked`       | Vetoes the result; the calling tool returns an error.            |
 | stderr / nonzero exit   | Logged, the rest of the chain continues with the prior result.   |
 
-The pipeline is wired up automatically: after every tool execution,
-`BuildToolResultMiddlewares` calls `CallOnToolResultHooks(ctx, tool,
-result)` and feeds the (possibly rewritten) bytes back to the LLM as the
-tool result. The public entry point is also available directly:
-`(*PluginManager).CallOnToolResultHooks(ctx, tool, result) ([]byte, error)`.
+The pipeline is wired up automatically: after every successful tool execution, `BuildToolResultMiddlewares` calls `CallOnToolResultHooks(ctx, tool, result)` and feeds the (possibly rewritten) bytes back to the LLM as the tool result. The public entry point is also available directly: `(*PluginManager).CallOnToolResultHooks(ctx, tool, result) ([]byte, error)`.
 
----
-
-## See also
-
-A worked example that exercises **every surface** described above
-(skills, MCP, commands in both shapes, themes, hooks including veto and
-mutate, inline tools, and the `--project` flag) lives at
-[`plugin-example.md`](./plugin-example.md) — it's the recommended
-starting point for plugin authors who want a copy-paste-able skeleton.
