@@ -7,6 +7,7 @@ import (
 	"late/internal/config"
 	"late/internal/git"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/filepicker"
 	"charm.land/bubbles/v2/spinner"
@@ -215,10 +216,12 @@ type Model struct {
 	// Plugin-provided slash commands (registered at startup from plugins)
 	PluginCommands []string // each entry should include leading slash, e.g. "/query"
 
-	// RunningPluginCmd holds the name of a plugin command currently executing,
-	// or empty if none. While set, the input box displays animated ghost text
-	// and user input is blocked.
-	RunningPluginCmd string
+	// RunningPluginAction describes an asynchronous plugin action currently
+	// executing, or is empty when none is running. While set, the input box
+	// is locked. RunningPluginActionVisibleAfter can defer its animated status
+	// text so short actions do not flash an indicator.
+	RunningPluginAction             string
+	RunningPluginActionVisibleAfter time.Time
 
 	// Plugin-provided message hook. Set at startup from
 	// (*PluginManager).HookedMessage. When nil, outgoing user messages are

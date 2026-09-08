@@ -219,6 +219,13 @@ func (pm *PluginManager) snapshotHooks(t string) []hookData {
 	return out
 }
 
+// HasMessageSendHooks reports whether any enabled plugin declares an
+// onMessageSend hook. Callers use this at startup to keep the ordinary message
+// submission path synchronous when there is no hook work to perform.
+func (pm *PluginManager) HasMessageSendHooks() bool {
+	return len(pm.snapshotHooks("message-send")) > 0
+}
+
 // fanout fires all hooks across all plugins for the given event type in
 // parallel. Each hook's stdout is logged; errors and stderr are forwarded
 // but never abort the chain.

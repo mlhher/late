@@ -539,8 +539,10 @@ func main() {
 
 	// Register plugin command handler + message hook into the TUI.
 	if pluginManager != nil {
-		model.MessageHook = func(text string) string {
-			return pluginManager.HookedMessage(context.Background(), text)
+		if pluginManager.HasMessageSendHooks() {
+			model.MessageHook = func(text string) string {
+				return pluginManager.HookedMessage(context.Background(), text)
+			}
 		}
 		model.CommandHandler = pluginManager.HandleCommand
 	}

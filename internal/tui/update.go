@@ -30,6 +30,8 @@ type StreamMsg struct {
 
 type clearToastMsg struct{}
 
+const messageHookIndicatorDelay = 400 * time.Millisecond
+
 type composeFinishedMsg struct {
 	content string
 	err     error
@@ -56,6 +58,7 @@ type pluginCommandResultMsg struct {
 type messageHookResultMsg struct {
 	target        common.Orchestrator // the agent that was focused when Enter was pressed
 	attachedFiles []string
+	draft         string // original editor text, for restoration if Submit fails
 	input         string // expandedInput, pre-hook (for input-history dedup)
 	submitted     string // post-hook text to actually submit
 }
@@ -104,6 +107,9 @@ func (m Model) updateInternal(msg tea.Msg) (Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		if msg.String() == "ctrl+o" {
+			if m.RunningPluginAction != "" {
+				return m, nil
+			}
 			m.ShowFilePicker = !m.ShowFilePicker
 			if m.ShowFilePicker {
 				m.Mode = ViewFilePicker
@@ -113,6 +119,9 @@ func (m Model) updateInternal(msg tea.Msg) (Model, tea.Cmd) {
 			return m, m.FilePicker.Init()
 		}
 		if msg.String() == "ctrl+x" {
+			if m.RunningPluginAction != "" {
+				return m, nil
+			}
 			m.AttachedFiles = nil
 			return m, nil
 		}
@@ -127,6 +136,9 @@ func (m Model) updateInternal(msg tea.Msg) (Model, tea.Cmd) {
 			m.updateLayout()
 			return m, nil
 		}
+	}
+	if _, ok := msg.(tea.PasteMsg); ok && m.RunningPluginAction != "" {
+		return m, nil
 	}
 
 	// Window Sizing
@@ -187,7 +199,8 @@ func (m Model) updateInternal(msg tea.Msg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	if msg, ok := msg.(pluginCommandResultMsg); ok {
-		m.RunningPluginCmd = ""
+		m.RunningPluginAction = ""
+		m.RunningPluginActionVisibleAfter = time.Time{}
 		if !msg.handled {
 			// The plugin registered the name but has no handler (legacy
 			// plain-prompt dispatch) — submit the input as a normal prompt.
@@ -224,8 +237,16 @@ func (m Model) updateInternal(msg tea.Msg) (Model, tea.Cmd) {
 		return m, clearCmd
 	}
 	if msg, ok := msg.(messageHookResultMsg); ok {
+		m.RunningPluginAction = ""
+		m.RunningPluginActionVisibleAfter = time.Time{}
 		if err := msg.target.Submit(msg.submitted, msg.attachedFiles); err != nil {
+			// Submission did not take ownership of the snapshotted draft, so
+			// restore it exactly as the user entered it and return its files.
+			m.Input.SetValue("> " + msg.draft)
+			m.Input.CursorEnd()
+			m.AttachedFiles = append([]string(nil), msg.attachedFiles...)
 			m.Err = err
+			m.updateViewport()
 			return m, nil
 		}
 		m = m.finishSubmit(msg.target, msg.input)
@@ -254,7 +275,7 @@ func (m Model) updateInternal(msg tea.Msg) (Model, tea.Cmd) {
 
 	// Filter key events that were consumed by updateChat during confirmation
 	forwardToInput := true
-	if m.RunningPluginCmd != "" {
+	if m.RunningPluginAction != "" {
 		forwardToInput = false
 	}
 
@@ -864,7 +885,7 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 			return m.interruptFocusedAgent()
 
 		case "enter":
-			if m.ShowFilePicker || m.RunningPluginCmd != "" {
+			if m.ShowFilePicker || m.RunningPluginAction != "" {
 				return m, nil
 			}
 			input := strings.TrimPrefix(m.Input.Value(), "> ")
@@ -1156,7 +1177,8 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 					m.AutocompleteItems = nil
 
 					// Mark plugin command as running (displays animated ghost text & blocks input)
-					m.RunningPluginCmd = name
+					m.RunningPluginAction = name
+					m.RunningPluginActionVisibleAfter = time.Time{}
 
 					return m, func() tea.Msg {
 						output, handled, hErr := m.CommandHandler(context.Background(), name, args)
@@ -1447,19 +1469,26 @@ func (m Model) submitMessage(input string) (Model, tea.Cmd) {
 	// script, bounded by a 15s timeout apiece (internal/plugin/hooks.go).
 	// Run them off the Bubble Tea update loop (Update() must return before
 	// the program can process the next message or repaint) so a slow or
-	// misbehaving hook can't freeze keystrokes/rendering. The message is
-	// visibly submitted — input cleared, history recorded, state flipped
-	// to thinking — only once messageHookResultMsg arrives with the
-	// (possibly transformed) text; see its handler in updateInternal. This
-	// mirrors how pluginCommandResultMsg already defers plugin
-	// slash-command handlers the same way.
+	// misbehaving hook can't freeze the Bubble Tea update loop. Snapshot and
+	// clear the editor immediately, then lock it. The running indicator is
+	// delayed so fast hooks do not flash it. If the eventual Submit fails, the
+	// result handler restores this exact draft and its files.
 	target := m.Focused
-	attachedFiles := m.AttachedFiles
+	attachedFiles := append([]string(nil), m.AttachedFiles...)
 	hook := m.MessageHook
+	m.Input.Reset()
+	m.Input.SetValue("> ")
+	m.AttachedFiles = nil
+	m.ShowAutocomplete = false
+	m.AutocompleteItems = nil
+	m.RunningPluginAction = "message hooks"
+	m.RunningPluginActionVisibleAfter = time.Now().Add(messageHookIndicatorDelay)
+	m.updateViewport()
 	return m, func() tea.Msg {
 		return messageHookResultMsg{
 			target:        target,
 			attachedFiles: attachedFiles,
+			draft:         input,
 			input:         expandedInput,
 			submitted:     applyMessageHook(hook, expandedInput),
 		}

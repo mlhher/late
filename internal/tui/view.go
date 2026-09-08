@@ -94,9 +94,11 @@ func (m Model) View() tea.View {
 
 func (m *Model) inputView() string {
 	var textareaView string
-	if m.RunningPluginCmd != "" {
+	showPluginAction := m.RunningPluginAction != "" &&
+		(m.RunningPluginActionVisibleAfter.IsZero() || !time.Now().Before(m.RunningPluginActionVisibleAfter))
+	if showPluginAction {
 		dots := []string{".", "..", "..."}[(time.Now().UnixMilli()/350)%3]
-		ghostText := fmt.Sprintf("> Running %s%s", m.RunningPluginCmd, dots)
+		ghostText := fmt.Sprintf("> Running %s%s", m.RunningPluginAction, dots)
 		maxW := m.Width - 4
 		if maxW > 0 && len(ghostText) > maxW {
 			ghostText = ghostText[:maxW-3] + "..."
@@ -121,7 +123,7 @@ func (m *Model) inputView() string {
 		MarginBackground(appBgColor)
 
 	s := m.GetAgentState(m.Focused.ID())
-	if s.State == StateThinking || s.State == StateStreaming || m.RunningPluginCmd != "" {
+	if s.State == StateThinking || s.State == StateStreaming || showPluginAction {
 		ms := float64(time.Now().UnixNano()) / 1e6
 		pulse := (math.Sin(ms/250.0) + 1.0) / 2.0 // oscillate 0 to 1
 

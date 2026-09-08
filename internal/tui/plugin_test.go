@@ -1,7 +1,12 @@
 package tui
 
 import (
+	"errors"
+	"strings"
 	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 // TestPluginCommands_Empty verifies that an unconfigured Model has
@@ -127,5 +132,93 @@ func TestIsPluginCmd_MatchesWithArgs(t *testing.T) {
 		if got := isPluginCmd(c.input, cmds); got != c.want {
 			t.Errorf("isPluginCmd(%q) = %v, want %v", c.input, got, c.want)
 		}
+	}
+}
+
+func TestMessageHookLocksInputUntilSubmission(t *testing.T) {
+	orch := &mockOrchestrator{supportsVision: true}
+	m := NewModel(orch, nil, nil)
+	m.Input.SetValue("> hello")
+	m.AttachedFiles = []string{"image.png"}
+	m.MessageHook = strings.ToUpper
+
+	m, cmd := m.submitMessage("hello")
+	if cmd == nil {
+		t.Fatal("expected asynchronous message-hook command")
+	}
+	if m.RunningPluginAction != "message hooks" {
+		t.Fatalf("running action = %q, want message hooks", m.RunningPluginAction)
+	}
+	if got := m.Input.Value(); got != "> " {
+		t.Fatalf("input was not cleared while hooks run: %q", got)
+	}
+	if len(m.AttachedFiles) != 0 {
+		t.Fatalf("attachments were not snapshotted and cleared: %v", m.AttachedFiles)
+	}
+	if strings.Contains(m.inputView(), "Running message hooks") {
+		t.Fatal("input view showed the message-hook action before the delay")
+	}
+	m.RunningPluginActionVisibleAfter = time.Now().Add(-time.Millisecond)
+	if !strings.Contains(m.inputView(), "Running message hooks") {
+		t.Fatal("input view does not show the message-hook action after the delay")
+	}
+
+	// Ordinary typing, paste, and a second Enter must all be ignored while
+	// the asynchronous action owns the input area.
+	m, duplicateCmd := m.updateInternal(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if duplicateCmd != nil || orch.submitCount != 0 {
+		t.Fatalf("second Enter was not blocked: cmd=%v submits=%d", duplicateCmd != nil, orch.submitCount)
+	}
+	m, _ = m.updateInternal(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
+	m, _ = m.updateInternal(tea.PasteMsg{Content: "new draft"})
+	if got := m.Input.Value(); got != "> " {
+		t.Fatalf("input changed while hooks were running: %q", got)
+	}
+
+	result := cmd()
+	m, _ = m.updateInternal(result)
+	if m.RunningPluginAction != "" {
+		t.Fatalf("running action not cleared: %q", m.RunningPluginAction)
+	}
+	if strings.Contains(m.inputView(), "Running message hooks") {
+		t.Fatal("input view still shows the message-hook action after completion")
+	}
+	if orch.submitCount != 1 || orch.submittedText != "HELLO" {
+		t.Fatalf("submission = (%d, %q), want (1, HELLO)", orch.submitCount, orch.submittedText)
+	}
+	if len(orch.submittedImages) != 1 || orch.submittedImages[0] != "image.png" {
+		t.Fatalf("submitted attachments = %v, want [image.png]", orch.submittedImages)
+	}
+}
+
+func TestMessageHookRestoresDraftWhenSubmissionFails(t *testing.T) {
+	submitErr := errors.New("submission failed")
+	orch := &mockOrchestrator{supportsVision: true, submitErr: submitErr}
+	m := NewModel(orch, nil, nil)
+	m.Input.SetValue("> keep this draft")
+	m.AttachedFiles = []string{"image.png"}
+	m.Pastes = map[string]string{"placeholder": "original paste"}
+	m.MessageHook = func(text string) string { return text + " transformed" }
+
+	m, cmd := m.submitMessage("keep this draft")
+	if cmd == nil {
+		t.Fatal("expected asynchronous message-hook command")
+	}
+	m, _ = m.updateInternal(cmd())
+
+	if !errors.Is(m.Err, submitErr) {
+		t.Fatalf("model error = %v, want %v", m.Err, submitErr)
+	}
+	if m.RunningPluginAction != "" {
+		t.Fatalf("running action not cleared after failure: %q", m.RunningPluginAction)
+	}
+	if got := m.Input.Value(); got != "> keep this draft" {
+		t.Fatalf("restored input = %q", got)
+	}
+	if len(m.AttachedFiles) != 1 || m.AttachedFiles[0] != "image.png" {
+		t.Fatalf("restored attachments = %v, want [image.png]", m.AttachedFiles)
+	}
+	if got := m.Pastes["placeholder"]; got != "original paste" {
+		t.Fatalf("paste mapping was not preserved: %q", got)
 	}
 }
