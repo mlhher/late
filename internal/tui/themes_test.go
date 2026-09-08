@@ -387,7 +387,7 @@ func TestSlashThemes_OpensPickerAtActive(t *testing.T) {
 
 // 19. renderThemeView handles empty list without panicking.
 func TestRenderThemeView_EmptyList(t *testing.T) {
-	m := &Model{Viewport: viewport.Model{}}
+	m := &Model{Viewport: viewport.Model{}, Focused: &mockOrchestrator{}}
 	m.Viewport.SetWidth(80)
 	m.Viewport.SetHeight(24)
 	m.renderThemeView()
@@ -397,6 +397,7 @@ func TestRenderThemeView_EmptyList(t *testing.T) {
 // 20. renderThemeView clamps cursor when out of range.
 func TestRenderThemeView_ClampsCursor(t *testing.T) {
 	m := &Model{
+		Focused:       &mockOrchestrator{},
 		Viewport:      viewport.Model{},
 		ThemeEntries:  []ThemeEntry{makeTheme("a:b", "a", "b")},
 		ThemeIndex:    99, // out of range
@@ -518,4 +519,3 @@ func TestPluginChangeMsg_RemovesActiveThemeFallsBackToDefault(t *testing.T) {
 		t.Fatalf("expected activeThemeStyles to revert to LateTheme, got %s", nmModel.activeThemeStyles)
 	}
 }
-

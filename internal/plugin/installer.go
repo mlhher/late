@@ -561,22 +561,14 @@ func RemovePlugin(pm *PluginManager, name string, projectLocal ...bool) (*Instal
 	project := len(projectLocal) > 0 && projectLocal[0]
 	destDir := pm.TargetDir(project)
 
-	if err := removeFromDir(destDir, name); err != nil {
-		return plugin, err
+	// Delete the installed path, never a second path guessed from the
+	// manifest name: that directory may belong to a different plugin.
+	rel, err := filepath.Rel(destDir, plugin.Path)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+		return plugin, fmt.Errorf("plugin %s is not installed in %s", name, destDir)
 	}
-
-	// Git-installed plugins live under a directory named after the
-	// repository, which may differ from the manifest name. Remove the
-	// plugin's actual on-disk location too so removal succeeds even when
-	// the two names differ (the name-based remove above is a no-op then).
-	if plugin.Path != "" {
-		if abs, err := filepath.Abs(plugin.Path); err == nil {
-			if rel, err := filepath.Rel(destDir, abs); err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, "..") {
-				if err := os.RemoveAll(abs); err != nil {
-					return plugin, fmt.Errorf("failed to remove plugin directory %s: %w", abs, err)
-				}
-			}
-		}
+	if err := removeFromDir(destDir, rel); err != nil {
+		return plugin, err
 	}
 
 	pm.Remove(name)

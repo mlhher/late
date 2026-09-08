@@ -22,6 +22,7 @@ type SkillMetadata struct {
 
 // Skill represents a loaded agent skill.
 type Skill struct {
+	ID           string // namespaced plugin identifier; empty for standalone skills
 	Path         string
 	Metadata     SkillMetadata
 	Instructions string
@@ -233,6 +234,12 @@ func tryLoadSkillDir(dir string) (*Skill, bool) {
 	skill, err := LoadSkill(loadDir)
 	if err != nil {
 		return nil, false
+	}
+	if name := filepath.Base(dir); loadDir != dir && strings.Contains(name, ":") {
+		skill.ID = name
+		if scope := filepath.Base(filepath.Dir(dir)); strings.HasPrefix(scope, "@") {
+			skill.ID = scope + "/" + name
+		}
 	}
 	return skill, true
 }

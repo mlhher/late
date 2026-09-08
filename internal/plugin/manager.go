@@ -406,6 +406,24 @@ func (pm *PluginManager) isPluginOwnedSymlink(linkPath string) bool {
 			return true
 		}
 	}
+	// A previous project's links also live in the shared skills directory.
+	// Recognize them by their namespace and owning plugin manifest, while
+	// preserving unrelated user-created symlinks.
+	name, _, namespaced := strings.Cut(filepath.Base(linkPath), ":")
+	if !namespaced {
+		return false
+	}
+	if scope := filepath.Base(filepath.Dir(linkPath)); strings.HasPrefix(scope, "@") {
+		name = scope + "/" + name
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(linkPath), target)
+	}
+	for dir := filepath.Dir(target); dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
+		if p, err := LoadPlugin(dir); err == nil && p.Name == name {
+			return true
+		}
+	}
 	return false
 }
 

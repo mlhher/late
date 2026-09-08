@@ -305,16 +305,15 @@ func main() {
 				// Keep the manager even with zero plugins so plugin command
 				// dispatch and hooks remain safely available.
 				pluginManager = pm
+				// Reconcile skill links even when this project has no plugins.
+				skillsDir, skillsErr = pathutil.LateSkillsDir()
+				if skillsErr == nil {
+					if err := pm.RegisterPluginSkills(skillsDir); err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: failed to register plugin skills: %v\n", err)
+					}
+				}
 				if pm.Count() > 0 {
 					fmt.Printf("Loading %d plugin(s)...\n", pm.Count())
-
-					// Register plugin skills into the skills directory
-					skillsDir, skillsErr = pathutil.LateSkillsDir()
-					if skillsErr == nil {
-						if err := pm.RegisterPluginSkills(skillsDir); err != nil {
-							fmt.Fprintf(os.Stderr, "Warning: failed to register plugin skills: %v\n", err)
-						}
-					}
 
 					// Connect plugin MCP servers
 					pluginMCP := pm.BuildMCPConfigMap()
@@ -443,7 +442,7 @@ func main() {
 	// tool that sanitizes to the same namespaced name.
 	usedToolNames := make(map[string]bool)
 	for _, t := range mcpClient.GetTools() {
-		if !toolEnabled(enabledTools, t.Name()) {
+		if !mcpToolEnabled(t, enabledTools) {
 			continue
 		}
 		sess.Registry.Register(t)
@@ -743,7 +742,7 @@ func (s *pluginToolSync) refresh(p *tea.Program, mcpClient *mcp.Client, pluginMa
 	used := make(map[string]bool)
 	var added []common.Tool
 	for _, t := range mcpClient.GetTools() {
-		if !toolEnabled(enabledTools, t.Name()) {
+		if !mcpToolEnabled(t, enabledTools) {
 			continue
 		}
 		added = append(added, t)
@@ -793,13 +792,22 @@ func (s *pluginToolSync) refresh(p *tea.Program, mcpClient *mcp.Client, pluginMa
 	}
 }
 
-// toolEnabled reports whether a namespaced tool name is enabled in the
-// enabledTools config: the namespaced name takes priority, then the
-// pre-namespacing "server:tool" form (reconstructed from "server__tool"),
-// then the bare name (the part after the last "__" or ":" separator) so
-// configs written before namespacing — either the old colon-joined keys
-// or plain bare-name keys — keep working. Unknown tools default to
-// enabled.
+// mcpToolEnabled preserves raw-name settings even when the exposed MCP
+// name has been sanitized, truncated, or deduplicated.
+func mcpToolEnabled(t tool.Tool, enabledTools map[string]bool) bool {
+	if enabled, ok := enabledTools[t.Name()]; ok {
+		return enabled
+	}
+	if named, ok := t.(interface{ BareName() string }); ok {
+		if enabled, exists := enabledTools[named.BareName()]; exists {
+			return enabled
+		}
+	}
+	return toolEnabled(enabledTools, t.Name())
+}
+
+// toolEnabled checks exact names before legacy aliases. Unknown tools
+// default to enabled.
 func toolEnabled(enabledTools map[string]bool, name string) bool {
 	if v, ok := enabledTools[name]; ok {
 		return v
@@ -812,6 +820,13 @@ func toolEnabled(enabledTools map[string]bool, name string) bool {
 	}
 	if v, ok := enabledTools[common.BareToolName(name)]; ok {
 		return v
+	}
+	// Old config keys may contain punctuation removed from exposed names.
+	// A disabled matching alias wins when multiple raw keys sanitize alike.
+	for raw, enabled := range enabledTools {
+		if !enabled && common.SanitizeToolName(raw) == common.BareToolName(name) {
+			return false
+		}
 	}
 	return true
 }
