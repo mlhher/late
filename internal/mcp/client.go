@@ -9,6 +9,7 @@ import (
 	"late/internal/tool"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -89,7 +90,6 @@ func (t *ToolAdapter) Name() string {
 	}
 	return common.SanitizeToolName(t.mcpTool.Name)
 }
-
 
 // BareName returns the bare (unnamespaced) tool name as reported by the MCP
 // server. Used by the tool-enable config check for backwards compatibility
@@ -226,8 +226,9 @@ func (c *Client) Connect(ctx context.Context, transport mcp.Transport, serverNam
 
 // assignToolNames assigns each adapter a name that is unique across all
 // currently registered tools (excluding this server's own, which are
-// about to be replaced). Rare sanitization collisions get a deterministic
-// hash suffix.
+// about to be replaced). Adapters are sorted by raw tool name before
+// deduplication, and rare sanitization collisions get a deterministic
+// hash suffix derived from the unsanitized "server:tool" identity.
 func (c *Client) assignToolNames(serverName string, adapters []*ToolAdapter) {
 	c.mu.RLock()
 	used := make(map[string]bool, len(c.tools))
@@ -238,15 +239,23 @@ func (c *Client) assignToolNames(serverName string, adapters []*ToolAdapter) {
 	}
 	c.mu.RUnlock()
 
+	// Sort adapters by raw tool name for deterministic naming order
+	sort.Slice(adapters, func(i, j int) bool {
+		return adapters[i].mcpTool.Name < adapters[j].mcpTool.Name
+	})
+
 	bases := make([]string, len(adapters))
+	identities := make([]string, len(adapters))
 	for i, a := range adapters {
 		bases[i] = a.Name()
+		identities[i] = a.serverName + ":" + a.mcpTool.Name
 	}
-	uniq := common.DeduplicateToolNames(bases, used)
+	uniq := common.DeduplicateToolNamesWithIdentities(bases, identities, used)
 	for i, a := range adapters {
 		a.name = uniq[i]
 	}
 }
+
 // handleToolListChanged re-discovers tools for a server when the SDK notifies
 // us of a tools/list change. It removes stale tool adapters for that server
 // and re-enumerates via the session's paginating Tools iterator.
@@ -302,7 +311,8 @@ func (c *Client) handleToolListChanged(ctx context.Context, req *mcp.ToolListCha
 	}
 }
 
-// GetTools returns all MCP tools as Tool interface instances.
+// GetTools returns all MCP tools as Tool interface instances, sorted
+// deterministically by tool name.
 func (c *Client) GetTools() []tool.Tool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -310,6 +320,9 @@ func (c *Client) GetTools() []tool.Tool {
 	for _, t := range c.tools {
 		tools = append(tools, t)
 	}
+	sort.Slice(tools, func(i, j int) bool {
+		return tools[i].Name() < tools[j].Name()
+	})
 	return tools
 }
 
@@ -463,13 +476,21 @@ func TransportForServer(ctx context.Context, server *MCPServer) (mcp.Transport, 
 	return t, nil
 }
 
-// ConnectFromConfig connects to every enabled server in config. Servers
-// that are already connected (same name) are skipped, so calling this
-// with a config that includes previously-connected servers does not
-// reconnect them — this is what lets main merge plugin servers into an
-// already-connected user config without restarting every user server.
+// ConnectFromConfig connects to every enabled server in config in stable
+// alphabetical order. Servers that are already connected (same name) are
+// skipped, so calling this with a config that includes previously-connected
+// servers does not reconnect them — this is what lets main merge plugin
+// servers into an already-connected user config without restarting every
+// user server.
 func (c *Client) ConnectFromConfig(ctx context.Context, config *MCPConfig) error {
-	for name, server := range config.McpServers {
+	serverNames := make([]string, 0, len(config.McpServers))
+	for name := range config.McpServers {
+		serverNames = append(serverNames, name)
+	}
+	sort.Strings(serverNames)
+
+	for _, name := range serverNames {
+		server := config.McpServers[name]
 		if server.Disabled {
 			// fmt.Printf("Skipping disabled MCP server: %s\n", name)
 			continue

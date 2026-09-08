@@ -13,8 +13,8 @@ import (
 // PluginManager manages the lifecycle of installed plugins.
 type PluginManager struct {
 	mu         sync.RWMutex
-	pluginsDir string                     // absolute path to the global plugins store directory
-	projectDir string                     // optional absolute path to project-local plugins dir (.late/plugins/)
+	pluginsDir string // absolute path to the global plugins store directory
+	projectDir string // optional absolute path to project-local plugins dir (.late/plugins/)
 	plugins    map[string]*InstalledPlugin
 }
 
@@ -416,7 +416,7 @@ func (pm *PluginManager) BuildMCPConfigMap() map[string]MCPServerConfig {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 	result := make(map[string]MCPServerConfig)
-	for _, p := range pm.plugins {
+	for _, p := range pm.allLocked() {
 		if !p.Enabled || p.Late == nil || p.Late.MCP == nil {
 			continue
 		}

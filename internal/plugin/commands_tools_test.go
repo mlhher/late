@@ -175,7 +175,7 @@ func TestGetInlineTools_AggregatesAcrossPlugins(t *testing.T) {
 func TestGetInlineTools_SanitizesAndDeduplicates(t *testing.T) {
 	pm := NewPluginManager(t.TempDir())
 
-	// "a-b" tool "c" and "a" tool "b-c" both sanitize to "a-b__c"
+	// "pkg.x" tool "c" and "pkg_x" tool "c" both sanitize to "pkg_x__c"
 	// without collision handling.
 	writeToolPlugin := func(dir, name, toolName string) {
 		mf := &LateManifest{
@@ -189,8 +189,8 @@ func TestGetInlineTools_SanitizesAndDeduplicates(t *testing.T) {
 		writeExecutableShell(t, filepath.Join(p.Path, "scripts/t.sh"), `echo t`)
 		pm.Add(p)
 	}
-	writeToolPlugin(t.TempDir(), "a-b", "c")
-	writeToolPlugin(t.TempDir(), "a", "b-c")
+	writeToolPlugin(t.TempDir(), "pkg.x", "c")
+	writeToolPlugin(t.TempDir(), "pkg_x", "c")
 
 	tools := pm.GetInlineTools(nil)
 	if len(tools) != 2 {
@@ -207,8 +207,8 @@ func TestGetInlineTools_SanitizesAndDeduplicates(t *testing.T) {
 		t.Fatalf("expected 2 unique tool names after dedup, got %v", names)
 	}
 	// The first occurrence keeps the plain name.
-	if !names["a-b__c"] {
-		t.Fatalf("expected first occurrence to keep name a-b__c, got %v", names)
+	if !names["pkg_x__c"] {
+		t.Fatalf("expected first occurrence to keep name pkg_x__c, got %v", names)
 	}
 }
 
@@ -324,5 +324,75 @@ func TestHandleCommand_ConcurrentWithWriters(t *testing.T) {
 	case <-done:
 	case <-time.After(20 * time.Second):
 		t.Fatal("HandleCommand deadlocked against queued writers (nested RLock?)")
+	}
+}
+
+// TestGetInlineTools_DeterministicOrderingAndCollisionSuffix verifies that
+// GetInlineTools orders plugins and tools deterministically, resolves collisions
+// consistently, and generates strictly endpoint-safe names.
+func TestGetInlineTools_DeterministicOrderingAndCollisionSuffix(t *testing.T) {
+	pm := NewPluginManager(t.TempDir())
+	tmp := t.TempDir()
+
+	// Two plugins whose names sanitize to the same base prefix ("pkg_x")
+	p1 := writeTestPlugin(t, tmp, "pkg.x", &LateManifest{
+		Tools: []LateToolManifest{
+			{Name: "tool_b", Description: "b", Script: "scripts/b.sh", Parameters: jsonRaw(`{}`)},
+			{Name: "tool_a", Description: "a", Script: "scripts/a.sh", Parameters: jsonRaw(`{}`)},
+		},
+	})
+	writeExecutableShell(t, filepath.Join(p1.Path, "scripts/a.sh"), `echo a`)
+	writeExecutableShell(t, filepath.Join(p1.Path, "scripts/b.sh"), `echo b`)
+
+	p2 := writeTestPlugin(t, tmp, "pkg_x", &LateManifest{
+		Tools: []LateToolManifest{
+			{Name: "tool_a", Description: "a", Script: "scripts/a.sh", Parameters: jsonRaw(`{}`)},
+		},
+	})
+	writeExecutableShell(t, filepath.Join(p2.Path, "scripts/a.sh"), `echo a`)
+
+	pm.Add(p2)
+	pm.Add(p1) // Added in reverse alphabetical order
+
+	// Run multiple times to verify ordering and collision resolution are stable
+	var firstNames []string
+	for iter := 0; iter < 10; iter++ {
+		tools := pm.GetInlineTools(nil)
+		if len(tools) != 3 {
+			t.Fatalf("expected 3 tools, got %d", len(tools))
+		}
+
+		names := make([]string, len(tools))
+		for i, toolItem := range tools {
+			names[i] = toolItem.Name
+			// Must be strictly endpoint safe [A-Za-z0-9_-]
+			for _, r := range toolItem.Name {
+				if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-') {
+					t.Fatalf("tool name contains invalid character %q: %q", r, toolItem.Name)
+				}
+			}
+		}
+
+		if iter == 0 {
+			firstNames = names
+			// "pkg.x" sorts before "pkg_x" ('.' is ASCII 46, '_' is ASCII 95)
+			// Within pkg.x, tool_a sorts before tool_b
+			if names[0] != "pkg_x__tool_a" {
+				t.Errorf("expected first tool to be pkg_x__tool_a, got %q", names[0])
+			}
+			if names[1] != "pkg_x__tool_b" {
+				t.Errorf("expected second tool to be pkg_x__tool_b, got %q", names[1])
+			}
+			// Colliding tool from pkg_x should get a hash suffix
+			if !strings.HasPrefix(names[2], "pkg_x__tool_a-") {
+				t.Errorf("expected colliding tool to have hash suffix, got %q", names[2])
+			}
+		} else {
+			for i := range names {
+				if names[i] != firstNames[i] {
+					t.Fatalf("run %d produced different tool ordering/name: %v vs %v", iter, names, firstNames)
+				}
+			}
+		}
 	}
 }

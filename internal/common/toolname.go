@@ -77,6 +77,16 @@ func BareToolName(name string) string {
 // unchanged is returned unchanged — existing installs never see their
 // tool names rewritten unless a collision or a length violation forces it.
 func DeduplicateToolNames(bases []string, used map[string]bool) []string {
+	return DeduplicateToolNamesWithIdentities(bases, nil, used)
+}
+
+// DeduplicateToolNamesWithIdentities is like DeduplicateToolNames but derives
+// the collision hash suffix from the unsanitized source identity (if provided
+// and non-empty for that index). This ensures that two distinct tools whose
+// names happen to sanitize to the same base string produce distinct hash
+// suffixes. Counter suffixes use '-' (e.g. -1, -2) instead of '.' to remain
+// strictly endpoint-safe [A-Za-z0-9_-].
+func DeduplicateToolNamesWithIdentities(bases []string, identities []string, used map[string]bool) []string {
 	if used == nil {
 		used = make(map[string]bool)
 	}
@@ -84,12 +94,16 @@ func DeduplicateToolNames(bases []string, used map[string]bool) []string {
 	for i, base := range bases {
 		name := base
 		if used[name] {
-			sum := sha256.Sum256([]byte(base))
-			suffix := hex.EncodeToString(sum[:4]) // 8 hex chars, derived from the full base
+			sourceID := base
+			if i < len(identities) && identities[i] != "" {
+				sourceID = identities[i]
+			}
+			sum := sha256.Sum256([]byte(sourceID))
+			suffix := hex.EncodeToString(sum[:4]) // 8 hex chars, derived from source identity
 			for n := 0; ; n++ {
 				suf := "-" + suffix
 				if n > 0 {
-					suf += fmt.Sprintf(".%d", n)
+					suf += fmt.Sprintf("-%d", n)
 				}
 				// Truncate the BASE to leave room for the suffix, never the
 				// candidate: cutting the tail could remove the suffix entirely

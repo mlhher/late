@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 
 	"late/internal/client"
 	"late/internal/common"
@@ -23,7 +24,7 @@ import (
 // "<plugin>__<tool>" with every character outside [A-Za-z0-9_-]
 // replaced by '_', then capped at 64 chars. Rare collisions between
 // distinct combos that sanitize identically are resolved with a
-// deterministic hash suffix.
+// deterministic hash suffix derived from the unsanitized plugin:tool identity.
 type InlineTool struct {
 	Name        string          // namespaced, endpoint-safe tool name
 	Description string          // shown in the model's tool definitions
@@ -32,12 +33,13 @@ type InlineTool struct {
 }
 
 // GetInlineTools returns every inline tool declared across all enabled
-// plugins. Names are namespaced as "<plugin>__<tool>" (sanitized — see
-// InlineTool) so two plugins declaring the same short tool name cannot
-// collide, and so the names are accepted by OpenAI-compatible
-// endpoints. Disabled and nil-manifest plugins are skipped; a plugin
-// whose script path fails the containment check is silently skipped
-// with a stderr warning rather than crashing discovery.
+// plugins in deterministic order (sorted by plugin name, then tool name).
+// Names are namespaced as "<plugin>__<tool>" (sanitized — see InlineTool)
+// so two plugins declaring the same short tool name cannot collide, and so
+// the names are accepted by OpenAI-compatible endpoints. Disabled and
+// nil-manifest plugins are skipped; a plugin whose script path fails the
+// containment check is silently skipped with a stderr warning rather than
+// crashing discovery.
 //
 // used pre-seeds names already taken by tools from other sources (e.g.
 // MCP-backed tools) so an inline tool can never silently overwrite one
@@ -47,12 +49,21 @@ func (pm *PluginManager) GetInlineTools(used map[string]bool) []InlineTool {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
+	plugins := pm.allLocked()
 	var tools []InlineTool
-	for _, p := range pm.plugins {
+	var rawIdentities []string
+
+	for _, p := range plugins {
 		if !p.Enabled || p.Late == nil {
 			continue
 		}
-		for _, t := range p.Late.Tools {
+		// Sort tools deterministically within each plugin
+		pluginTools := append([]LateToolManifest(nil), p.Late.Tools...)
+		sort.Slice(pluginTools, func(i, j int) bool {
+			return pluginTools[i].Name < pluginTools[j].Name
+		})
+
+		for _, t := range pluginTools {
 			if t.Name == "" || t.Script == "" {
 				continue
 			}
@@ -82,18 +93,21 @@ func (pm *PluginManager) GetInlineTools(used map[string]bool) []InlineTool {
 					return runHook(ctx, pluginDir, scriptPath, payload)
 				},
 			})
+			rawIdentities = append(rawIdentities, p.Name+":"+t.Name)
 		}
 	}
 
 	// Resolve collisions between (rare) pairs of distinct plugin:tool
-	// combos that sanitize to the same name, e.g. "a-b:c" vs "a:b-c" —
-	// both become "a-b__c". The first occurrence keeps the name; later
-	// duplicates get a deterministic hash suffix.
+	// combos that sanitize to the same name, e.g. plugin "pkg.x" tool "c"
+	// vs plugin "pkg_x" tool "c" — both become "pkg_x__c". The first
+	// occurrence keeps the name; later
+	// duplicates get a deterministic hash suffix derived from the unsanitized
+	// source identity.
 	names := make([]string, len(tools))
 	for i, t := range tools {
 		names[i] = t.Name
 	}
-	uniq := common.DeduplicateToolNames(names, used)
+	uniq := common.DeduplicateToolNamesWithIdentities(names, rawIdentities, used)
 	for i := range tools {
 		tools[i].Name = uniq[i]
 	}

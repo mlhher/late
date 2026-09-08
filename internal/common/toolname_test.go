@@ -119,3 +119,53 @@ func TestDeduplicateToolNames_MaxLenBase(t *testing.T) {
 		t.Errorf("truncated dedup must stay deterministic: %q vs %q", out[1], out2[1])
 	}
 }
+
+func TestDeduplicateToolNamesWithIdentities_DistinctHashes(t *testing.T) {
+	// Two distinct source identities that sanitize to the same base
+	bases := []string{"pkg_a__tool", "pkg_a__tool"}
+	identities := []string{"pkg-a:tool", "pkg_a:tool"}
+
+	out := DeduplicateToolNamesWithIdentities(bases, identities, nil)
+	if out[0] != "pkg_a__tool" {
+		t.Errorf("first tool keeps base name, got %q", out[0])
+	}
+	if out[1] == out[0] {
+		t.Errorf("second tool must be disambiguated, got %q", out[1])
+	}
+
+	// Now if the first identity is already taken, second gets its own distinct hash
+	used := map[string]bool{"pkg_a__tool": true}
+	out1 := DeduplicateToolNamesWithIdentities([]string{"pkg_a__tool"}, []string{"pkg-a:tool"}, used)
+
+	used2 := map[string]bool{"pkg_a__tool": true}
+	out2 := DeduplicateToolNamesWithIdentities([]string{"pkg_a__tool"}, []string{"pkg_a:tool"}, used2)
+
+	if out1[0] == out2[0] {
+		t.Errorf("different source identities should produce distinct hash suffixes: %q vs %q", out1[0], out2[0])
+	}
+}
+
+func TestDeduplicateToolNames_MultipleCollisionsEndpointSafe(t *testing.T) {
+	// Simulate 5 identical colliding bases
+	bases := []string{"collision_tool", "collision_tool", "collision_tool", "collision_tool", "collision_tool"}
+	out := DeduplicateToolNames(bases, nil)
+
+	seen := make(map[string]bool)
+	for i, name := range out {
+		if seen[name] {
+			t.Errorf("duplicate name at index %d: %q", i, name)
+		}
+		seen[name] = true
+
+		if len(name) > MaxToolNameLen {
+			t.Errorf("name at index %d exceeds max length %d: %q (len=%d)", i, MaxToolNameLen, name, len(name))
+		}
+
+		// Ensure strictly [A-Za-z0-9_-], specifically NO dot '.'
+		for _, r := range name {
+			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-') {
+				t.Errorf("name at index %d contains illegal character %q: %q", i, r, name)
+			}
+		}
+	}
+}
