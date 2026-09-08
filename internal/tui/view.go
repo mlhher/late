@@ -1371,6 +1371,9 @@ Your AI coding agent. Type a prompt below to get started.
 // a cursor and an "active" marker on the currently applied theme. Empty
 // list is handled inline.
 func (m *Model) renderThemeView() {
+	s := m.GetAgentState(m.Focused.ID())
+	s.LastTotalContent = ""
+
 	width := m.Viewport.Width()
 	if width < 1 {
 		width = 80
@@ -1392,12 +1395,14 @@ func (m *Model) renderThemeView() {
 		Background(appBgColor).
 		Bold(true).
 		Padding(0, 1).
+		Width(width - 8).
 		Render("Themes")
 
 	subtitle := lipgloss.NewStyle().
 		Foreground(subtextColor).
 		Background(appBgColor).
 		Padding(0, 1).
+		Width(width - 8).
 		Render("Select a theme with \u2191/\u2193 and press enter to apply. esc to cancel.")
 
 	if len(m.ThemeEntries) == 0 {
@@ -1405,6 +1410,7 @@ func (m *Model) renderThemeView() {
 			Foreground(subtextColor).
 			Background(appBgColor).
 			Padding(0, 1).
+			Width(width - 8).
 			Render("No plugin themes installed.")
 		box := lipgloss.NewStyle().
 			Border(lipgloss.DoubleBorder()).
@@ -1414,7 +1420,11 @@ func (m *Model) renderThemeView() {
 			Width(width - 2).
 			Padding(1, 2).
 			Render(lipgloss.JoinVertical(lipgloss.Left, header, subtitle, empty))
-		m.Viewport.SetContent(box)
+		paddedContent := lipgloss.NewStyle().
+			Width(m.Viewport.Width()).
+			Background(appBgColor).
+			Render(box)
+		m.Viewport.SetContent(paddedContent)
 		return
 	}
 
@@ -1468,9 +1478,12 @@ func (m *Model) renderThemeView() {
 		Foreground(subtextColor).
 		Background(appBgColor).
 		Padding(0, 1).
+		Width(width - 8).
 		Render(fmt.Sprintf("Selected: %s   (active: %s)",
 			current.ThemeName,
 			displayThemeNameOrNone(m.SelectedTheme)))
+
+	emptyLine := lipgloss.NewStyle().Background(appBgColor).Width(width - 8).Render("")
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.DoubleBorder()).
@@ -1482,9 +1495,9 @@ func (m *Model) renderThemeView() {
 		Render(lipgloss.JoinVertical(lipgloss.Left,
 			header,
 			subtitle,
-			"",
+			emptyLine,
 			lipgloss.JoinVertical(lipgloss.Left, rows...),
-			"",
+			emptyLine,
 			footer,
 		))
 
@@ -1493,10 +1506,14 @@ func (m *Model) renderThemeView() {
 		maxH = 5
 	}
 	if boxHeight := lipgloss.Height(box); boxHeight > maxH {
-		box = lipgloss.NewStyle().MaxHeight(maxH).Render(box)
+		box = lipgloss.NewStyle().MaxHeight(maxH).Background(appBgColor).Render(box)
 	}
 
-	m.Viewport.SetContent(box)
+	paddedContent := lipgloss.NewStyle().
+		Width(m.Viewport.Width()).
+		Background(appBgColor).
+		Render(box)
+	m.Viewport.SetContent(paddedContent)
 }
 
 // displayThemeNameOrNone formats the active theme id for the picker
