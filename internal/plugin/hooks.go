@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,9 +18,13 @@ import (
 	"late/internal/common"
 )
 
+var (
+	hookTimeout   = 15 * time.Second
+	hookWaitDelay = 2 * time.Second
+)
+
 // Per-hook execution limits.
 const (
-	hookTimeout = 15 * time.Second
 	// maxStdoutBytes bounds captured stdout during the copy from the child
 	// process. Stdout is the hook's actual return channel — it REPLACES
 	// tool call arguments, tool results, or the outgoing message text (see
@@ -112,7 +117,8 @@ func runHook(ctx context.Context, pluginDir string, scriptPath string, stdin []b
 	// positional arguments — passing it twice used to leak the path into
 	// $1, which scripts reading positional args did not expect.
 	cmd := exec.CommandContext(execCtx, resolved)
-	setCmdSysProcAttr(cmd)
+	prepareHookCmd(cmd)
+	cmd.WaitDelay = hookWaitDelay
 	cmd.Dir = pluginDir
 
 	if len(stdin) > 0 {
@@ -139,6 +145,15 @@ func runHook(ctx context.Context, pluginDir string, scriptPath string, stdin []b
 	if err != nil {
 		if execCtx.Err() == context.DeadlineExceeded {
 			return strings.TrimSpace(stdout.String()), fmt.Errorf("hook timed out after %v", hookTimeout)
+		}
+		if errors.Is(err, exec.ErrWaitDelay) {
+			// WaitDelay closes inherited pipes when the hook's direct process
+			// exits but leaves descendants running. Explicitly terminate the
+			// process tree/group so a background child cannot outlive the hook.
+			if cleanupErr := terminateHookCmd(cmd); cleanupErr != nil {
+				return strings.TrimSpace(stdout.String()), fmt.Errorf("hook timed out waiting for process I/O completion after %v; failed to terminate descendants: %w", hookWaitDelay, cleanupErr)
+			}
+			return strings.TrimSpace(stdout.String()), fmt.Errorf("hook timed out waiting for process I/O completion after %v", hookWaitDelay)
 		}
 		return strings.TrimSpace(stdout.String()), fmt.Errorf("hook failed: %w", err)
 	}
