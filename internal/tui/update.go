@@ -549,6 +549,10 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 					} else {
 						m.ToastMessage = "theme applied: " + info.ThemeName
 						m.ToastExpireTime = time.Now().UnixMilli() + 3000
+						if m.AppConfig != nil {
+							m.AppConfig.Theme = info.ID
+							_ = config.SaveConfig(m.AppConfig)
+						}
 					}
 					clearCmd := tea.Tick(4*time.Second, func(t time.Time) tea.Msg {
 						return clearToastMsg{}
@@ -1135,6 +1139,10 @@ func (m Model) updateChat(msg tea.Msg) (Model, tea.Cmd) {
 				} else {
 					m.ToastMessage = "theme applied: " + info.ThemeName
 					m.ToastExpireTime = time.Now().UnixMilli() + 3000
+					if m.AppConfig != nil {
+						m.AppConfig.Theme = info.ID
+						_ = config.SaveConfig(m.AppConfig)
+					}
 				}
 				clearCmd := tea.Tick(4*time.Second, func(t time.Time) tea.Msg {
 					return clearToastMsg{}

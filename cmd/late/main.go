@@ -471,10 +471,13 @@ func main() {
 		}
 	}
 
-	// Resolve theme: --theme flag > $LATE_THEME > bundled base.
+	// Resolve theme: --theme flag > $LATE_THEME > config.json > bundled base.
 	themeID := *themeReq
 	if themeID == "" {
 		themeID = os.Getenv("LATE_THEME")
+	}
+	if themeID == "" && appConfig != nil && appConfig.Theme != "" {
+		themeID = appConfig.Theme
 	}
 	themeBytes := tui.LateTheme
 	if themeID != "" && themeID != "default" && pluginManager != nil {
@@ -483,11 +486,19 @@ func main() {
 				themeBytes = merged
 				themeID = info.ID
 				fmt.Fprintf(os.Stderr, "Applied plugin theme: %s\n", info.ID)
+			} else {
+				themeID = "default"
+				themeBytes = tui.LateTheme
 			}
-		} else if err != nil {
-			fmt.Fprintf(os.Stderr, "Theme lookup failed for %q: %v\n", themeID, err)
+		} else {
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Theme lookup failed for %q: %v\n", themeID, err)
+			}
+			themeID = "default"
+			themeBytes = tui.LateTheme
 		}
-	} else if themeID == "default" {
+	} else {
+		themeID = "default"
 		themeBytes = tui.LateTheme
 	}
 
